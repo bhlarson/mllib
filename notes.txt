@@ -1,0 +1,3 @@
+python create_pascal_tf_record.py --data_dir "/data/git/tf/models/research/deeplab/datasets/pascal_voc_seg/VOCdevkit" \
+                                  --image_data_dir IMAGE_DATA_DIR \
+                                  --label_data_dir LABEL_DATA_DIR 

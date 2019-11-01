@@ -1,0 +1,55 @@
+syntax = "proto2";
+
+// An individual label within the label map.
+message Label {
+    optional string name = 1;
+    optional int32 id = 2;
+    optional string display_name = 3;
+}
+
+message LabelMap {
+    repeated Label item = 1;
+}
+
+// Format of an image in the training / evaluation set.
+message FormatSpec {
+	optional int32 width = 1;
+	optional int32 height = 2;
+	optional int32 channels = 3;
+
+	optional int64 num_train = 4;
+	optional int64 num_eval = 5;
+}
+
+// Input to the classifier pipeline.
+message ClassifierSpec {
+	// Path to the training tfrecord file.
+	optional string train_path = 1;
+	// Path to the evaluation tfrecord file.
+	optional string eval_path = 2;
+	// Path to the format spec pbtxt file.
+	optional string format_spec_path = 3;
+	// Path to the label map pbtxt file.
+	optional string label_map_path = 4;
+	// Where to store the model.
+	optional string model_dir = 5;
+
+	optional float learning_rate = 6 [default=0.1];
+	optional int32 num_epochs = 7;
+	optional int32 batch_size = 8;
+	optional string data_format = 9;
+    optional string classifier = 10;
+
+    optional DataAugmentation augmentations = 11;
+}
+
+message DataAugmentation {
+    optional bool flip_horizontal = 1;
+    optional bool color_adjustment = 2;
+    optional int32 translate_vertical_max_px = 3;
+    optional int32 translate_horizontal_max_px = 4;
+    optional int32 rotate_max_degrees = 5;
+    optional bool add_noise = 6;
+    optional int32 cutout_max_size = 7;
+    optional int32 max_cutouts = 8;
+}

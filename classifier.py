@@ -8,6 +8,7 @@ import random
 import os
 
 import tensorflow as tf
+import tensorflow.contrib.lite as tflite
 import numpy as np
 import PIL.Image as Image
 import PIL.ImageDraw as ImageDraw
@@ -143,11 +144,17 @@ class Classifier:
     # Input function that is used by the saved model.
     ##
     def serving_input_fn(self):
-        shape = [self.format_spec.width, self.format_spec.height, self.format_spec.channels]
-        features = {
-            "image" : tf.FixedLenFeature(shape=shape, dtype=tf.uint8),
+        feature_placeholders = {
+            "image" : tf.placeholder(tf.string, [])
         }
-        return tf.estimator.export.build_parsing_serving_input_receiver_fn(features)
+        images = tf.decode_base64(feature_placeholders["image"])
+        images = tf.image.decode_jpeg(images, channels=self.format_spec.channels)
+        images = tf.expand_dims(images, 0)
+        images = tf.image.resize_images(images, [self.format_spec.width, self.format_spec.height])
+        features = {
+            "image" : images
+        }
+        return tf.estimator.export.ServingInputReceiver(features, feature_placeholders)
 
     ##
     # Create a copy of the input images with the labels drawn on them.
@@ -266,16 +273,30 @@ class Classifier:
     # This implements a simple convolutional neural network architecture.
     ##
     def model_fn(self, features, labels, mode):
-        images_uint8 = features["image"]
+        images_uint8 = tf.identity(features["image"], "whc_input")
+
         # Convert the range of the pixels from 0 - 255 to 0.0 - 1.0
         input_layer = tf.image.convert_image_dtype(images_uint8, tf.float32)
+
         if self.classifier_spec.data_format =="NHWC":
             prev = tf.transpose(input_layer, [0, 2, 1, 3], name="nhwc_input")
+            # Perform dataset augmentation during training only (only supported on nhwc).
+            if mode == tf.contrib.learn.ModeKeys.TRAIN:
+                prev = self.augment(prev)
         else:
             prev = tf.transpose(input_layer, [0, 3, 2, 1], name="nchw_input")
 
+        # Shift the images to the range [-1.0, 1.0)
+        prev = tf.subtract(prev, 0.5)
+        prev = tf.multiply(prev, 2.0)
+
+        # Add on the appropriate classifier graph.
         if self.classifier_spec.classifier == "mobilenet_v1":
             logits = self.make_mobilenet_v1(prev, mode)
+        elif self.classifier_spec.classifier == "mobilenet_v2":
+            logits = self.make_mobilenet_v2(prev, mode)
+        elif self.classifier_spec.classifier == "resnet_50":
+            logits = self.make_resnet50(prev, mode)
         else:
             raise RuntimeError("Unknown classifier architecture")
 
@@ -286,9 +307,6 @@ class Classifier:
             # probabilities of each of the classes. Name is used for logging.
             tf.contrib.learn.PredictionKey.PROBABILITIES : tf.nn.softmax(logits, name="predicted_probability")
         }
-
-        self.exported_output = [predictions[tf.contrib.learn.PredictionKey.CLASSES],
-                                predictions[tf.contrib.learn.PredictionKey.PROBABILITIES]]
 
         if mode == tf.estimator.ModeKeys.PREDICT:
             exports = {
@@ -334,7 +352,13 @@ class Classifier:
     def export(self, session, estimator):
         print("Exporting SavedModel")
         export_path = os.path.join(self.classifier_spec.model_dir, "exported")
-        export_dir = estimator.export_savedmodel(export_path, self.serving_input_fn())
+        export_dir = estimator.export_savedmodel(export_path, self.serving_input_fn).decode("utf-8")
+        print("Exported SavedModel to %s" % export_dir)
+        print("Exporting tflite model")
+        converter = tflite.TFLiteConverter.from_saved_model(export_dir, input_arrays=["whc_input"],
+            output_arrays = ["predicted_classes", "predicted_probability"])
+        tflite_model = converter.convert()
+        open(os.path.join(export_dir, "model.tflite"), "wb").write(tflite_model)
 
     ##
     # The entry point of the application.
@@ -380,7 +404,16 @@ class Classifier:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Mobilenet Classifier")
     parser.add_argument("--classifier_spec", type=str, default="./classifier_spec_mobilenet1.pbtxt", help="The path to the classifier spec pbtxt.")
-    parser.add_argument("--export_only", type=bool, default=False, help="Just export a saved model.")
+    parser.add_argument("--export_only", type=bool, default=True, help="Just export a saved model.")
+    parser.add_argument("--start_gpu", type=int, default=1, help="Start GPU.")
+    parser.add_argument("--num_gpus", type=int, default=1, help="Number of GPUs.")
+
     args = parser.parse_args()
+
+    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+    devices = ','.join(str(x) for x in range(args.start_gpu, args.start_gpu+args.num_gpus))
+    print('devices={}'.format(devices))
+    os.environ["CUDA_VISIBLE_DEVICES"]=devices  # specify which GPU(s) to be used
+
     app = Classifier(classifier_spec_path=args.classifier_spec, export_only=args.export_only)
     app.run()

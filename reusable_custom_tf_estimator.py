@@ -226,7 +226,7 @@ def loss_fn(model):
 
 """# Estimator Functions
 
-## build_fn
+## build_model
 """
 
 def conv1d_to_labels(inputs, labels:int, kernel_size:int):
@@ -240,9 +240,9 @@ def conv1d_to_labels(inputs, labels:int, kernel_size:int):
         return x
 
 
-def build_fn(model):
+def build_model(model):
   '''
-  build_fn serves to construct the architecture / wire the network for all by the
+  build_model serves to construct the architecture / wire the network for all by the
   last activation function.
   '''
 
@@ -399,13 +399,13 @@ NOTE:
 try the following mode_predict function and then in `model_fn` replace
   
    if mode == tf.estimator.ModeKeys.PREDICT: 
-      return mode_predict(MODEL)
+      return mode_predict(model)
       
  with
  
-   mode_predict(MODEL)
+   mode_predict(model)
    if mode == tf.estimator.ModeKeys.PREDICT:
-      return MODEL['PREDICT_SPEC']
+      return model['PREDICT_SPEC']
       
 
 This will result in an error when running train_and_evaluate because the spec
@@ -466,35 +466,35 @@ def metrics_fn(model):
 """## model_fn"""
 
 def model_fn(features, labels, mode, params):
-    MODEL = {'features': features, 'labels': labels, 'mode': mode, 'params': params}
+    config = {'features': features, 'labels': labels, 'mode': mode, 'params': params}
 
     # send the features through the graph
-    MODEL = build_fn(MODEL)
+    model = build_model(config)
 
     # prediction
-    MODEL['predictions'] = {'labels': MODEL['net_logits']}
+    model['predictions'] = {'labels': model['net_logits']}
 
-    MODEL['export_outputs'] = {
-        k: tf.estimator.export.PredictOutput(v) for k, v in MODEL['predictions'].items()
+    model['export_outputs'] = {
+        k: tf.estimator.export.PredictOutput(v) for k, v in model['predictions'].items()
     }
 
     
     if mode == tf.estimator.ModeKeys.PREDICT: 
-      return mode_predict(MODEL)
+      return mode_predict(model)
 
     # calculate the loss
-    MODEL = loss_fn(MODEL)
+    model = loss_fn(model)
 
     # calculate all metrics and send them to tf.summary
-    MODEL = metrics_fn(MODEL)
+    model = metrics_fn(model)
 
     if mode == tf.estimator.ModeKeys.EVAL: 
-      return mode_eval(MODEL)
+      return mode_eval(model)
 
     if mode == tf.estimator.ModeKeys.TRAIN: 
-      return mode_train(MODEL)
+      return mode_train(model)
 
-"""Note: ideally the `MODEL['predictions']` / `MODEL['export_outputs']` would be done in `mode_predict` function, which would return the model along with the prediction `spec`. However, the instant a estimator spec is made, (regardless of scope it seems), it will evalulate that spec. So that is silly.
+"""Note: ideally the `model['predictions']` / `model['export_outputs']` would be done in `mode_predict` function, which would return the model along with the prediction `spec`. However, the instant a estimator spec is made, (regardless of scope it seems), it will evalulate that spec. So that is silly.
 
 ## serving_fn
 """

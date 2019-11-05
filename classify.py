@@ -9,6 +9,7 @@ import numpy as np
 
 import os, sys, json, argparse, glob
 from random import shuffle
+from make_mobilenet_v1 import make_mobilenet_v1
 
 # use Feature Import/Output to have unified schema
 from fio import FIO

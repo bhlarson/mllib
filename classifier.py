@@ -80,14 +80,16 @@ class Classifier:
         if self.classifier_spec.augmentations.color_adjustment:
             images = self.aug.adjust_color(images)
 
-        if (self.classifier_spec.augmentations.translate_vertical_max_px > 0 or
+        '''if (self.classifier_spec.augmentations.translate_vertical_max_px > 0 or
                 self.classifier_spec.augmentations.translate_horizontal_max_px > 0):
             images = self.aug.translate(images,
                         self.classifier_spec.augmentations.translate_horizontal_max_px,
-                        self.classifier_spec.augmentations.translate_vertical_max_px)
+                        self.classifier_spec.augmentations.translate_vertical_max_px)'''
+        # Replace with tf.image.random_crop
 
-        if self.classifier_spec.augmentations.rotate_max_degrees > 0:
-            images = self.aug.rotate(images, self.classifier_spec.augmentations.rotate_max_degrees)
+        #if self.classifier_spec.augmentations.rotate_max_degrees > 0:
+            #images = self.aug.rotate(images, self.classifier_spec.augmentations.rotate_max_degrees)
+        # removes tensor shape
 
         return images
 
@@ -324,7 +326,12 @@ class Classifier:
     ##
     def make_mobilenet_v1(self, input_layer, mode):
         is_training = tf.constant(mode == tf.contrib.learn.ModeKeys.TRAIN)
-        axis = self.batchnorm_axis()
+        if self.classifier_spec.data_format == "NHWC":
+            axis = 3
+        else:
+            axis = 1
+
+        print(input_layer.get_shape().as_list())
 
         def conv_unit(inputs, num_outputs, kernel_size, stride):
             # Conv layers are 3x3 > BatchNorm > ReLu
@@ -490,10 +497,10 @@ class Classifier:
     # This implements a simple convolutional neural network architecture.
     ##
     def model_fn(self, features, labels, mode):
-        images_uint8 = tf.identity(features["image"], "whc_input")
-
+        images_uint8 = features["image"]
         # Convert the range of the pixels from 0 - 255 to 0.0 - 1.0
         input_layer = tf.image.convert_image_dtype(images_uint8, tf.float32)
+        print(input_layer.get_shape().as_list())
 
         if self.classifier_spec.data_format =="NHWC":
             prev = tf.transpose(input_layer, [0, 2, 1, 3], name="nhwc_input")
@@ -503,10 +510,7 @@ class Classifier:
         else:
             prev = tf.transpose(input_layer, [0, 3, 2, 1], name="nchw_input")
 
-        # Shift the images to the range [-1.0, 1.0)
-        prev = tf.subtract(prev, 0.5)
-        prev = tf.multiply(prev, 2.0)
-
+        print(prev.get_shape().as_list())
         # Add on the appropriate classifier graph.
         if self.classifier_spec.classifier == "mobilenet_v1":
             logits = self.make_mobilenet_v1(prev, mode)

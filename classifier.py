@@ -622,7 +622,7 @@ class Classifier:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Mobilenet Classifier")
     parser.add_argument("--classifier_spec", type=str, default="./classifier_spec_mobilenet1.pbtxt", help="The path to the classifier spec pbtxt.")
-    parser.add_argument("--export_only", type=bool, default=True, help="Just export a saved model.")
+    parser.add_argument("--export_only", type=bool, default=False, help="Just export a saved model.")
     parser.add_argument("--start_gpu", type=int, default=1, help="Start GPU.")
     parser.add_argument("--num_gpus", type=int, default=1, help="Number of GPUs.")
 

@@ -4,12 +4,14 @@ Move classifier.py to reusable_custom_tf_estimator.py template
 
 
 import tensorflow as tf
-import tensorflow.contrib.lite as tflite
+import tflite
 import numpy as np
 
 import os, sys, json, argparse, glob
 from random import shuffle
-from make_mobilenet_v1 import make_mobilenet_v1
+from mobilenet_v1 import make_mobilenet_v1
+from mobilenet_v2 import make_mobilenet_v2
+from resnet50 import make_resnet50
 
 # use Feature Import/Output to have unified schema
 from fio import FIO
@@ -564,16 +566,12 @@ eval_spec  = tf.estimator.EvalSpec( input_fn=valid_fn, exporters=exporter)
 
 run = tf.estimator.train_and_evaluate(est, train_spec, eval_spec)
 
-est.
-
 """## export saved model"""
-
 est.export_savedmodel('./here', serving_input_receiver_fn)
 
 # what does "Pass your op to the equivalent parameter main_op instead." mean?
 
 """## evaluate with test set"""
-
 test_res = est.evaluate(input_fn=test_fn)
 
 test_res

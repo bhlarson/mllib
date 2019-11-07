@@ -614,7 +614,67 @@ predict_fn = predictor.from_saved_model('./here/{}'.format(os.listdir('./here')[
 
 predict_fn(pred_features)
 
-predict_fn
+
+def ParseInputs():
+    parser = argparse.ArgumentParser(description="Mobilenet Classifier")
+    parser.add_argument("--classifier_spec", type=str, default="./classifier_spec_mobilenet1.pbtxt", help="The path to the classifier spec pbtxt.")
+    parser.add_argument("--export_only", type=bool, default=False, help="Just export a saved model.")
+    parser.add_argument("--start_gpu", type=int, default=1, help="Start GPU.")
+    parser.add_argument("--num_gpus", type=int, default=1, help="Number of GPUs.")
+
+    return parser.parse_args()
+
+class Learn:
+    def __init__(self, args):
+        self.args = args
+
+    ##
+    # The entry point of the application.
+    ##
+    def run(self):
+        tf.logging.set_verbosity(tf.logging.INFO)
+
+        # Standard initialization op.
+        init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
+
+        # Use only 90% of the gpu to keep the system responsive.
+        config = tf.ConfigProto()
+        config.log_device_placement = True
+        #config.gpu_options.per_process_gpu_memory_fraction = 0.9
+
+        with tf.Session(config=config) as session:
+            # Initialize vars.
+            session.run(init_op)
+            # Setup input queue threads.
+            coordinator = tf.train.Coordinator()
+            threads = tf.train.start_queue_runners(coord=coordinator, sess=session)
+            # Build the estimator.
+            estimator = tf.estimator.Estimator(model_fn=self.model_fn, model_dir=self.classifier_spec.model_dir)
+
+            if self.export_only:
+                self.export(estimator)
+                return
+
+            # Train / eval loop.
+            try:
+                num_train_steps = self.format_spec.num_train / self.classifier_spec.batch_size
+                num_eval_steps = self.format_spec.num_eval / self.classifier_spec.batch_size
+                while not coordinator.should_stop():
+                    # Train a few steps, eval a few steps.
+                    estimator.train(input_fn=self.train_input_fn, steps=num_train_steps)
+                    estimator.evaluate(input_fn=self.eval_input_fn, steps=num_eval_steps)
+            except tf.errors.OutOfRangeError:
+                print("Done with training.")
+            finally:
+                coordinator.request_stop()
+                coordinator.join(threads)
+
+if __name__ == "__main__":
+    args = ParseInputs()
+
+    learn = Learn(args)
+
+
 
 
 

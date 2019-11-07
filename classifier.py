@@ -9,7 +9,7 @@ import random
 import os
 
 import tensorflow as tf
-import tensorflow.contrib.lite as tflite
+import tflite
 import numpy as np
 import PIL.Image as Image
 import PIL.ImageDraw as ImageDraw

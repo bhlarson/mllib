@@ -49,7 +49,7 @@ class Augmentations:
         return image
 
     ##
-    # Translate the image vertically.
+    # Translate the image.
     ##
     def translate(self, image, tx_max, ty_max):
         tx = tf.random_uniform([1], minval=(-1 * tx_max), maxval=tx_max, dtype=tf.float32)
@@ -110,3 +110,37 @@ class Augmentations:
 
         original_shape = image.get_shape().as_list()
         return tf.reshape(tf.py_func(process, [image], tf.uint8, stateful=False), original_shape)
+
+##
+# Perform GPU dataset augmentations.
+##
+def augment(images, params):
+    
+    if "flip_horizontal" in params and params.flip_horizontal:
+        images = tf.image.random_flip_left_right(images)
+    if "flip_vertical" in params and params.flip_vertical:
+        images = tf.image.random_flip_up_down(images)
+
+    if "tx_max" in params and "ty_max" in params and (params.tx_max > 0 or params.ty_max > 0):
+        tx = tf.random_uniform([1], minval=(-1 * params.tx_max), maxval=params.tx_max, dtype=tf.float32)
+        ty = tf.random_uniform([1], minval=(-1 * params.ty_max), maxval=params.ty_max, dtype=tf.float32)
+        images = tf.contrib.image.translate(images, tf.concat([tx, ty], 0))
+
+    if "rotate_max_degrees" in params and params.rotate_max_degrees>0:
+        rotate_degrees = tf.random_uniform([1], minval=math.radians(-1 * params.rotate_max_degrees),
+                                           maxval=math.radians(params.rotate_max_degrees))
+        images = tf.contrib.image.rotate(images, rotate_degrees)
+    
+    if "max_dBrightness" in params and params.max_dBrightness > 0
+        images = tf.image.random_brightness(images, params.max_dBrightness=0.25)
+
+    if "max_contrast" in params and "min_contrast" in params
+        images =tf.image.random_contrast(images, lower=params.min_contrast, upper=params.max_contrast)
+
+    if "max_dhue" in params and params.max_dhue > 0
+        images = tf.image.random_hue(images, max_delta=params.max_dhue)
+
+    if "max_saturation" in params and "min_saturation" in params
+        images = tf.image.random_saturation(images, lower=params.min_saturation, upper=params.max_saturation)
+
+    return images

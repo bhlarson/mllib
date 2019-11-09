@@ -570,7 +570,7 @@ class Classifier:
     ##
     # Export the model from an estimator.
     ##
-    def export(self, session, estimator):
+    def export(self, estimator):
         print("Exporting SavedModel")
         export_path = os.path.join(self.classifier_spec.model_dir, "exported")
         export_dir = estimator.export_savedmodel(export_path, self.serving_input_fn).decode("utf-8")
@@ -606,7 +606,7 @@ class Classifier:
             estimator = tf.estimator.Estimator(model_fn=self.model_fn, model_dir=self.classifier_spec.model_dir)
 
             if self.export_only:
-                self.export(session, estimator)
+                self.export(estimator)
                 return
 
             # Train / eval loop.

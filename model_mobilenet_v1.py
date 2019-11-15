@@ -8,20 +8,30 @@ def loss(logits, labels, num_classes):
     max_x_ent_loss = tf.reduce_mean((tf.losses.sparse_softmax_cross_entropy(labels=labels,logits=logits)))
     return max_x_ent_loss
 
+def mobilenet_v1_model_fn(features, labels, mode, params = {height = 512, width=512, channels=3,data_format="NHWC", 
+                                                            label_map={}}):
 
-def mobilenet_v1_model_fn(features, labels, mode, params = {height = 512, width=512,data_format="NHWC"}):
+    def parser(record):
+        label_key = "image/label"
+        bytes_key = "image/encoded"
+        parsed = tf.parse_single_example(record, {
+            bytes_key : tf.FixedLenFeature([], tf.string),
+            label_key : tf.FixedLenFeature([], tf.int64),
+        })
+        image = tf.decode_raw(parsed[bytes_key], tf.uint8)
+        dims = [width, height, channels]
+        image = tf.reshape(image, dims)
+        return { "image" : image }, parsed[label_key]                                                            
 
     images = features["image"]
     images = tf.image.convert_image_dtype(images, tf.float32)
-    images = tf.cast(
-        tf.map_fn(preprocessing.mean_image_addition, features),
-        tf.float32)
-    
-    if data_format == 'NHWC':
-        # Convert the inputs from channels_last (NHWC) to channels_first (NCHW).
+     
+    # Test support and performance of NHWC and NHWC
+    #if params.data_format == 'NHWC':
+        # Convert the inputs from channels_last (NHWC) to channels_first (NHWC).
         # This provides a large performance boost on GPU. See
         # https://www.tensorflow.org/performance/performance_guide#data_formats
-        images = tf.transpose(images, [0, 2, 1, 3], name="nhwc_input")
+        #images = tf.transpose(images, [0, 2, 1, 3], name="nhwc_input")
 
     # Augment dataset when training
     if mode == tf.contrib.learn.ModeKeys.TRAIN:
@@ -42,11 +52,21 @@ def mobilenet_v1_model_fn(features, labels, mode, params = {height = 512, width=
         tf.contrib.learn.PredictionKey.PROBABILITIES : tf.nn.softmax(logits, name="predicted_probability")
     }
 
-    # Compute predictions.
+    # Run-time prediction
     if mode == tf.estimator.ModeKeys.PREDICT:
-        return tf.estimator.EstimatorSpec(mode, predictions=predictions)
+        exports = {'predictions' : tf.estimator.export.PredictOutput(predictions)}
+        return tf.estimator.EstimatorSpec(mode, predictions=predictions, export_outputs=exports)
 
-    labels = tf.squeeze(labels, axis=3)  # reduce the channel dimension.
+    #labels = tf.squeeze(labels, axis=3)  # reduce the channel dimension.
+    predicted_labels = predictions[tf.contrib.learn.PredictionKey.CLASSES]
+
+    accuracy = tf.metrics.accuracy(labels=labels, predictions=predicted_labels)
+    precision = tf.metrics.precision(labels=labels, predictions=predicted_labels)
+    recall = tf.metrics.recall(labels=labels, predictions=predicted_labels)    
+
+    tf.summary.scalar("accuracy", accuracy[1])
+    tf.summary.scalar("precision", precision[1])
+    tf.summary.scalar("recall", recall[1])    
 
     logits_by_num_classes = tf.reshape(logits, [-1, params['num_classes']])
     labels_flat = tf.reshape(labels, [-1, ])
@@ -60,12 +80,14 @@ def mobilenet_v1_model_fn(features, labels, mode, params = {height = 512, width=
     #accuracy = tf.metrics.accuracy(labels=labels,predictions=predictions,name='acc_op')
     #tf.summary.scalar('accuracy', accuracy[1])
     
+    # Training time evaluation
     if mode == tf.estimator.ModeKeys.EVAL:
     # Compute evaluation metrics.
       #metrics = {'accuracy': accuracy}
       metrics = {}
       return tf.estimator.EstimatorSpec(mode, loss=pred_loss, eval_metric_ops=metrics)
 
+    # Train the model with AdamOptimizer
     if mode == tf.estimator.ModeKeys.TRAIN:
         optimizer = tf.train.AdamOptimizer(params['learning_rate'])
         train_op = optimizer.minimize(pred_loss, global_step=tf.train.get_global_step())

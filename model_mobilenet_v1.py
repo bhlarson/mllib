@@ -8,6 +8,17 @@ def loss(logits, labels, num_classes):
     max_x_ent_loss = tf.reduce_mean((tf.losses.sparse_softmax_cross_entropy(labels=labels,logits=logits)))
     return max_x_ent_loss
 
+def metrics(labels, predictions, num_classes):
+
+    accuracy = tf.metrics.accuracy(labels=labels, predictions=predicted_labels)
+    precision = tf.metrics.precision(labels=labels, predictions=predicted_labels)
+    recall = tf.metrics.recall(labels=labels, predictions=predicted_labels)
+    meaniou = tf.metrics.meaniou(labels=labels, predictions=predicted, name='iou_op')
+
+    metrics = {'accuracy': accuracy, 'precision': precision, 'recall':recall , 'meaniou':meaniou}
+
+    return metrics
+
 def mobilenet_v1_model_fn(features, labels, mode, params = {height = 512, width=512, channels=3,data_format="NHWC", 
                                                             label_map={}}):
 
@@ -60,13 +71,12 @@ def mobilenet_v1_model_fn(features, labels, mode, params = {height = 512, width=
     #labels = tf.squeeze(labels, axis=3)  # reduce the channel dimension.
     predicted_labels = predictions[tf.contrib.learn.PredictionKey.CLASSES]
 
-    accuracy = tf.metrics.accuracy(labels=labels, predictions=predicted_labels)
-    precision = tf.metrics.precision(labels=labels, predictions=predicted_labels)
-    recall = tf.metrics.recall(labels=labels, predictions=predicted_labels)    
+    metrics = metrics(labels, predicted_labels, tf.contrib.learn.PredictionKey.CLASSES)  
 
-    tf.summary.scalar("accuracy", accuracy[1])
-    tf.summary.scalar("precision", precision[1])
-    tf.summary.scalar("recall", recall[1])    
+    tf.summary.scalar("accuracy", metrics['accuracy'][1])
+    tf.summary.scalar("precision", metrics['precision'][1])
+    tf.summary.scalar("recall", metrics['recall'][1])
+    tf.summary.scalar("meaniou", metrics['meaniou'][1]   
 
     logits_by_num_classes = tf.reshape(logits, [-1, params['num_classes']])
     labels_flat = tf.reshape(labels, [-1, ])
@@ -82,9 +92,6 @@ def mobilenet_v1_model_fn(features, labels, mode, params = {height = 512, width=
     
     # Training time evaluation
     if mode == tf.estimator.ModeKeys.EVAL:
-    # Compute evaluation metrics.
-      #metrics = {'accuracy': accuracy}
-      metrics = {}
       return tf.estimator.EstimatorSpec(mode, loss=pred_loss, eval_metric_ops=metrics)
 
     # Train the model with AdamOptimizer

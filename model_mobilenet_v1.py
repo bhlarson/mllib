@@ -1,5 +1,5 @@
 from mobilenet_v1 import make_mobilenet_v1
-from augmentations.py import augment
+from augment import augment
 
 def loss(logits, labels, num_classes):
     #one_hots = tf.one_hot(labels, num_classes)
@@ -19,8 +19,10 @@ def metrics(labels, predictions, num_classes):
 
     return metrics
 
-def mobilenet_v1_model_fn(features, labels, mode, params = {height = 512, width=512, channels=3,data_format="NHWC", 
-                                                            label_map={}}):
+def default_model_params(args):
+    return {}
+
+def mobilenet_v1_model_fn(features, labels, mode, params = {'height':512, 'width':512, 'channels':3, 'data_format':"NHWC",'label_map':{}}):
 
     def parser(record):
         label_key = "image/label"
@@ -76,7 +78,7 @@ def mobilenet_v1_model_fn(features, labels, mode, params = {height = 512, width=
     tf.summary.scalar("accuracy", metrics['accuracy'][1])
     tf.summary.scalar("precision", metrics['precision'][1])
     tf.summary.scalar("recall", metrics['recall'][1])
-    tf.summary.scalar("meaniou", metrics['meaniou'][1]   
+    tf.summary.scalar("meaniou", metrics['meaniou'][1])   
 
     logits_by_num_classes = tf.reshape(logits, [-1, params['num_classes']])
     labels_flat = tf.reshape(labels, [-1, ])
@@ -85,11 +87,7 @@ def mobilenet_v1_model_fn(features, labels, mode, params = {height = 512, width=
     valid_labels = tf.dynamic_partition(labels_flat, valid_indices, num_partitions=2)[1]
 
     pred_loss = loss(valid_logits, valid_labels, params['num_classes'])
-
-    #accuracy = tf.metrics.accuracy(labels=labels,predictions=predictions,name='acc_op')
-    #accuracy = tf.metrics.accuracy(labels=labels,predictions=predictions,name='acc_op')
-    #tf.summary.scalar('accuracy', accuracy[1])
-    
+   
     # Training time evaluation
     if mode == tf.estimator.ModeKeys.EVAL:
       return tf.estimator.EstimatorSpec(mode, loss=pred_loss, eval_metric_ops=metrics)

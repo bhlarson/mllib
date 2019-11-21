@@ -4,16 +4,15 @@ import tensorflow as tf
 # Makes the mobilenet v1 architecture.
 # Mobilenet: https://arxiv.org/pdf/1704.04861.pdf
 ##
-def make_mobilenet_v1(self, input_layer, mode):
+def make_mobilenet_v1(input_layer, mode, axis, data_format):
         is_training = tf.constant(mode == tf.contrib.learn.ModeKeys.TRAIN)
-        axis = self.batchnorm_axis()
 
         def conv_unit(inputs, num_outputs, kernel_size, stride):
             # Conv layers are 3x3 > BatchNorm > ReLu
             print("conv\t\t /s%s \t%s \t%s" % (stride, kernel_size, inputs.get_shape().as_list()))
             prev =  tf.contrib.layers.conv2d(inputs=inputs, num_outputs=num_outputs,
                                              kernel_size=kernel_size, stride=stride,
-                                             activation_fn=None, data_format=self.classifier_spec.data_format)
+                                             activation_fn=None, data_format=data_format)
             prev = tf.layers.batch_normalization(inputs=prev, training=is_training, axis=axis, fused=False)
             return tf.nn.relu(prev)
 
@@ -22,7 +21,7 @@ def make_mobilenet_v1(self, input_layer, mode):
             print("depthwise_conv\t /s%s \t\t%s" % (stride, inputs.get_shape().as_list()))
             prev = tf.contrib.layers.separable_conv2d(inputs=inputs, depth_multiplier=depth_multiplier, kernel_size=[3, 3],
                                                       stride=stride, num_outputs=None, activation_fn=None,
-                                                      data_format=self.classifier_spec.data_format)
+                                                      data_format=data_format)
             prev = tf.layers.batch_normalization(inputs=prev, training=is_training, axis=axis, fused=False)
             prev = tf.nn.relu(prev)
             return conv_unit(inputs=prev, num_outputs=num_outputs, kernel_size=[1, 1], stride=1)

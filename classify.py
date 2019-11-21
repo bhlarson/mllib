@@ -16,13 +16,22 @@ import shutil
 # use Feature Import/Output to have unified schema
 from fio import FIO
 
-tf.__version__
+print('tensorflow.__version={}'.format(tf.__version__))
+
+NUM_INPUT_THREADS = 6
+VALIDATION_REPEATS = -1 # Forever.
+SHUFFLE_BUFFER_SIZE = 512
+PREFETCH_BUFFER_SIZE = SHUFFLE_BUFFER_SIZE * 4
 
 def ParseInputs():
     parser = argparse.ArgumentParser(description="Mobilenet Classifier")
-    parser.add_argument("--dim", "--dimensions", nargs=3, type=int, default=[256,256,3], metavar=('width', 'height', 'colors'), help="Input image width, height, and colors.  For example: --dim 256,268,3")
+    parser.add_argument("--dim", "--dimensions", nargs=3, type=int, default=[256,256,3], metavar=('height','width','colors'), help="Input image height, width, and colors.  For example: --dim 256,256,3")
     parser.add_argument("--model_dir", type=str, default="./model", help="Path to save and load model checkpoints")
     parser.add_argument("--classifier_spec", type=str, default="./classifier_spec_mobilenet1.pbtxt", help="The path to the classifier spec pbtxt.")
+    parser.add_argument("--train_path", type=str, default="./Caltech256/train.tfrecord", help="path to tfrecord file containing training set")
+    parser.add_argument("--eval_path", type=str, default="./Caltech256/eval.tfrecord", help="path to tfrecord file containing eval set")
+    parser.add_argument("--num_epochs", type=int, default=16, help="Number of training epocs.")
+    parser.add_argument("--batch_size", type=int, default=64, help="batch size.")   
     parser.add_argument("--export_only", type=bool, default=False, help="Just export a saved model.")
     parser.add_argument("--start_gpu", type=int, default=0, help="Start GPU.")
     parser.add_argument("--num_gpus", type=int, default=1, help="Number of GPUs.")
@@ -44,17 +53,13 @@ def ParseInputs():
     parser.add_argument('--tensorboard_images_max_outputs', type=int, default=6,
                         help='Max number of batch elements to generate for Tensorboard.')
 
-    parser.add_argument('--batch_size', type=int, default=4,
-                        help='Number of examples per batch.')
+    #parser.add_argument('--batch_size', type=int, default=4, help='Number of examples per batch.')
 
-    parser.add_argument('--learning_rate', type=float, default=1e-4,
-                        help='Adam optimizer learning rate.')
+    parser.add_argument('--learning_rate', type=float, default=1e-4,help='Adam optimizer learning rate.')
 
-    parser.add_argument('--max_iter', type=int, default=30,
-                        help='Number of maximum iteration used for "poly" learning rate policy.')
+    parser.add_argument('--max_iter', type=int, default=30,help='Number of maximum iteration used for "poly" learning rate policy.')
 
-    parser.add_argument('--debug', action='store_true',
-                        help='Whether to use debugger to track down bad values during training.')
+    parser.add_argument('--debug', action='store_true',help='Whether to use debugger to track down bad values during training.')
 
     return parser.parse_args()
 
@@ -189,6 +194,50 @@ class Learn:
         }
         return tf.estimator.export.build_parsing_serving_input_receiver_fn(features)
 
+    ##
+    # Sets up the dataset to read from.
+    ##
+    def make_dataset_input_fn(self, path, epochs):
+        dataset = tf.data.TFRecordDataset([path])
+
+        def parser(record):
+            label_key = "image/label"
+            bytes_key = "image/encoded"
+            parsed = tf.parse_single_example(record, {
+                bytes_key : tf.FixedLenFeature([], tf.string),
+                label_key : tf.FixedLenFeature([], tf.int64),
+            })
+            image = tf.decode_raw(parsed[bytes_key], tf.uint8)
+            dims = self.args.dim
+            image = tf.reshape(image, dims)
+            return { "image" : image }, parsed[label_key]
+
+        dataset = dataset.map(parser, num_parallel_calls=NUM_INPUT_THREADS)
+        dataset = dataset.prefetch(buffer_size=PREFETCH_BUFFER_SIZE)
+        dataset = dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
+        dataset = dataset.batch(self.args.batch_size)
+        if epochs > 0:
+            dataset = dataset.repeat(epochs)
+        else:
+            dataset = dataset.repeat()
+        iterator = dataset.make_one_shot_iterator()
+        features, labels = iterator.get_next()
+        return features, labels
+
+    ##
+    # An input function for training data.
+    ##
+    def train_input_fn(self):
+        return self.make_dataset_input_fn(self.args.train_path,
+                                          self.args.num_epochs)
+
+    ##
+    # An input function for validation data.
+    ##
+    def eval_input_fn(self):
+        return self.make_dataset_input_fn(self.args.eval_path,
+                                          self.args.num_epochs)
+
     def train(self):
         # os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = '1' # Using the Winograd non-fused algorithms provides a small performance boost.
 
@@ -219,10 +268,26 @@ class Learn:
 
         tf.logging.info("Start training.")
         self.estimator.train(
-            input_fn=lambda: input_fn(True, FLAGS.data_dir, FLAGS.batch_size, FLAGS.epochs_per_eval),
+            input_fn=self.train_input_fn,
             hooks=train_hooks,
             # steps=1  # For debug
         )
+
+    ##
+    # Input function that is used by the model server.
+    ##
+    def serving_input_fn(self):
+        feature_placeholders = {
+            "image" : tf.placeholder(tf.string, [])
+        }
+        images = tf.decode_base64(feature_placeholders["image"])
+        images = tf.image.decode_jpeg(images, channels=self.format_spec.channels)
+        images = tf.expand_dims(images, 0)
+        images = tf.image.resize_images(images, [self.format_spec.width, self.format_spec.height])
+        features = {
+            "image" : images
+        }
+        return tf.estimator.export.ServingInputReceiver(features, feature_placeholders)
 
         self.estimator.export_saved_model('saved_model', self.serving_input_fn)
 

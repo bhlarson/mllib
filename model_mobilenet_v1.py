@@ -1,3 +1,4 @@
+import tensorflow as tf
 from mobilenet_v1 import make_mobilenet_v1
 from augment import augment
 
@@ -20,9 +21,16 @@ def metrics(labels, predictions, num_classes):
     return metrics
 
 def default_model_params(args):
-    return {}
+    return {'dim':args.dim, 'format':"NHWC"}
 
-def mobilenet_v1_model_fn(features, labels, mode, params = {'height':512, 'width':512, 'channels':3, 'data_format':"NHWC",'label_map':{}}):
+def mobilenet_v1_model_fn(features, labels, mode, params = {'dim':[512,768,3], 'format':"NHWC"}):
+
+    if params['format'] == "NHWC":
+        iHeight = 0
+        iWidth = 1
+        batchnorm_axis = 3
+    else:
+        raise ValueError('mobilenet_v1_model_fn format {} not supported'.format(params['format']))
 
     def parser(record):
         label_key = "image/label"
@@ -52,10 +60,10 @@ def mobilenet_v1_model_fn(features, labels, mode, params = {'height':512, 'width
 
     images = tf.image.per_image_standardization(images)
 
-    images = tf.image.resize_with_crop_or_pad(images,params.height,params.width)
+    images = tf.image.resize_with_crop_or_pad(images,params['dim'][iHeight],params['dim'][iWidth])
 
     # make_mobilenet_v1
-    logits = make_mobilenet_v1(images, mode)  
+    logits = make_mobilenet_v1(images, mode, batchnorm_axis, params['format'])  
 
     predictions = {
         # Returns the highest prediction from the output of logits.

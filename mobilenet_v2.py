@@ -2,16 +2,15 @@
 # Creates a mobilenet v2 network.
 # https://arxiv.org/pdf/1801.04381.pdf
 ##
-def make_mobilenet_v2(self, input_layer, mode):
+def make_mobilenet_v2(self, input_layer, mode, axis, data_format):
     is_training = tf.constant(mode == tf.contrib.learn.ModeKeys.TRAIN)
-    axis = self.batchnorm_axis()
 
     def conv_unit(inputs, num_outputs, kernel_size, stride, linear=False):
         print("  conv\t\t\t /s%s \t%s \t%s" % (stride, kernel_size, inputs.get_shape().as_list()))
         prev = tf.contrib.layers.conv2d(inputs=inputs, num_outputs=num_outputs,
                                         kernel_size=kernel_size, stride=stride,
                                         activation_fn=None,
-                                        data_format=self.classifier_spec.data_format)
+                                        data_format=data_format)
         prev = tf.layers.batch_normalization(inputs=prev, training=is_training, axis=axis, fused=False)
         if not linear:
             prev = tf.nn.relu6(prev)
@@ -22,7 +21,7 @@ def make_mobilenet_v2(self, input_layer, mode):
         prev = tf.contrib.layers.separable_conv2d(inputs=inputs, depth_multiplier=depth_multiplier,
                                                   kernel_size=[3, 3], stride=stride,
                                                   num_outputs=None, activation_fn=None,
-                                                  data_format=self.classifier_spec.data_format)
+                                                  data_format=data_format)
         prev = tf.layers.batch_normalization(inputs=prev, training=is_training, axis=axis, fused=False)
         return tf.nn.relu6(prev)
 

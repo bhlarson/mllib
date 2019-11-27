@@ -26,7 +26,8 @@ PREFETCH_BUFFER_SIZE = SHUFFLE_BUFFER_SIZE * 4
 def ParseInputs():
     parser = argparse.ArgumentParser(description="Mobilenet Classifier")
     parser.add_argument("--dim", "--dimensions", nargs=3, type=int, default=[256,256,3], metavar=('height','width','colors'), help="Input image height, width, and colors.  For example: --dim 256,256,3")
-    parser.add_argument("--model_dir", type=str, default="./model", help="Path to save and load model checkpoints")
+    parser.add_argument("--num_classes", type=int, default=257, help="num_classes")  
+    parser.add_argument("--model_dir", type=str, default="./cmodel", help="Path to save and load model checkpoints")
     parser.add_argument("--classifier_spec", type=str, default="./classifier_spec_mobilenet1.pbtxt", help="The path to the classifier spec pbtxt.")
     parser.add_argument("--train_path", type=str, default="./Caltech256/train.tfrecord", help="path to tfrecord file containing training set")
     parser.add_argument("--eval_path", type=str, default="./Caltech256/eval.tfrecord", help="path to tfrecord file containing eval set")
@@ -250,10 +251,9 @@ class Learn:
 
         for _ in range(self.args.train_epochs // self.args.epochs_per_eval):
             tensors_to_log = {
-            'learning_rate': 'learning_rate',
-            'cross_entropy': 'cross_entropy',
-            'train_px_accuracy': 'train_px_accuracy',
-            'train_mean_iou': 'train_mean_iou',
+            #'learning_rate': 'learning_rate',
+            #'cross_entropy': 'cross_entropy',
+            #'train_px_accuracy': 'train_px_accuracy',
             }
 
             logging_hook = tf.train.LoggingTensorHook(

@@ -11,19 +11,19 @@ def loss(logits, labels, num_classes):
 
 def metrics(labels, predictions, num_classes):
 
-    accuracy = tf.metrics.accuracy(labels=labels, predictions=predicted_labels)
-    precision = tf.metrics.precision(labels=labels, predictions=predicted_labels)
-    recall = tf.metrics.recall(labels=labels, predictions=predicted_labels)
-    meaniou = tf.metrics.meaniou(labels=labels, predictions=predicted, name='iou_op')
+    accuracy = tf.metrics.accuracy(labels=labels, predictions=predictions)
+    precision = tf.metrics.precision(labels=labels, predictions=predictions)
+    recall = tf.metrics.recall(labels=labels, predictions=predictions)
+    #meanIoU = tf.metrics.mean_iou(labels=labels, predictions=predictions, num_classes=num_classes, name='iou_op')
 
-    metrics = {'accuracy': accuracy, 'precision': precision, 'recall':recall , 'meaniou':meaniou}
+    metrics_dict = {'accuracy': accuracy, 'precision': precision, 'recall':recall}
 
-    return metrics
+    return metrics_dict
 
 def default_model_params(args):
-    return {'dim':args.dim, 'format':"NHWC"}
+    return {'dim':args.dim, 'format':"NHWC",'num_classes':args.num_classes, 'learning_rate':args.learning_rate}
 
-def mobilenet_v1_model_fn(features, labels, mode, params = {'dim':[512,768,3], 'format':"NHWC"}):
+def mobilenet_v1_model_fn(features, labels, mode, params = {'dim':[512,768,3], 'format':"NHWC", 'num_classes':257, 'learning_rate':1e-4}):
 
     if params['format'] == "NHWC":
         iHeight = 0
@@ -63,7 +63,7 @@ def mobilenet_v1_model_fn(features, labels, mode, params = {'dim':[512,768,3], '
     images = tf.image.resize_with_crop_or_pad(images,params['dim'][iHeight],params['dim'][iWidth])
 
     # make_mobilenet_v1
-    logits = make_mobilenet_v1(images, mode, batchnorm_axis, params['format'])  
+    logits = make_mobilenet_v1(images, mode, batchnorm_axis, params['format'], params['num_classes'])  
 
     predictions = {
         # Returns the highest prediction from the output of logits.
@@ -81,12 +81,12 @@ def mobilenet_v1_model_fn(features, labels, mode, params = {'dim':[512,768,3], '
     #labels = tf.squeeze(labels, axis=3)  # reduce the channel dimension.
     predicted_labels = predictions[tf.contrib.learn.PredictionKey.CLASSES]
 
-    metrics = metrics(labels, predicted_labels, tf.contrib.learn.PredictionKey.CLASSES)  
+    model_metrics = metrics(labels, predicted_labels, tf.contrib.learn.PredictionKey.CLASSES)  
 
-    tf.summary.scalar("accuracy", metrics['accuracy'][1])
-    tf.summary.scalar("precision", metrics['precision'][1])
-    tf.summary.scalar("recall", metrics['recall'][1])
-    tf.summary.scalar("meaniou", metrics['meaniou'][1])   
+    tf.summary.scalar("accuracy", model_metrics['accuracy'][1])
+    tf.summary.scalar("precision", model_metrics['precision'][1])
+    tf.summary.scalar("recall", model_metrics['recall'][1])
+    #tf.summary.scalar("meaniou", model_metrics['meaniou'][1])   
 
     logits_by_num_classes = tf.reshape(logits, [-1, params['num_classes']])
     labels_flat = tf.reshape(labels, [-1, ])
@@ -98,11 +98,11 @@ def mobilenet_v1_model_fn(features, labels, mode, params = {'dim':[512,768,3], '
    
     # Training time evaluation
     if mode == tf.estimator.ModeKeys.EVAL:
-      return tf.estimator.EstimatorSpec(mode, loss=pred_loss, eval_metric_ops=metrics)
+      return tf.estimator.EstimatorSpec(mode, loss=pred_loss, eval_metric_ops=model_metrics)
 
     # Train the model with AdamOptimizer
     if mode == tf.estimator.ModeKeys.TRAIN:
-        optimizer = tf.train.AdamOptimizer(params['learning_rate'])
+        optimizer = tf.train.AdamOptimizer(learning_rate=params['learning_rate'])
         train_op = optimizer.minimize(pred_loss, global_step=tf.train.get_global_step())
 
         return tf.estimator.EstimatorSpec(mode, loss=pred_loss, train_op=train_op)

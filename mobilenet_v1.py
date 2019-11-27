@@ -4,7 +4,7 @@ import tensorflow as tf
 # Makes the mobilenet v1 architecture.
 # Mobilenet: https://arxiv.org/pdf/1704.04861.pdf
 ##
-def make_mobilenet_v1(input_layer, mode, axis, data_format):
+def make_mobilenet_v1(input_layer, mode, axis, data_format, num_classes):
         is_training = tf.constant(mode == tf.contrib.learn.ModeKeys.TRAIN)
 
         def conv_unit(inputs, num_outputs, kernel_size, stride):
@@ -77,7 +77,7 @@ def make_mobilenet_v1(input_layer, mode, axis, data_format):
         print(prev.get_shape().as_list())
         prev = tf.contrib.layers.fully_connected(inputs=prev, num_outputs=1024)
         print(prev.get_shape().as_list())
-        logits = tf.contrib.layers.fully_connected(inputs=prev, activation_fn=None, num_outputs=len(self.label_map))
+        logits = tf.contrib.layers.fully_connected(inputs=prev, activation_fn=None, num_outputs=num_classes)
         tf.contrib.layers.summarize_activation(logits)
 
         return logits

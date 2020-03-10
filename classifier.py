@@ -2,7 +2,7 @@
 # from https://miramar.io/ep1/s1e3.html
 
 import argparse
-import augmentations
+import augment as augmentations
 import classifier_spec_pb2
 import glob
 import random

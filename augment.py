@@ -114,11 +114,13 @@ class Augmentations:
 ##
 # Perform GPU dataset augmentations.
 ##
-def augment(images, params):
+def augment(images, params =  {'flip_left_right':True, 'flip_up_down':False,  
+                               'tx_max':25, 'ty_max':25, 'rotate_max_degrees':5,
+                               'max_dBrightness':0, }):
     
-    if "flip_horizontal" in params and params.flip_horizontal:
+    if "flip_left_right" in params and params.flip_horizontal:
         images = tf.image.random_flip_left_right(images)
-    if "flip_vertical" in params and params.flip_vertical:
+    if "flip_up_down" in params and params.flip_vertical:
         images = tf.image.random_flip_up_down(images)
 
     if "tx_max" in params and "ty_max" in params and (params.tx_max > 0 or params.ty_max > 0):
@@ -131,16 +133,16 @@ def augment(images, params):
                                            maxval=math.radians(params.rotate_max_degrees))
         images = tf.contrib.image.rotate(images, rotate_degrees)
     
-    if "max_dBrightness" in params and params.max_dBrightness > 0
-        images = tf.image.random_brightness(images, params.max_dBrightness=0.25)
+    if "max_dBrightness" in params and params.max_dBrightness > 0:
+        images = tf.image.random_brightness(images, params.max_dBrightness)
 
-    if "max_contrast" in params and "min_contrast" in params
+    if "max_contrast" in params and "min_contrast" in params:
         images =tf.image.random_contrast(images, lower=params.min_contrast, upper=params.max_contrast)
 
-    if "max_dhue" in params and params.max_dhue > 0
+    if "max_dhue" in params and params.max_dhue > 0:
         images = tf.image.random_hue(images, max_delta=params.max_dhue)
 
-    if "max_saturation" in params and "min_saturation" in params
+    if "max_saturation" in params and "min_saturation" in params:
         images = tf.image.random_saturation(images, lower=params.min_saturation, upper=params.max_saturation)
 
     return images

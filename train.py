@@ -212,7 +212,7 @@ def input_fn(is_training, data_dir, batch_size, num_epochs=1):
 def serving_input_fn():
     shape = [_WIDTH, _HEIGHT, _DEPTH]
     features = {
-        "image" : tf.FixedLenFeature(shape=shape, dtype=tf.uint8),
+        "image" : tf.FixedLenFeature(shape=shape, dtype=tf.string),
     }
     return tf.estimator.export.build_parsing_serving_input_receiver_fn(features)
 

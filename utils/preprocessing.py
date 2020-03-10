@@ -138,16 +138,16 @@ def random_rescale_image_and_label(image, label, min_scale, max_scale):
     raise ValueError('\'max_scale\' must be greater than \'min_scale\'.')
 
   shape = tf.shape(image)
-  height = tf.to_float(shape[0])
-  width = tf.to_float(shape[1])
-  scale = tf.random_uniform(
+  height = tf.cast(shape[0],dtype=tf.float32)
+  width = tf.cast(shape[1],dtype=tf.float32)
+  scale = tf.random.uniform(
       [], minval=min_scale, maxval=max_scale, dtype=tf.float32)
-  new_height = tf.to_int32(height * scale)
-  new_width = tf.to_int32(width * scale)
-  image = tf.image.resize_images(image, [new_height, new_width],
+  new_height = tf.cast(height * scale, dtype=tf.int32)
+  new_width = tf.cast(width * scale, dtype=tf.int32)
+  image = tf.image.resize(image, [new_height, new_width],
                                  method=tf.image.ResizeMethod.BILINEAR)
   # Since label classes are integers, nearest neighbor need to be used.
-  label = tf.image.resize_images(label, [new_height, new_width],
+  label = tf.image.resize(label, [new_height, new_width],
                                  method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
 
   return image, label
@@ -172,7 +172,7 @@ def random_crop_or_pad_image_and_label(image, label, crop_height, crop_width, ig
     `[new_height, new_width, channels]`.
   """
   label = label - ignore_label  # Subtract due to 0 padding.
-  label = tf.to_float(label)
+  label = tf.cast(label,dtype=tf.float32)
   image_height = tf.shape(image)[0]
   image_width = tf.shape(image)[1]
   image_and_label = tf.concat([image, label], axis=2)
@@ -180,13 +180,13 @@ def random_crop_or_pad_image_and_label(image, label, crop_height, crop_width, ig
       image_and_label, 0, 0,
       tf.maximum(crop_height, image_height),
       tf.maximum(crop_width, image_width))
-  image_and_label_crop = tf.random_crop(
+  image_and_label_crop = tf.image.random_crop(
       image_and_label_pad, [crop_height, crop_width, 4])
 
   image_crop = image_and_label_crop[:, :, :3]
   label_crop = image_and_label_crop[:, :, 3:]
   label_crop += ignore_label
-  label_crop = tf.to_int32(label_crop)
+  label_crop = tf.cast(label_crop, dtype=tf.int32)
 
   return image_crop, label_crop
 
@@ -202,7 +202,7 @@ def random_flip_left_right_image_and_label(image, label):
     A 3-D tensor of the same type and shape as `image`.
     A 3-D tensor of the same type and shape as `label`.
   """
-  uniform_random = tf.random_uniform([], 0, 1.0)
+  uniform_random = tf.random.uniform([], 0, 1.0)
   mirror_cond = tf.less(uniform_random, .5)
   image = tf.cond(mirror_cond, lambda: tf.reverse(image, [1]), lambda: image)
   label = tf.cond(mirror_cond, lambda: tf.reverse(label, [1]), lambda: label)
@@ -231,7 +231,7 @@ def eval_input_fn(image_filenames, label_filenames=None, batch_size=1):
 
     image_string = tf.read_file(image_filename)
     image = tf.image.decode_image(image_string)
-    image = tf.to_float(tf.image.convert_image_dtype(image, dtype=tf.uint8))
+    image = tf.cast(tf.image.convert_image_dtype(image, dtype=tf.uint8),dtype=tf.float32)
     image.set_shape([None, None, 3])
 
     image = mean_image_subtraction(image)

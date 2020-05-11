@@ -1,17 +1,13 @@
 """Train a DeepLab v3 model using tf.estimator API."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import argparse
 import os
 import sys
 
 import tensorflow as tf
 import deeplab_model
-from utils import preprocessing
+import preprocessing
 from tensorflow.python import debug as tf_debug
+from tensorboard import program
 
 import shutil
 
@@ -23,7 +19,7 @@ parser.add_argument('--model_dir', type=str, default='./model',
 parser.add_argument('--clean_model_dir', action='store_true',
                     help='Whether to clean up the model directory if present.')
 
-parser.add_argument('--train_epochs', type=int, default=1,
+parser.add_argument('--train_epochs', type=int, default=10000,
                     help='Number of training epochs: '
                          'For 30K iteration with batch size 6, train_epoch = 17.01 (= 30K * 6 / 10,582). '
                          'For 30K iteration with batch size 8, train_epoch = 22.68 (= 30K * 8 / 10,582). '
@@ -38,7 +34,7 @@ parser.add_argument('--epochs_per_eval', type=int, default=1,
 parser.add_argument('--tensorboard_images_max_outputs', type=int, default=6,
                     help='Max number of batch elements to generate for Tensorboard.')
 
-parser.add_argument('--batch_size', type=int, default=2,
+parser.add_argument('--batch_size', type=int, default=8,
                     help='Number of examples per batch.')
 
 parser.add_argument('--learning_rate_policy', type=str, default='poly',
@@ -77,8 +73,7 @@ parser.add_argument('--initial_global_step', type=int, default=0,
 parser.add_argument('--weight_decay', type=float, default=2e-4,
                     help='The weight decay to use for regularizing the model.')
 
-parser.add_argument('--debug', action='store_true',
-                    help='Whether to use debugger to track down bad values during training.')
+parser.add_argument('--debug', type=bool, default=False, help='Wait for debugger to attach.')
 
 _NUM_CLASSES = 21
 _HEIGHT = 513
@@ -195,8 +190,7 @@ def input_fn(is_training, data_dir, batch_size, num_epochs=1):
     dataset = dataset.shuffle(buffer_size=_NUM_IMAGES['train'])
 
   dataset = dataset.map(parse_record)
-  dataset = dataset.map(
-      lambda image, label: preprocess_image(image, label, is_training))
+  dataset = dataset.map(lambda image, label: preprocess_image(image, label, is_training))
   dataset = dataset.prefetch(batch_size)
 
   # We call repeat after shuffling, rather than before, to prevent separate
@@ -209,47 +203,61 @@ def input_fn(is_training, data_dir, batch_size, num_epochs=1):
 
   return images, labels
 
-def serving_input_fn():
-    shape = [_WIDTH, _HEIGHT, _DEPTH]
-    features = {
-        "image" : tf.FixedLenFeature(shape=shape, dtype=tf.string),
-    }
-    return tf.estimator.export.build_parsing_serving_input_receiver_fn(features)
+'''def serving_input_fn():
+    shape = [None,_HEIGHT, _WIDTH, _DEPTH]
+    image = tf.placeholder(dtype=tf.uint8, shape=shape, name='image')
+    images = tf.expand_dims(image, 0)
+    return tf.estimator.export.TensorServingInputReceiver(images, image)'''
 
-def main(unused_argv):
+def serving_input_fn():
+    shape = [_HEIGHT, _WIDTH, _DEPTH]
+    image = tf.placeholder(dtype=tf.float32, shape=shape, name='image')
+    images = tf.expand_dims(image, 0)
+    return tf.estimator.export.TensorServingInputReceiver(images, image)
+
+def main(args):
   # Using the Winograd non-fused algorithms provides a small performance boost.
   os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = '1'
 
-  if FLAGS.clean_model_dir:
-    shutil.rmtree(FLAGS.model_dir, ignore_errors=True)
+  if args.clean_model_dir:
+    shutil.rmtree(args.model_dir, ignore_errors=True)
 
   # Set up a RunConfig to only save checkpoints once per training cycle.
   run_config = tf.estimator.RunConfig().replace(save_checkpoints_secs=1e9)
   model = tf.estimator.Estimator(
       model_fn=deeplab_model.deeplabv3_model_fn,
-      model_dir=FLAGS.model_dir,
+      model_dir=args.model_dir,
       config=run_config,
       params={
-          'output_stride': FLAGS.output_stride,
-          'batch_size': FLAGS.batch_size,
-          'base_architecture': FLAGS.base_architecture,
-          'pre_trained_model': FLAGS.pre_trained_model,
+          'output_stride': args.output_stride,
+          'batch_size': args.batch_size,
+          'base_architecture': args.base_architecture,
+          'pre_trained_model': args.pre_trained_model,
           'batch_norm_decay': _BATCH_NORM_DECAY,
           'num_classes': _NUM_CLASSES,
-          'tensorboard_images_max_outputs': FLAGS.tensorboard_images_max_outputs,
-          'weight_decay': FLAGS.weight_decay,
-          'learning_rate_policy': FLAGS.learning_rate_policy,
+          'tensorboard_images_max_outputs': args.tensorboard_images_max_outputs,
+          'weight_decay': args.weight_decay,
+          'learning_rate_policy': args.learning_rate_policy,
           'num_train': _NUM_IMAGES['train'],
-          'initial_learning_rate': FLAGS.initial_learning_rate,
-          'max_iter': FLAGS.max_iter,
-          'end_learning_rate': FLAGS.end_learning_rate,
+          'initial_learning_rate': args.initial_learning_rate,
+          'max_iter': args.max_iter,
+          'end_learning_rate': args.end_learning_rate,
           'power': _POWER,
           'momentum': _MOMENTUM,
-          'freeze_batch_norm': FLAGS.freeze_batch_norm,
-          'initial_global_step': FLAGS.initial_global_step
+          'freeze_batch_norm': args.freeze_batch_norm,
+          'initial_global_step': args.initial_global_step
       })
 
-  for _ in range(FLAGS.train_epochs // FLAGS.epochs_per_eval):
+  # Launch tensorboard for training
+  # Remove http messages
+  #log = tf.logging.getLogger('werkzeug').setLevel(logging.ERROR)
+  tf.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+  tb = program.TensorBoard()
+  tb.configure(argv=[None, '--logdir', args.model_dir])
+  url = tb.launch()
+  print('TensorBoard at {}'.format(url))
+
+  for _ in range(args.train_epochs // args.epochs_per_eval):
     tensors_to_log = {
       'learning_rate': 'learning_rate',
       'cross_entropy': 'cross_entropy',
@@ -262,14 +270,14 @@ def main(unused_argv):
     train_hooks = [logging_hook]
     eval_hooks = None
 
-    if FLAGS.debug:
+    if False:
       debug_hook = tf_debug.LocalCLIDebugHook()
       train_hooks.append(debug_hook)
       eval_hooks = [debug_hook]
 
     tf.logging.info("Start training.")
     model.train(
-        input_fn=lambda: input_fn(True, FLAGS.data_dir, FLAGS.batch_size, FLAGS.epochs_per_eval),
+        input_fn=lambda: input_fn(True, args.data_dir, args.batch_size, args.epochs_per_eval),
         hooks=train_hooks,
         # steps=1  # For debug
     )
@@ -278,16 +286,36 @@ def main(unused_argv):
     # Evaluate the model and print results
     eval_results = model.evaluate(
         # Batch size must be 1 for testing because the images' size differs
-        input_fn=lambda: input_fn(False, FLAGS.data_dir, 1),
+        input_fn=lambda: input_fn(False, args.data_dir, 1),
         hooks=eval_hooks,
-        # steps=1  # For debug
+        steps=1  # For debug
     )
     print(eval_results)
 
-    model.export_saved_model('saved_model', serving_input_fn)
+    modelname = model.export_saved_model('saved_model', serving_input_fn)
+
+    converter = tf.lite.TFLiteConverter.from_saved_model(modelname.decode("utf-8"))
+    tflite_model = converter.convert()
+
+    if not os.path.exists('tflite'):
+        os.makedirs('tflite')
+
+    open("tflite/modeldeeplab.tflite", "wb").write(tflite_model)
 
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)
-  FLAGS, unparsed = parser.parse_known_args()
-  tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
+  args, unparsed = parser.parse_known_args()
+
+  if args.debug:
+      import ptvsd
+      # https://code.visualstudio.com/docs/python/debugging#_remote-debugging
+      # Launch applicaiton on remote computer: 
+      # > python3 -m ptvsd --host 10.150.41.30 --port 3000 --wait deeplab/train.py
+      # Allow other computers to attach to ptvsd at this IP address and port.
+      ptvsd.enable_attach(address=('0.0.0.0', 3000), redirect_output=True)
+      # Pause the program until a remote debugger is attached
+      print("Wait for debugger attach")
+      ptvsd.wait_for_attach()
+      print("Debugger attached")
+  main(args)

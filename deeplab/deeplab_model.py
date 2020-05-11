@@ -12,7 +12,7 @@ from tensorflow.contrib.framework.python.ops import arg_scope
 from tensorflow.contrib.layers.python.layers import layers
 from tensorflow.contrib.slim.python.slim.nets import resnet_utils
 
-from utils import preprocessing
+import preprocessing
 
 _BATCH_NORM_DECAY = 0.9997
 _WEIGHT_DECAY = 5e-4

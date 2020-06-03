@@ -22,9 +22,9 @@ Host tpu
 ## ssh over Ethernet/WIFI
 > mdt devices # get network address over OTG connection 
 Returns network name and address
-eml             (192.168.1.68) 
+eml             (192.168.1.69) 
 
->  ssh mendel@192.168.1.68
+>  ssh mendel@192.168.1.69
 
 ## sftp in Nautilu (Ubuntu file browser)
 Add named configuration to ssh;
@@ -33,7 +33,7 @@ Add named configuration to ssh;
 Add configuraiton with specified IP address:
 
 Host eml
-	 HostName 192.168.1.68         
+	 HostName 192.168.1.69         
 	 IdentityFile ~/.config/mdt/keys/mdt.key
          IdentitiesOnly=yes
          User mendel

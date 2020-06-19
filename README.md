@@ -13,7 +13,7 @@ Host tpu
          IdentitiesOnly=yes
 
 Docker build training/test image
-> docker build --rm -f dockerfile -t mllib:latest context
+> docker build --pull --rm -f "dockerfile" -t ml:latest context
 > docker run --gpus '"device=0"' -it --rm -v "$(pwd):/app" -v "/store/Datasets:/store/Datasets" -p 6006:6006/tcp -p 3000:3000 mllib:latest
 
 Jupyter notebook development:
@@ -66,3 +66,6 @@ docker pull jupyter/tensorflow-notebook
 # Notes:
 - 1. Development docker image
    > docker run --device=/dev/video0:/dev/video0 --gpus '"device=0"' -it --rm -v "$(pwd):/app" -v "/store:/store" -p 8889:8888/tcp -p 8009:8008/tcp -p 5001:5000/tcp -p 3001:3000 ml:latest
+
+# To Do:
+* fcn.py line 13 - Valid 

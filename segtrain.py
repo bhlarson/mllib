@@ -1,12 +1,13 @@
+# Based on https://colab.research.google.com/github/tensorflow/docs/blob/master/site/en/tutorials/images/segmentation.ipynb
 
 import argparse
 import json
+import os
 import numpy as np
 import tensorflow as tf
 import cv2
-
+import copy
 from datetime import datetime
-import pix2pix
 import tensorflow_datasets as tfds
 import matplotlib.pyplot as plt
 from segdataset import input_fn
@@ -15,6 +16,7 @@ from segdataset import input_fn
 parser = argparse.ArgumentParser()
 parser.add_argument('--debug', action='store_true',help='Wait for debuger attach')
 parser.add_argument('--dataset_dir', type=str, default='./dataset',help='Directory to store training model')
+parser.add_argument('--saveonly', action='store_true', help='Do not train.  Only produce saved model')
 
 parser.add_argument('--record_dir', type=str, default='record', help='Path training set tfrecord')
 parser.add_argument('--model_dir', type=str, default='./trainings/fcn',help='Directory to store training model')
@@ -22,7 +24,7 @@ parser.add_argument('--model_dir', type=str, default='./trainings/fcn',help='Dir
 parser.add_argument('--clean_model_dir', type=bool, default=True,
                     help='Whether to clean up the model directory if present.')
 
-parser.add_argument('--train_epochs', type=int, default=1,
+parser.add_argument('--epochs', type=int, default=5,
                     help='Number of training epochs')
 
 parser.add_argument('--tensorboard_images_max_outputs', type=int, default=2,
@@ -47,7 +49,7 @@ parser.add_argument('--savedmodel', type=str, default='./saved_model', help='Pat
 defaultsavemodelname = '{}-dl3'.format(datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
 parser.add_argument('--savedmodelname', type=str, default=defaultsavemodelname, help='Final model')
 parser.add_argument('--tbport', type=int, default=6006, help='Tensorboard network port.')
-parser.add_argument('--saveonly', type=bool, default=False, help='True, enable debug and stop at breakpoint')
+
 
 FLAGS, unparsed = parser.parse_known_args()
   
@@ -85,24 +87,13 @@ config = {
       'ignore_label': trainingsetDescription['classes']['ignore'],
       'classes': trainingsetDescription['classes']['classes'],
       'image_crops': FLAGS.crops,
-      'epochs': FLAGS.train_epochs,
+      'epochs': FLAGS.epochs,
+      'area_filter_min': 25,
       }
 
-
-# ## Download the Oxford-IIIT Pets dataset
-# 
-# The dataset is already included in TensorFlow datasets, all that is needed to do is download it. The segmentation masks are included in version 3+.
-
-
-#tfds.load('oxford_iiit_pet:3.*.*', with_info=True)
 dataset, info = tfds.load('oxford_iiit_pet:3.2.0', data_dir=FLAGS.dataset_dir, with_info=True)
-EPOCHS = FLAGS.train_epochs
 VAL_SUBSPLITS = 5
 VALIDATION_STEPS = 100
-
-# The following code performs a simple augmentation of flipping an image. In addition,  image is normalized to [0,1]. Finally, as mentioned above the pixels in the segmentation mask are labeled either {1, 2, 3}. For the sake of convenience, let's subtract 1 from the segmentation mask, resulting in labels that are : {0, 1, 2}.
-
-
 
 def normalize(input_image, input_mask):
   input_image = tf.cast(input_image, tf.float32) / 255.0
@@ -121,7 +112,7 @@ def WriteDictJson(outdict, path):
 
 def FindObjectType(index, objectTypes):
     for objectType in objectTypes:
-        if objectType['index'] == index:
+        if objectType['trainId'] == index:
             return objectType
     return None
 
@@ -142,9 +133,8 @@ def DefineFeature(c, iClass, minArea = 0, maxArea = float("inf"), iContour=1):
     
     return feature
 
-def FilterContours(seg, objectType, filters={}):
+def FilterContours(seg, objectType, config):
     
-    iClass = objectType['index']
 
     [height, width] = seg.shape
 
@@ -152,7 +142,7 @@ def FilterContours(seg, objectType, filters={}):
     if 'area_filter_min' in objectType:
         minArea  = objectType['area_filter_min']
     else:
-        minArea = 1
+        minArea = config['area_filter_min']
     
     if 'area_filter_max' in objectType:
         maxArea  = objectType['area_filter_max']
@@ -160,7 +150,7 @@ def FilterContours(seg, objectType, filters={}):
         maxArea = height*width
 
     iSeg = copy.deepcopy(seg)
-    iSeg[iSeg != iClass] = 0 # Convert to binary mask        
+    iSeg[iSeg != objectType['trainId']] = 0 # Convert to binary mask        
     
     
     segFeatures = []
@@ -168,42 +158,50 @@ def FilterContours(seg, objectType, filters={}):
 
     for i, c in enumerate(contours):
 
-        feature = DefineFeature(c, iClass, minArea, maxArea, i)
+        feature = DefineFeature(c, objectType['trainId'], minArea, maxArea, i)
         if feature:
             segFeatures.append(feature)
 
     return segFeatures
 
-def ExtractFeatures(seg, objectTypes, filters={}):
+def ExtractFeatures(seg, objTypes, config):
     segFeatures = []
-
-    for i in range(0, len(objectTypes)):
-        feature_contours = FilterContours(seg, objectTypes[i], filters)
+    for segobj in objTypes:
+      if segobj['display']:
+        feature_contours = FilterContours(seg, segobj, config)
         segFeatures.extend(feature_contours)
 
 
     return segFeatures
 
-def DrawFeatures(img, seg, objTypes):
-    features = ExtractFeatures(seg, objectTypes)
+def ColorToBGR(color):
+    return (color[2], color[1], color[0])
 
-    for feature in features['features']:
-        obj = FindObjectType(feature['class'], objectTypes)
+def DrawFeatures(img, seg, objTypes, config):
+    features = ExtractFeatures(seg, objTypes, config)
+
+    for feature in features:
+        obj = FindObjectType(feature['class'], objTypes)
         if obj and obj['display']:
-            cv2.drawContours(img, [feature['contour']], 0, ColorToBGR(obj['line_color']), thickness=obj['line_thickness'])
+            cv2.drawContours(img, [feature['contour']], 0, ColorToBGR(obj['color']), thickness=3)
 
-def DrawSeg(img, ann, pred, objectTypes):
+def DrawSeg(img, ann, pred, objTypes, config):
+    ann = tf.squeeze(ann)
+    pred = tf.squeeze(pred)
+
+    img = img.numpy()
+    ann = ann.numpy()
+    pred = pred.numpy()
+
     img = img.astype(np.uint8)
     ann = ann.astype(np.uint8)
     pred = pred.astype(np.uint8)
 
-    annFeatures = ExtractFeatures(ann, objectTypes)
-    DrawFeatures(predImg, annFeatures, objTypes)
+    annImg = copy.deepcopy(img)
+    DrawFeatures(annImg, ann, objTypes, config)
 
-    predImg = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-    predFeatures = ExtractFeatures(pred, objectTypes)
-    DrawFeatures(predImg, predFeatures, objTypes)
-
+    predImg = copy.deepcopy(img)
+    DrawFeatures(predImg, pred, objTypes, config)
 
     return annImg, predImg
 
@@ -269,6 +267,67 @@ for image, mask in train.take(1):
   sample_image, sample_mask = image, mask
 display([sample_image, sample_mask])
 
+class InstanceNormalization(tf.keras.layers.Layer):
+  """Instance Normalization Layer (https://arxiv.org/abs/1607.08022)."""
+
+  def __init__(self, epsilon=1e-5):
+    super(InstanceNormalization, self).__init__()
+    self.epsilon = epsilon
+
+  def build(self, input_shape):
+    self.scale = self.add_weight(
+        name='scale',
+        shape=input_shape[-1:],
+        initializer=tf.random_normal_initializer(1., 0.02),
+        trainable=True)
+
+    self.offset = self.add_weight(
+        name='offset',
+        shape=input_shape[-1:],
+        initializer='zeros',
+        trainable=True)
+
+  def call(self, x):
+    mean, variance = tf.nn.moments(x, axes=[1, 2], keepdims=True)
+    inv = tf.math.rsqrt(variance + self.epsilon)
+    normalized = (x - mean) * inv
+    return self.scale * normalized + self.offset
+
+def upsample(filters, size, norm_type='batchnorm', apply_dropout=False):
+  """Upsamples an input.
+
+  Conv2DTranspose => Batchnorm => Dropout => Relu
+
+  Args:
+    filters: number of filters
+    size: filter size
+    norm_type: Normalization type; either 'batchnorm' or 'instancenorm'.
+    apply_dropout: If True, adds the dropout layer
+
+  Returns:
+    Upsample Sequential Model
+  """
+
+  initializer = tf.random_normal_initializer(0., 0.02)
+
+  result = tf.keras.Sequential()
+  result.add(
+      tf.keras.layers.Conv2DTranspose(filters, size, strides=2,
+                                      padding='same',
+                                      kernel_initializer=initializer,
+                                      use_bias=False))
+
+  if norm_type.lower() == 'batchnorm':
+    result.add(tf.keras.layers.BatchNormalization())
+  elif norm_type.lower() == 'instancenorm':
+    result.add(InstanceNormalization())
+
+  if apply_dropout:
+    result.add(tf.keras.layers.Dropout(0.5))
+
+  result.add(tf.keras.layers.ReLU())
+
+  return result
 
 # ## Define the model
 # The model being used here is a modified U-Net. A U-Net consists of an encoder (downsampler) and decoder (upsampler). In-order to learn robust features, and reduce the number of trainable parameters, a pretrained model can be used as the encoder. Thus, the encoder for this task will be a pretrained MobileNetV2 model, whose intermediate outputs will be used, and the decoder will be the upsample block already implemented in TensorFlow Examples in the [Pix2pix tutorial](https://github.com/tensorflow/examples/blob/master/tensorflow_examples/models/pix2pix/pix2pix.py). 
@@ -298,10 +357,10 @@ def unet_model(classes, input_shape):
   # The decoder/upsampler is simply a series of upsample blocks implemented in TensorFlow examples.
 
   up_stack = [
-      pix2pix.upsample(512, 3),  # 4x4 -> 8x8
-      pix2pix.upsample(256, 3),  # 8x8 -> 16x16
-      pix2pix.upsample(128, 3),  # 16x16 -> 32x32
-      pix2pix.upsample(64, 3),   # 32x32 -> 64x64
+      upsample(512, 3),  # 4x4 -> 8x8
+      upsample(256, 3),  # 8x8 -> 16x16
+      upsample(128, 3),  # 16x16 -> 32x32
+      upsample(64, 3),   # 32x32 -> 64x64
   ]
 
   inputs = tf.keras.layers.Input(shape=input_shape)
@@ -357,16 +416,19 @@ model.summary()
 def create_mask(pred_mask):
   pred_mask = tf.argmax(pred_mask, axis=-1)
   pred_mask = pred_mask[..., tf.newaxis]
-  return pred_mask[0]
+  return pred_mask
 
-def WritePredictions(dataset, model, objects, num=1, outpath=''):
+def WritePredictions(dataset, model, config, num=1, outpath=''):
+    batch_size = config['batch_size']
+    objTypes = config['trainingset']['classes']['objects']
     i = 0
     for image, mask in dataset.take(num):
-      pred_mask = model.predict(image)
+      for j in range(batch_size):
+        pred_mask = create_mask(model.predict(image))
 
-      ann, pred = DrawSeg(image[0].numpy(), mask[0].numpy(), pred_mask, objects)
-      resultImg = np.concatenate((ann, pred), axis=1)
-      cv2.imwrite('{}ann-pred{}.png'.format(outpath, i), resultImg)
+        ann, pred = DrawSeg(image[j], mask[j], pred_mask[j], objTypes, config)
+        resultImg = np.concatenate((ann, pred), axis=1)
+        cv2.imwrite('{}ann-pred{}.png'.format(outpath, i*batch_size+j), resultImg)
 
       i=i+1
 
@@ -381,42 +443,51 @@ class DisplayCallback(tf.keras.callbacks.Callback):
 save_callback = tf.keras.callbacks.ModelCheckpoint(filepath=FLAGS.savedmodel,
                                                  save_weights_only=True,
                                                  verbose=1)
-
-model_history = model.fit(train_dataset, epochs=EPOCHS,
-                          steps_per_epoch=int(trainingsetDescription['sets'][0]['length']/config['batch_size']),
-                          validation_steps=VALIDATION_STEPS,
-                          validation_data=test_dataset,
-                          callbacks=[save_callback])
-
-loss = model_history.history['loss']
-val_loss = model_history.history['val_loss']
-
 outpath = '{}/{}/'.format(FLAGS.savedmodel, FLAGS.savedmodelname)
-model.save(outpath)
 
-model_description = {'config':config,
-                     'accuracy':model_history.history['accuracy'],
-                     'loss':model_history.history['loss'],
-                     'val_accuracy':model_history.history['val_accuracy'],
-                     'val_loss':model_history.history['val_loss'],
-                    }
-# def WriteDictJson(outdict, path)
+if not os.path.exists(outpath):
+    os.makedirs(outpath)
+
+if not FLAGS.saveonly:
+  model_history = model.fit(train_dataset, epochs=config['epochs'],
+                            steps_per_epoch=int(trainingsetDescription['sets'][0]['length']/config['batch_size']),
+                            validation_steps=VALIDATION_STEPS,
+                            validation_data=test_dataset,
+                            callbacks=[save_callback])
+
+  history = model_history.history
+  if 'loss' in history:
+    loss = model_history.history['loss']
+  else:
+    loss = []
+  if 'val_loss' in history:
+    val_loss = model_history.history['val_loss']
+  else:
+    val_loss = []
+
+  model_description = {'config':config,
+                       'results': history
+                      }
+  epochs = range(config['epochs'])
+
+  plt.figure()
+  plt.plot(epochs, loss, 'r', label='Training loss')
+  plt.plot(epochs, val_loss, 'bo', label='Validation loss')
+  plt.title('Training and Validation Loss')
+  plt.xlabel('Epoch')
+  plt.ylabel('Loss Value')
+  plt.ylim([0, 1])
+  plt.legend()
+  plt.savefig('{}training.svg'.format(outpath))
+
+else:
+  model_description = {'config':config,
+                      }
+
 WriteDictJson(model_description, '{}descrption.json'.format(outpath))
 
-epochs = range(EPOCHS)
-
-plt.figure()
-plt.plot(epochs, loss, 'r', label='Training loss')
-plt.plot(epochs, val_loss, 'bo', label='Validation loss')
-plt.title('Training and Validation Loss')
-plt.xlabel('Epoch')
-plt.ylabel('Loss Value')
-plt.ylim([0, 1])
-plt.legend()
-plt.savefig('{}training.svg'.format(outpath))
-
-
-# ## Make predictions
+model.save(outpath)
 
 # Let's make some predictions. In the interest of saving time, the number of epochs was kept small, but you may set this higher to achieve more accurate results.
-WritePredictions(test_dataset, model, config['trainingset']['classes'], 3, outpath)
+WritePredictions(test_dataset, model, config, outpath=outpath)
+print("Segmentation training complete. Results saved to {}".format(outpath))

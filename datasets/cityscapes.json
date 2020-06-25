@@ -1,7 +1,7 @@
 {
     "background":0,
-    "ignore":31,
-    "classes":32,
+    "ignore":19,
+    "classes":19,
     "objects":[
         {"name":"unlabeled"            ,"id":0, "trainId":0 , "category":"void", "display":false, "color": [ 0,  0,  0]},
             {"name":"ego vehicle"          ,"id":1, "trainId":0 , "category":"void", "display": false, "color":[  0,  0,  0]},
@@ -31,12 +31,12 @@
             {"name":"rider"                , "id":25, "trainId": 12 , "category":"human", "display":true, "color":[255,  0,  0]},
             {"name":"car"                  , "id":26, "trainId": 13 , "category":"vehicle", "display":true, "color":[  0,  0,142]},
             {"name":"truck"                , "id":27, "trainId": 14 , "category":"vehicle", "display":true, "color":[  0,  0, 70]},
-            {"name":"bus"                  , "id":28, "trainId": 15 , "category":"vehicle", "display":true, "color":[  0, 60,100]},
+            {"name":"bus"                  , "id":28, "trainId": 14 , "category":"vehicle", "display":true, "color":[  0, 60,100]},
             {"name":"camper"              , "id":29, "trainId":14 , "category":"vehicle", "display":true, "color":[  0,  0, 90]},
             {"name":"trailer"              , "id":30, "trainId":14 , "category":"vehicle", "display":true, "color":[  0,  0,110]},
-            {"name":"train"                , "id":31, "trainId": 16 , "category":"vehicle", "display":true, "color":[  0, 80,100]},
-            {"name":"motorcycle"           , "id":32, "trainId": 17 , "category":"vehicle", "display":true, "color":[  0,  0,230]},
-            {"name":"bicycle"              , "id":33, "trainId": 18 , "category":"vehicle", "display":true, "color":[119, 11, 32]},
-            {"name":"license plate"        , "id":255, "trainId": 19 , "category":"vehicle", "display":true, "color":[  0,  0,142]}
+            {"name":"train"                , "id":31, "trainId": 15 , "category":"vehicle", "display":true, "color":[  0, 80,100]},
+            {"name":"motorcycle"           , "id":32, "trainId": 16 , "category":"vehicle", "display":true, "color":[  0,  0,230]},
+            {"name":"bicycle"              , "id":33, "trainId": 17 , "category":"vehicle", "display":true, "color":[119, 11, 32]},
+            {"name":"license plate"        , "id":255, "trainId": 18 , "category":"vehicle", "display":true, "color":[  0,  0,142]}
     ]
 }

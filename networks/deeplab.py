@@ -2,7 +2,7 @@ import tensorflow as tf
 from tensorflow.keras import backend as K
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import AveragePooling2D, Lambda, Conv2D, Conv2DTranspose, Activation, Reshape, concatenate, Concatenate, BatchNormalization, ZeroPadding2D
-from resnet50 import ResNet50
+from .resnet50 import ResNet50
 #from tensorflow.keras.applications import ReseNet50
 
 
@@ -64,8 +64,7 @@ def ASPP(tensor):
 def DeepLabV3Plus(img_height = None, img_width = None, nclasses=66):
     print('*** Building DeepLabv3Plus Network ***')
 
-    base_model = ResNet50(input_shape=(
-        img_height, img_width, 3), weights='imagenet', include_top=False)
+    base_model = tf.keras.applications.ResNet50(include_top=False, weights='imagenet', input_shape=(img_height, img_width, 3))
     
     image_features = base_model.get_layer('activation_39').output
     x_a = ASPP(image_features)
@@ -100,4 +99,10 @@ def DeepLabV3Plus(img_height = None, img_width = None, nclasses=66):
     '''     
     model = Model(inputs=base_model.input, outputs=x, name='DeepLabV3_Plus')
     print(f'*** Output_Shape => {model.output_shape} ***')
+
+    model.compile(loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True), 
+        optimizer=Adam(lr=learning_rate), metrics=['accuracy'])
+    model.summary()
+
+
     return model

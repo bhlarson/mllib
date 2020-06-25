@@ -68,4 +68,4 @@ docker pull jupyter/tensorflow-notebook
    > docker run --device=/dev/video0:/dev/video0 --gpus '"device=0"' -it --rm -v "$(pwd):/app" -v "/store:/store" -p 8889:8888/tcp -p 8009:8008/tcp -p 5001:5000/tcp -p 3001:3000 ml:latest
 
 # To Do:
-* fcn.py line 13 - Valid 
+* segmentation.py line 187 - Plot results.  pred_mask.shape (8, 224, 224, 19) - need max pooling argmax to convert to segmentation results (224,224) array

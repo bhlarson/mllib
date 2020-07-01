@@ -20,7 +20,9 @@ RUN pip3 --no-cache-dir install \
         tfds-nightly \
         tqdm==4.46.0 \
         pydot==1.4.1 \
-        graphviz==0.14
+        graphviz==0.14 \
+        tensorflow-addons==0.10.0 \
+        flask==1.1.2
 
 
 

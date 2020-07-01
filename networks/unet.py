@@ -1,209 +1,121 @@
-# TensorFlow and tf.keras
-import sys
-import argparse
 import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.models import Sequential
-from tensorflow.keras import Input
-from tensorflow.keras.layers import Dense, Conv2D, MaxPool2D , Flatten, concatenate
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.optimizers import Adam
-# Helper libraries
-import numpy as np
-import matplotlib.pyplot as plt
+
+class InstanceNormalization(tf.keras.layers.Layer):
+  """Instance Normalization Layer (https://arxiv.org/abs/1607.08022)."""
+
+  def __init__(self, epsilon=1e-5):
+    super(InstanceNormalization, self).__init__()
+    self.epsilon = epsilon
+
+  def build(self, input_shape):
+    self.scale = self.add_weight(
+        name='scale',
+        shape=input_shape[-1:],
+        initializer=tf.random_normal_initializer(1., 0.02),
+        trainable=True)
+
+    self.offset = self.add_weight(
+        name='offset',
+        shape=input_shape[-1:],
+        initializer='zeros',
+        trainable=True)
+
+  def call(self, x):
+    mean, variance = tf.nn.moments(x, axes=[1, 2], keepdims=True)
+    inv = tf.math.rsqrt(variance + self.epsilon)
+    normalized = (x - mean) * inv
+    return self.scale * normalized + self.offset
+
+def upsample(filters, size, norm_type='batchnorm', apply_dropout=False):
+  """Upsamples an input.
+
+  Conv2DTranspose => Batchnorm => Dropout => Relu
+
+  Args:
+    filters: number of filters
+    size: filter size
+    norm_type: Normalization type; either 'batchnorm' or 'instancenorm'.
+    apply_dropout: If True, adds the dropout layer
+
+  Returns:
+    Upsample Sequential Model
+  """
+
+  initializer = tf.random_normal_initializer(0., 0.02)
+
+  result = tf.keras.Sequential()
+  result.add(
+      tf.keras.layers.Conv2DTranspose(filters, size, strides=2,
+                                      padding='same',
+                                      kernel_initializer=initializer,
+                                      use_bias=False))
+
+  if norm_type.lower() == 'batchnorm':
+    result.add(tf.keras.layers.BatchNormalization())
+  elif norm_type.lower() == 'instancenorm':
+    result.add(InstanceNormalization())
+
+  if apply_dropout:
+    result.add(tf.keras.layers.Dropout(0.5))
+
+  result.add(tf.keras.layers.ReLU())
+
+  return result
+
+# ## Define the model
+# The model being used here is a modified U-Net. A U-Net consists of an encoder (downsampler) and decoder (upsampler). In-order to learn robust features, and reduce the number of trainable parameters, a pretrained model can be used as the encoder. Thus, the encoder for this task will be a pretrained MobileNetV2 model, whose intermediate outputs will be used, and the decoder will be the upsample block already implemented in TensorFlow Examples in the [Pix2pix tutorial](https://github.com/tensorflow/examples/blob/master/tensorflow_examples/models/pix2pix/pix2pix.py). 
+# 
+# The reason to output three channels is because there are three possible labels for each pixel. Think of this as multi-classification where each pixel is being classified into three classes.
+
+# As mentioned, the encoder will be a pretrained MobileNetV2 model which is prepared and ready to use in [tf.keras.applications](https://www.tensorflow.org/versions/r2.0/api_docs/python/tf/keras/applications). The encoder consists of specific outputs from intermediate layers in the model. Note that the encoder will not be trained during the training process.
+def unet_model(classes, input_shape):
+  base_model = tf.keras.applications.MobileNetV2(input_shape=input_shape, include_top=False)
+  model_input = base_model.get_layer('Conv1').input # Remove Conv1_pad to facilitate resizing
+
+  # Use the activations of these layers
+  layer_names = [
+      'block_1_expand_relu',   # 64x64
+      'block_3_expand_relu',   # 32x32
+      'block_6_expand_relu',   # 16x16
+      'block_13_expand_relu',  # 8x8
+      'block_16_project',      # 4x4
+  ]
+  layers = [base_model.get_layer(name).output for name in layer_names]
+
+  # Create the feature extraction model
+  down_stack = tf.keras.Model(inputs=base_model.input, outputs=layers)
+
+  down_stack.trainable = False
 
 
-parser = argparse.ArgumentParser()
+  # The decoder/upsampler is simply a series of upsample blocks implemented in TensorFlow examples.
 
-parser.add_argument('--model_dir', type=str, default='./model_fcn',
-                    help='Base directory for the model.')
-parser.add_argument('--train_dir', type=str, default='/store/Datasets/dogsvscats/train',
-                    help='Base directory for the model.')
-parser.add_argument('--debug', type=bool, default=False, help='Break for remote debugger.')
+  up_stack = [
+      upsample(512, 3),  # 4x4 -> 8x8
+      upsample(256, 3),  # 8x8 -> 16x16
+      upsample(128, 3),  # 16x16 -> 32x32
+      upsample(64, 3),   # 32x32 -> 64x64
+  ]
 
+  inputs = tf.keras.layers.Input(shape=input_shape)
+  x = inputs
 
-def conv2d_block(input_tensor, n_filters, kernel_size = 3, batchnorm = True):
-    """Function to add 2 convolutional layers with the parameters passed to it"""
-    # first layer
-    x = Conv2D(filters = n_filters, kernel_size = (kernel_size, kernel_size),\
-              kernel_initializer = 'he_normal', padding = 'same')(input_tensor)
-    if batchnorm:
-        x = BatchNormalization()(x)
-    x = Activation('relu')(x)
-    
-    # second layer
-    x = Conv2D(filters = n_filters, kernel_size = (kernel_size, kernel_size),\
-              kernel_initializer = 'he_normal', padding = 'same')(input_tensor)
-    if batchnorm:
-        x = BatchNormalization()(x)
-    x = Activation('relu')(x)
-    
-    return x
+  # Downsampling through the model
+  skips = down_stack(x)
+  x = skips[-1]
+  skips = reversed(skips[:-1])
 
-def unet(num_classes=2, pretrained_weights = None,input_size = (256,256,1)):
-    inputs = Input(input_size)
+  # Upsampling and establishing the skip connections
+  for up, skip in zip(up_stack, skips):
+    x = up(x)
+    concat = tf.keras.layers.Concatenate()
+    x = concat([x, skip])
 
-    filters = 64
-    conv1 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(inputs)
-    conv1 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv1)
-    pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
+  # This is the last layer of the model
+  last = tf.keras.layers.Conv2DTranspose(
+      classes, 3, strides=2,
+      padding='same')  #64x64 -> 128x128
 
-    filters = 2*filters
-    conv2 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(pool1)
-    conv2 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv2)
-    pool2 = MaxPooling2D(pool_size=(2, 2))(conv2)
-    
-    filters = 2*filters
-    conv3 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(pool2)
-    conv3 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv3)
-    pool3 = MaxPooling2D(pool_size=(2, 2))(conv3)
+  x = last(x)
 
-    filters = 2*filters
-    conv4 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(pool3)
-    conv4 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv4)
-    drop4 = Dropout(0.5)(conv4)
-    pool4 = MaxPooling2D(pool_size=(2, 2))(drop4)
-
-    filters = 2*filters
-    conv5 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(pool4)
-    conv5 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv5)
-    drop5 = Dropout(0.5)(conv5)
-
-    filters = filters/2
-    up6 = Conv2D(filters=filters, 2, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(UpSampling2D(size = (2,2))(drop5))
-    merge6 = concatenate([drop4,up6], axis = 3)
-    conv6 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(merge6)
-    conv6 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv6)
-
-    filters = filters/2
-    up7 = Conv2D(filters=filters, 2, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(UpSampling2D(size = (2,2))(conv6))
-    merge7 = concatenate([conv3,up7], axis = 3)
-    conv7 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(merge7)
-    conv7 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv7)
-
-    filters = filters/2
-    up8 = Conv2D(filters=filters, 2, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(UpSampling2D(size = (2,2))(conv7))
-    merge8 = concatenate([conv2,up8], axis = 3)
-    conv8 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(merge8)
-    conv8 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv8)
-
-    filters = filters/2
-    up9 = Conv2D(filters=filters, 2, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(UpSampling2D(size = (2,2))(conv8))
-    merge9 = concatenate([conv1,up9], axis = 3)
-    conv9 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(merge9)
-    conv9 = Conv2D(filters=filters, kernel_size=(3,3) activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv9)
-    conv9 = Conv2D(filters=num_classes, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv9)
-    conv10 = Conv2D(filters=num_classes, 1, activation = 'sigmoid')(conv9)
-
-    model = Model(input = inputs, output = conv10)
-
-    model.compile(optimizer = Adam(lr = 1e-4), loss = 'binary_crossentropy', metrics = ['accuracy'])
-    
-    #model.summary()
-
-    if(pretrained_weights):
-    	model.load_weights(pretrained_weights)
-
-    return model
-
-def VGG16Classification(num_classes=2, input_shape=(224,224,3), learning_rate=1e-4):
-    model = Sequential()
-    
-    # Convolution layers
-    filters = 64
-    model.add(Conv2D(input_shape=input_shape, filters=filters, kernel_size=(3,3), padding="same", activation="relu"))
-    model.add(Conv2D(filters=filters, kernel_size=(3,3), padding="same", activation="relu"))
-    model.add(MaxPool2D(pool_size=(2,2), strides=(2,2)))
-    filters = 2*filters
-    model.add(Conv2D(filters=filters, kernel_size=(3,3), padding="same", activation="relu"))
-    model.add(Conv2D(filters=filters, kernel_size=(3,3), padding="same", activation="relu"))
-    model.add(MaxPool2D(pool_size=(2,2), strides=(2,2)))
-    filters = 2*filters
-    model.add(Conv2D(filters=filters, kernel_size=(3,3), padding="same", activation="relu"))
-    model.add(Conv2D(filters=filters, kernel_size=(3,3), padding="same", activation="relu"))
-    model.add(Conv2D(filters=filters, kernel_size=(3,3), padding="same", activation="relu"))
-    model.add(MaxPool2D(pool_size=(2,2), strides=(2,2)))
-    filters = 2*filters
-    model.add(Conv2D(filters=filters, kernel_size=(3,3), padding="same", activation="relu"))
-    model.add(Conv2D(filters=filters, kernel_size=(3,3), padding="same", activation="relu"))
-    model.add(Conv2D(filters=filters, kernel_size=(3,3), padding="same", activation="relu"))
-    model.add(MaxPool2D(pool_size=(2,2), strides=(2,2)))
-    #filters = 2*filters
-    model.add(Conv2D(filters=filters, kernel_size=(3,3), padding="same", activation="relu"))
-    model.add(Conv2D(filters=filters, kernel_size=(3,3), padding="same", activation="relu"))
-    model.add(Conv2D(filters=filters, kernel_size=(3,3), padding="same", activation="relu"))
-    model.add(MaxPool2D(pool_size=(2,2), strides=(2,2)))
-    # Fully Connected layers
-    model.add(Flatten())
-    model.add(Dense(units=4096, activation="relu"))
-    model.add(Dense(units=4096, activation="relu"))
-    model.add(Dense(units=num_classes, activation="softmax"))
-
-    model.compile(loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True), 
-        optimizer=Adam(lr=learning_rate), metrics=['accuracy'])
-    model.summary()
-
-    return model
-
-def DogvsCat(path, target_size=(224,224), batch_size=50, validation_split=0.2, horizontal_flip=True, normalize=True, zoom_range=0.1, rotation_range=10, shift_range=0.1):
-    trdata = ImageDataGenerator(validation_split=validation_split, 
-        horizontal_flip=horizontal_flip, 
-        samplewise_center=normalize, 
-        samplewise_std_normalization=normalize,
-        zoom_range=zoom_range,
-        rotation_range=rotation_range,
-        width_shift_range=shift_range,
-        height_shift_range=shift_range,
-        fill_mode="reflect"
-        )
-
-    train_generator = trdata.flow_from_directory(
-        path, 
-        subset='training',
-        target_size=target_size,
-        batch_size=batch_size,
-        class_mode='binary'
-    )
-
-    validation_generator = trdata.flow_from_directory(
-        path,
-        subset='validation',
-        target_size=target_size,
-        batch_size=batch_size,
-        class_mode='binary'
-    )
-
-    return train_generator, validation_generator
-
-def main(FLAGS):
-    print(tf.__version__)
-
-    model = VGG16Classification()
-
-    train_generator, validation_generator = DogvsCat(FLAGS.train_dir)
-
-    history = model.fit_generator(
-        train_generator,
-        epochs=2,
-        validation_data=validation_generator)
-
-    print(history)
-
-if __name__ == '__main__':
-    FLAGS, unparsed = parser.parse_known_args()
-
-    if FLAGS.debug:
-        # https://code.visualstudio.com/docs/python/debugging#_remote-debugging
-        # Launch applicaiton on remote computer: 
-        # > python3 -m ptvsd --host 0.0.0.0 --port 3000 --wait predict_imdb.py
-        import ptvsd
-        # Allow other computers to attach to ptvsd at this IP address and port.
-        ptvsd.enable_attach(address=('0.0.0.0', 3000), redirect_output=True)
-        # Pause the program until a remote debugger is attached
-        print("Wait for debugger attach")
-        ptvsd.wait_for_attach()
-        print("Debugger Attached")
-
-    main(FLAGS)
-    print('complete')
+  return tf.keras.Model(inputs=inputs, outputs=x)

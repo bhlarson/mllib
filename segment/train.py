@@ -3,14 +3,15 @@
 import argparse
 import json
 import os
-import numpy as np
+import sys
 import tensorflow as tf
-import cv2
 from datetime import datetime
-import tensorflow_datasets as tfds
 import matplotlib.pyplot as plt
+
+#sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath('')), '..')))
+sys.path.insert(0, os.path.abspath(''))
 from segment.data import input_fn
-from segment.view import WritePredictions
+from segment.display import WritePredictions
 from networks.unet import unet_model
 
 
@@ -69,15 +70,14 @@ def main(unparsed):
         'batch_size': FLAGS.batch_size,
         'trainingset': trainingsetDescription,
         'input_shape': [FLAGS.training_crop[1], FLAGS.training_crop[0], FLAGS.train_depth],
-        'size_X': FLAGS.training_crop[1], 'size_Y': FLAGS.training_crop[0], 'depth':FLAGS.train_depth,
         'classScale': 0.001, # scale value for each product class
         'augment_rotation' : 5., # Rotation in degrees
         'augment_flip_x': False,
         'augment_flip_y': True,
         'augment_brightness':0.,
         'augment_contrast': 0.,
-        'augment_shift_x': 0.1, # in fraction of image
-        'augment_shift_y': 0.1, # in fraction of image
+        'augment_shift_x': 0.0, # in fraction of image
+        'augment_shift_y': 0.0, # in fraction of image
         'scale_min': 0.75, # in fraction of image
         'scale_max': 1.25, # in fraction of image
         'ignore_label': trainingsetDescription['classes']['ignore'],

@@ -76,7 +76,21 @@ def DrawFeatures(img, seg, objTypes, config):
     for feature in features:
         obj = FindObjectType(feature['class'], objTypes)
         if obj and obj['display']:
-            cv2.drawContours(img, [feature['contour']], 0, ColorToBGR(obj['color']), thickness=3)
+            cv2.drawContours(img, [feature['contour']], 0, ColorToBGR(obj['color']), thickness=1)
+
+def DrawImAn(img, ann, objTypes, config):
+    ann = tf.squeeze(ann)
+
+    img = img.numpy()
+    ann = ann.numpy()
+
+    img = img.astype(np.uint8)
+    ann = ann.astype(np.uint8)
+
+    annImg = copy.deepcopy(img)
+    DrawFeatures(annImg, ann, objTypes, config)
+
+    return annImg
 
 def DrawSeg(img, ann, pred, objTypes, config):
     ann = tf.squeeze(ann)
@@ -104,6 +118,25 @@ def create_mask(pred_mask):
     pred_mask = pred_mask[..., tf.newaxis]
     return pred_mask
 
+def MergeImgAn(dataset, config, num=1):
+    batch_size = config['batch_size']
+    objTypes = config['trainingset']['classes']['objects']
+    imgs = []
+    i = 0
+    for image, mask in dataset.take(num):
+      for j in range(batch_size):
+
+        iman = DrawImAn(image[j], mask[j], objTypes, config)
+        imgs.append(iman)
+      i=i+1
+    return imgs
+
+def WriteImgAn(dataset, config, num=1, outpath=''):
+
+    imgs = MergeImgAn(dataset, config, num=1)
+    for i, img in enumerate(imgs):
+        cv2.imwrite('{}/ann-pred{}.png'.format(outpath, i), img)
+
 def CreatePredictions(dataset, model, config, num=1):
     batch_size = config['batch_size']
     objTypes = config['trainingset']['classes']['objects']
@@ -122,4 +155,4 @@ def WritePredictions(dataset, model, config, num=1, outpath=''):
 
     imgs = CreatePredictions(dataset, model, config, num=1)
     for i, img in enumerate(imgs):
-        cv2.imwrite('{}ann-pred{}.png'.format(outpath, i), img)
+        cv2.imwrite('{}/ann-pred{}.png'.format(outpath, i), img)

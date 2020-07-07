@@ -41,7 +41,7 @@ parser.add_argument('--learning_rate', type=float, default=1e-4,
 parser.add_argument("--strategy", type=str, default='onedevice', help="Replication strategy. 'mirrored', 'onedevice' now supported ")
 parser.add_argument("--devices", type=json.loads, default=["/gpu:0"],  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
 
-parser.add_argument('--training_crop', type=json.loads, default='[640, 480]', help='Training crop size [height, width]')
+parser.add_argument('--training_crop', type=json.loads, default='[720, 960]', help='Training crop size [height, width]')
 parser.add_argument('--train_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB') 
 
 defaultfinalmodelname = '{}-dl3'.format(datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
@@ -68,7 +68,7 @@ def main(unparsed):
     config = {
         'batch_size': FLAGS.batch_size,
         'trainingset': trainingsetDescription,
-        'input_shape': [FLAGS.training_crop[1], FLAGS.training_crop[0], FLAGS.train_depth],
+        'input_shape': [FLAGS.training_crop[0], FLAGS.training_crop[1], FLAGS.train_depth],
         'classScale': 0.001, # scale value for each product class
         'augment_rotation' : 5., # Rotation in degrees
         'augment_flip_x': False,

@@ -18,7 +18,7 @@ parser.add_argument('--loadsavedmodel', type=str, default='./saved_model/2020-06
 
 parser.add_argument('--record_dir', type=str, default='./record', help='Path training set tfrecord')
 parser.add_argument("--devices", type=json.loads, default=["/gpu:0"],  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
-parser.add_argument('--image_size', type=json.loads, default='[576, 1024]', help='Training crop size [height, width]')
+parser.add_argument('--image_size', type=json.loads, default='[1024,1024]', help='Training crop size [height, width]/  [288, 352],[480, 640],[576,1024],[720, 960],[1080, 1920]')
 parser.add_argument('--image_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB') 
 
 FLAGS, unparsed = parser.parse_known_args()
@@ -60,20 +60,6 @@ def gen(camera):
         print('img.shape={}'.format(img.shape))
         #img = cv2.flip(img, +1)
 
-        #imgShape = img.shape
-
-        #Define crop of 2x CNN size and downsize it in tf.image.crop_and_resize
-        #color =  (0,255,0)
-        #thickness =  3
-        #center = np.array([imgShape[1]/2, imgShape[0]/2])
-        #d =  np.array([config['input_shape'][0]/2,config['input_shape'][1]/2])
-        #p1 = tuple((center-d).astype(int))
-        #p1 = (max(p1[0],0),max(p1[1],0))
-        #p2 = tuple((center+d).astype(int))
-        #p2 = (min(p2[0],imgShape[0]-1),min(p2[1],imgShape[1]-1))
-        #cv2.rectangle(img,p1,p2,color,thickness)
-        #crop = cv2.resize(img[p1[1]:p2[1], p1[0]:p2[0]],(config['input_shape'][1],config['input_shape'][0])).astype(np.float32)
-
         tbefore = datetime.now()
         ann = model.predict(np.expand_dims(img, axis=0))
         ann = tf.squeeze(ann) # Drop batch dimension
@@ -99,7 +85,7 @@ def gen(camera):
 @app.route('/video_feed')
 def video_feed():
     """Video streaming route. Put this in the src attribute of an img tag."""
-    return Response(gen(Camera()), mimetype='multipart/x-mixed-replace; boundary=frame')
+    return Response(gen(Camera(config)), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 if __name__ == '__main__':

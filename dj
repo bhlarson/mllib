@@ -1,0 +1,1 @@
+docker run -it --volume "$(pwd):/tf" --volume "/store:/store" --gpus '"device=0"' -p 8889:8888/tcp mj:latest

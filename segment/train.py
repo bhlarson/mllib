@@ -27,8 +27,7 @@ parser.add_argument('--loadsavedmodel', type=str, default='./saved_model/2020-06
 parser.add_argument('--clean_model_dir', type=bool, default=True,
                     help='Whether to clean up the model directory if present.')
 
-parser.add_argument('--epochs', type=int, default=2,
-                    help='Number of training epochs')
+parser.add_argument('--epochs', type=int, default=200, help='Number of training epochs')
 
 parser.add_argument('--tensorboard_images_max_outputs', type=int, default=2,
                     help='Max number of batch elements to generate for Tensorboard.')
@@ -42,7 +41,7 @@ parser.add_argument('--learning_rate', type=float, default=1e-4,
 parser.add_argument("--strategy", type=str, default='onedevice', help="Replication strategy. 'mirrored', 'onedevice' now supported ")
 parser.add_argument("--devices", type=json.loads, default=["/gpu:0"],  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
 
-parser.add_argument('--training_crop', type=json.loads, default='[256, 512]', help='Training crop size [height, width]')
+parser.add_argument('--training_crop', type=json.loads, default='[640, 480]', help='Training crop size [height, width]')
 parser.add_argument('--train_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB') 
 
 defaultfinalmodelname = '{}-dl3'.format(datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))

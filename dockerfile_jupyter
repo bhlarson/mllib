@@ -1,0 +1,35 @@
+FROM tensorflow/tensorflow:2.2.0-gpu-jupyter
+
+LABEL maintainer="Brad Larson"
+
+RUN echo 'alias py=python' >> ~/.bashrc
+
+RUN apt-get update
+RUN apt-get -y install curl gnupg
+RUN apt-get -y install curl dirmngr apt-transport-https lsb-release ca-certificates
+RUN curl -sL https://deb.nodesource.com/setup_12.x | bash -
+
+RUN apt-get install -y libsm6 libxext6 libxrender-dev nodejs
+RUN pip3 install --upgrade pip
+RUN pip3 --no-cache-dir install \
+        opencv-python==4.2.0.34 \
+        minio==5.0.10 \
+        matplotlib==3.1.2\
+        tifffile==2020.5.5 \
+        pandas==1.0.4 \
+        kfp==0.5.1 \
+        jupyterlab==2.1.5 \
+        tensorflow-addons==0.10.0
+
+
+WORKDIR /tf
+ENV LANG C.UTF-8
+# port 8888 exposes jupyter
+EXPOSE 8888 
+# port 3000 exposes debugger
+#EXPOSE 3000
+
+# Launch Jupyter
+ENV NB_PREFIX /
+CMD ["sh","-c", "jupyter lab --ip=0.0.0.0 --no-browser --allow-root --port=8888 --NotebookApp.token='' --NotebookApp.password='' --NotebookApp.allow_origin='*' --NotebookApp.base_url=${NB_PREFIX}"]
+#CMD ["sh","-c", "jupyter notebook --ip=0.0.0.0 --no-browser --allow-root --port=8888 --NotebookApp.token='' --NotebookApp.password='' --NotebookApp.allow_origin='*' --NotebookApp.base_url=${NB_PREFIX}"]

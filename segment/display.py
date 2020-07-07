@@ -67,30 +67,51 @@ def ExtractFeatures(seg, objTypes, config):
 
     return segFeatures
 
+def ApplyColors(img, seg, objTypes, configm, alpha = 0.50):
+    [height, width] = seg.shape
+    img = img.astype(np.float32)
+    imgout = copy.deepcopy(img)
+    for segobj in objTypes:
+      if segobj['display']:
+        mask = np.zeros((height,width), dtype=np.float32)
+        #mask[seg == segobj['trainId']] = 1 # Convert to binary mask
+        mask[seg == segobj['trainId']] = 1.0 # Convert to binary mask
+        notmask = cv2.cvtColor(np.logical_not(mask).astype(np.float32), cv2.COLOR_GRAY2BGR)
+        mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+        imgout = imgout*notmask # zero masked pixels
+        #imgout += alpha*img*mask + (1.0-alpha)*mask*np.array(segobj['color']) # color with segmentation color
+
+        #    mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+    #img *= segmask
+    #img += (alpha*np.array(segobj['color']))*mask
+    img = np.clip(img, 0.0, 255.0)
+
+    return img.astype(np.uint8)
+
 def ColorToBGR(color):
     return (color[2], color[1], color[0])
 
-def DrawFeatures(img, seg, objTypes, config):
+def DrawFeatures(img, seg, config):
+    objTypes = config['trainingset']['classes']['objects']
     features = ExtractFeatures(seg, objTypes, config)
-
     for feature in features:
         obj = FindObjectType(feature['class'], objTypes)
         if obj and obj['display']:
             cv2.drawContours(img, [feature['contour']], 0, ColorToBGR(obj['color']), thickness=1)
 
-def DrawImAn(img, ann, objTypes, config):
-    ann = tf.squeeze(ann)
+    return img
+    #return ApplyColors(img, seg, objTypes, config)
 
-    img = img.numpy()
-    ann = ann.numpy()
+
+
+def DrawImAn(img, ann, config):
 
     img = img.astype(np.uint8)
     ann = ann.astype(np.uint8)
 
-    annImg = copy.deepcopy(img)
-    DrawFeatures(annImg, ann, objTypes, config)
+    #annImg = copy.deepcopy(img)
+    return DrawFeatures(img, ann, config)
 
-    return annImg
 
 def DrawSeg(img, ann, pred, objTypes, config):
     ann = tf.squeeze(ann)
@@ -105,10 +126,10 @@ def DrawSeg(img, ann, pred, objTypes, config):
     pred = pred.astype(np.uint8)
 
     annImg = copy.deepcopy(img)
-    DrawFeatures(annImg, ann, objTypes, config)
+    DrawFeatures(annImg, ann, config)
 
     predImg = copy.deepcopy(img)
-    DrawFeatures(predImg, pred, objTypes, config)
+    DrawFeatures(predImg, pred, config)
 
     return annImg, predImg
 
@@ -126,7 +147,7 @@ def MergeImgAn(dataset, config, num=1):
     for image, mask in dataset.take(num):
       for j in range(batch_size):
 
-        iman = DrawImAn(image[j], mask[j], objTypes, config)
+        iman = DrawImAn(image[j].numpy(), mask[j].numpy(), config)
         imgs.append(iman)
       i=i+1
     return imgs
@@ -136,6 +157,18 @@ def WriteImgAn(dataset, config, num=1, outpath=''):
     imgs = MergeImgAn(dataset, config, num=1)
     for i, img in enumerate(imgs):
         cv2.imwrite('{}/ann-pred{}.png'.format(outpath, i), img)
+
+def CreateImanBounds(img, ann, config):
+    ann = create_mask(ann)
+    ann = tf.squeeze(ann) # Drop color dimension
+    iman = DrawImAn(img, ann.numpy(), config)
+    return iman
+
+def CreateIman(img, ann, config):
+    ann = create_mask(ann)
+    ann = tf.squeeze(ann) # Drop color dimension
+    iman = DrawImAn(img, ann.numpy(), config)
+    return iman
 
 def CreatePredictions(dataset, model, config, num=1):
     batch_size = config['batch_size']

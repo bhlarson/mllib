@@ -1,0 +1,38 @@
+FROM tensorflow/tensorflow:2.2.0-gpu-jupyter
+
+LABEL maintainer="Brad Larson"
+
+RUN echo 'alias py=python' >> ~/.bashrc
+
+COPY ./README.md /tf/
+COPY ./*.ipynb /tf/
+
+RUN apt-get install -y libsm6 libxext6 libxrender-dev
+RUN pip3 install --upgrade pip
+RUN pip3 --no-cache-dir install \
+        opencv-python==4.2.0.34 \
+        scipy==1.4.1 \
+        numpy==1.18.2 \
+        Pillow==7.1.1 \
+        minio==5.0.10 \
+        natsort==7.0.1 \
+        ptvsd==4.3.2 \
+        matplotlib==3.1.2\
+        tifffile==2020.5.5 \
+        xmltodict==0.12.0 \
+        tqdm==4.46.0 \
+        scandir==1.10.0 \
+        pandas==1.0.4
+
+
+WORKDIR /tf
+ENV LANG C.UTF-8
+# port 6006 exposes tensorboard
+EXPOSE 8888 
+# port 3000 exposes debugger
+#EXPOSE 3000
+
+# Launch training
+#ENTRYPOINT ["python", "fcn/train.py"]
+# Launch shell script
+RUN ["/bin/bash"]

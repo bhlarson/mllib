@@ -168,6 +168,18 @@ def main(unparsed):
 
     model.save(outpath)
 
+    if True: # convert to Tensorflow Lite
+        converter = tf.lite.TFLiteConverter.from_saved_model(outpath)
+        converter.optimizations = [tf.lite.Optimize.OPTIMIZE_FOR_LATENCY]
+        #samplefiles = get_samples(FLAGS.sample_dir, FLAGS.match)
+        #converter.representative_dataset = lambda:representative_dataset_gen(samplefiles)
+        #converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+        #converter.inference_input_type = tf.uint8  # or tf.uint8
+        #converter.inference_output_type = tf.uint8  # or tf.uint8
+        tflite_model = converter.convert()
+        outflite = './tflite/{}.tflite'.format(FLAGS.savedmodelname)
+        open(outflite, "wb").write(tflite_model)
+
     # Let's make some predictions. In the interest of saving time, the number of epochs was kept small, but you may set this higher to achieve more accurate results.
     WritePredictions(test_dataset, model, config, outpath=outpath)
     print("Segmentation training complete. Results saved to {}".format(outpath))

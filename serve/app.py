@@ -13,12 +13,13 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument('--debug', action='store_true',help='Wait for debugge attach')
 
-parser.add_argument('--model_dir', type=str, default='./trainings/unet',help='Directory to store training model')
-parser.add_argument('--loadsavedmodel', type=str, default='./saved_model/2020-06-27-14-40-22-dl3', help='Saved model to load if no checkpoint')
+#parser.add_argument('--model_dir', type=str, default='./trainings/unet',help='Directory to store training model')
+parser.add_argument('--model_dir', type=str, default=None,help='Directory to store training model')
+parser.add_argument('--loadsavedmodel', type=str, default='./saved_model/2020-07-09-19-39-37-dl3', help='Saved model to load if no checkpoint')
 
 parser.add_argument('--record_dir', type=str, default='./record', help='Path training set tfrecord')
 parser.add_argument("--devices", type=json.loads, default=["/gpu:0"],  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
-parser.add_argument('--image_size', type=json.loads, default='[288, 352]', help='Training crop size [height, width]/  [288, 352],[480, 640],[576,1024],[720, 960],[1080, 1920]')
+parser.add_argument('--image_size', type=json.loads, default='[576,1024]', help='Training crop size [height, width]/  [288, 352],[480, 640],[576,1024],[720, 960],[1080, 1920]')
 parser.add_argument('--image_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB') 
 
 FLAGS, unparsed = parser.parse_known_args()
@@ -37,7 +38,7 @@ config = {
 app = Flask(__name__)
 
 model = None 
-
+infer = None
 
 @app.route('/')
 def index():
@@ -57,12 +58,17 @@ def gen(camera):
 
     while True:
         img = camera.get_frame()
-        print('img.shape={}'.format(img.shape))
+        #print('img.shape={}'.format(img.shape))
         #img = cv2.flip(img, +1)
 
         tbefore = datetime.now()
-        ann = model.predict(np.expand_dims(img, axis=0))
-        ann = tf.squeeze(ann) # Drop batch dimension
+        if model is not None:
+            ann = model.predict(np.expand_dims(img, axis=0))
+            ann = tf.squeeze(ann) # Drop batch dimension
+        elif infer is not None:
+            outputs = infer(tf.constant(np.expand_dims(img.astype(np.float32), axis=0)))
+            ann = tf.squeeze(outputs['conv2d_transpose_4'].numpy()) # Drop batch dimension
+
         tPredict = datetime.now()
         iman = CreateIman(img, ann, config)
 
@@ -105,7 +111,7 @@ if __name__ == '__main__':
 
     print(tf.version)
 
-    if FLAGS.model_dir:
+    if FLAGS.model_dir is not None:
         try:
             model = tf.keras.models.load_model(FLAGS.model_dir) # Load from checkpoint
         except:
@@ -113,7 +119,13 @@ if __name__ == '__main__':
 
     if not model and FLAGS.loadsavedmodel:
         try:
-            model = tf.keras.models.load_model(FLAGS.loadsavedmodel) # Load from checkpoint
+            # model = tf.keras.models.load_model(FLAGS.loadsavedmodel) # Load from checkpoint
+
+            loaded = tf.saved_model.load(FLAGS.loadsavedmodel)
+            print(list(loaded.signatures.keys()))
+            infer = loaded.signatures["serving_default"]
+            print(infer.structured_outputs)
+            print (infer.inputs[0])
         except:
             print('Unable to load weghts from {}'.format(FLAGS.loadsavedmodel))
 

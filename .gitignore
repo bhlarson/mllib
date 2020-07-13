@@ -102,3 +102,11 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+/record
+/classify
+/dataset
+/datasets
+/networks
+/trainings
+/tflite

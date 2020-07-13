@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 #sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath('')), '..')))
 sys.path.insert(0, os.path.abspath(''))
 from segment.data import input_fn
-from segment.display import WritePredictions
+from segment.display import WriteImgAn, WritePredictions
 from networks.unet import unet_model
 
 
@@ -21,14 +21,14 @@ parser.add_argument('--dataset_dir', type=str, default='./dataset',help='Directo
 parser.add_argument('--saveonly', action='store_true', help='Do not train.  Only produce saved model')
 
 parser.add_argument('--record_dir', type=str, default='record', help='Path training set tfrecord')
-parser.add_argument('--model_dir', type=str, default='./trainings/unet1',help='Directory to store training model')
-#parser.add_argument('--loadsavedmodel', type=str, default='./saved_model/2020-06-27-14-40-22-dl3', help='Saved model to load if no checkpoint')
-parser.add_argument('--loadsavedmodel', type=str, default=None, help='Saved model to load if no checkpoint')
+parser.add_argument('--model_dir', type=str, default='./trainings/unet',help='Directory to store training model')
+parser.add_argument('--loadsavedmodel', type=str, default='./saved_model/2020-06-27-14-40-22-dl3', help='Saved model to load if no checkpoint')
 
 parser.add_argument('--clean_model_dir', type=bool, default=True,
                     help='Whether to clean up the model directory if present.')
 
-parser.add_argument('--epochs', type=int, default=2, help='Number of training epochs')
+parser.add_argument('--epochs', type=int, default=2,
+                    help='Number of training epochs')
 
 parser.add_argument('--tensorboard_images_max_outputs', type=int, default=2,
                     help='Max number of batch elements to generate for Tensorboard.')
@@ -42,7 +42,7 @@ parser.add_argument('--learning_rate', type=float, default=1e-4,
 parser.add_argument("--strategy", type=str, default='onedevice', help="Replication strategy. 'mirrored', 'onedevice' now supported ")
 parser.add_argument("--devices", type=json.loads, default=["/gpu:0"],  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
 
-parser.add_argument('--training_crop', type=json.loads, default='[384, 768]', help='Training crop size [height, width]')
+parser.add_argument('--training_crop', type=json.loads, default='[256, 512]', help='Training crop size [height, width]')
 parser.add_argument('--train_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB') 
 
 defaultfinalmodelname = '{}-dl3'.format(datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
@@ -52,15 +52,6 @@ parser.add_argument('--savedmodel', type=str, default='./saved_model', help='Pat
 defaultsavemodelname = '{}-dl3'.format(datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
 parser.add_argument('--savedmodelname', type=str, default=defaultsavemodelname, help='Final model')
 parser.add_argument('--tbport', type=int, default=6006, help='Tensorboard network port.')
-
-def WriteDictJson(outdict, path):
-
-    jsonStr = json.dumps(outdict, sort_keys=False)
-    f = open(path,"w")
-    f.write(jsonStr)
-    f.close()
-       
-    return True
 
 def main(unparsed):
     trainingsetDescriptionFile = '{}/description.json'.format(FLAGS.record_dir)
@@ -106,88 +97,23 @@ def main(unparsed):
 
     if not model:
         print('Unable to load weghts.  Restart training.')
-        model = unet_model(config['classes'], config['input_shape'])
-        losss = {
-            'logits':tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-        }
+        model = unet_model(config['classes'], config.input_shape)
         model.compile(optimizer='adam',
-                    loss=losss,
+                    loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
                     metrics=['accuracy'])
-
-    # Display model
-    model.summary()
-
 
     train_dataset = input_fn(True, FLAGS.record_dir, config)
     test_dataset = input_fn(False, FLAGS.record_dir, config)
 
-    save_callback = tf.keras.callbacks.ModelCheckpoint(filepath=FLAGS.model_dir,verbose=1,save_weights_only=False,save_freq='epoch',period=1)
-
-    outpath = '{}/{}/'.format(FLAGS.savedmodel, FLAGS.savedmodelname)
-
+    outpath = 'test'
     if not os.path.exists(outpath):
         os.makedirs(outpath)
 
     # Save plot of model model
-    # Failing with "AttributeError: 'dict' object has no attribute 'name'" when returning multiple outputs 
-    #tf.keras.utils.plot_model(model, to_file='{}unet.png'.format(outpath), show_shapes=True)
+    tf.keras.utils.plot_model(model, to_file='{}unet.png'.format(outpath), show_shapes=True)
 
-    VALIDATION_STEPS = 100
-    if not FLAGS.saveonly:
-        model_history = model.fit(train_dataset, epochs=config['epochs'],
-                                  steps_per_epoch=int(trainingsetDescription['sets'][0]['length']/config['batch_size']),
-                                  validation_steps=VALIDATION_STEPS,
-                                  validation_data=test_dataset,
-                                  callbacks=[save_callback])
-
-        history = model_history.history
-        if 'loss' in history:
-            loss = model_history.history['loss']
-        else:
-            loss = []
-        if 'val_loss' in history:
-            val_loss = model_history.history['val_loss']
-        else:
-            val_loss = []
-
-        model_description = {'config':config,
-                            'results': history
-                            }
-        epochs = range(config['epochs'])
-
-        plt.figure()
-        plt.plot(epochs, loss, 'r', label='Training loss')
-        plt.plot(epochs, val_loss, 'bo', label='Validation loss')
-        plt.title('Training and Validation Loss')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss Value')
-        plt.ylim([0, 1])
-        plt.legend()
-        plt.savefig('{}training.svg'.format(outpath))
-
-    else:
-        model_description = {'config':config,
-                          }
-
-    WriteDictJson(model_description, '{}descrption.json'.format(outpath))
-
-    model.save(outpath)
-
-    if False: # convert to Tensorflow Lite
-        converter = tf.lite.TFLiteConverter.from_saved_model(outpath)
-        converter.optimizations = [tf.lite.Optimize.OPTIMIZE_FOR_LATENCY]
-        #samplefiles = get_samples(FLAGS.sample_dir, FLAGS.match)
-        #converter.representative_dataset = lambda:representative_dataset_gen(samplefiles)
-        #converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-        #converter.inference_input_type = tf.uint8  # or tf.uint8
-        #converter.inference_output_type = tf.uint8  # or tf.uint8
-        tflite_model = converter.convert()
-        outflite = './tflite/{}.tflite'.format(FLAGS.savedmodelname)
-        open(outflite, "wb").write(tflite_model)
-
-    # Let's make some predictions. In the interest of saving time, the number of epochs was kept small, but you may set this higher to achieve more accurate results.
-    WritePredictions(test_dataset, model, config, outpath=outpath)
-    print("Segmentation training complete. Results saved to {}".format(outpath))
+    WriteImgAn(train_dataset, config, outpath=outpath)
+    print("Write complete. Results saved to {}".format(outpath))
 
 
 if __name__ == '__main__':

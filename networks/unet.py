@@ -112,10 +112,9 @@ def unet_model(classes, input_shape):
     x = concat([x, skip])
 
   # This is the last layer of the model
-  last = tf.keras.layers.Conv2DTranspose(
-      classes, 3, strides=2,
-      padding='same')  #64x64 -> 128x128
+  Conv2DTranspose = tf.keras.layers.Conv2DTranspose(classes, 3, strides=2,padding='same', name='logits')
 
-  x = last(x)
+  x = Conv2DTranspose(x)
+  seg = tf.argmax(x, axis=-1, name='segmentation')
 
-  return tf.keras.Model(inputs=inputs, outputs=x)
+  return tf.keras.Model(inputs=inputs, outputs=[x, seg], name='UnetSegmentation')

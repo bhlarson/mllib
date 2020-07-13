@@ -133,7 +133,7 @@ def DrawSeg(img, ann, pred, objTypes, config):
 
     return annImg, predImg
 
-# Let's try out the model to see what it predicts before training.
+# Convert logits prediction.
 def create_mask(pred_mask):
     pred_mask = tf.argmax(pred_mask, axis=-1)
     pred_mask = pred_mask[..., tf.newaxis]
@@ -158,16 +158,8 @@ def WriteImgAn(dataset, config, num=1, outpath=''):
     for i, img in enumerate(imgs):
         cv2.imwrite('{}/ann-pred{}.png'.format(outpath, i), img)
 
-def CreateImanBounds(img, ann, config):
-    ann = create_mask(ann)
-    ann = tf.squeeze(ann) # Drop color dimension
-    iman = DrawImAn(img, ann.numpy(), config)
-    return iman
-
 def CreateIman(img, ann, config):
-    ann = create_mask(ann)
-    ann = tf.squeeze(ann) # Drop color dimension
-    iman = DrawImAn(img, ann.numpy(), config)
+    iman = DrawImAn(img, ann, config)
     return iman
 
 def CreatePredictions(dataset, model, config, num=1):
@@ -176,10 +168,10 @@ def CreatePredictions(dataset, model, config, num=1):
     imgs = []
     i = 0
     for image, mask in dataset.take(num):
+      [_,seg] = model.predict(image)
       for j in range(batch_size):
-        pred_mask = create_mask(model.predict(image))
 
-        ann, pred = DrawSeg(image[j], mask[j], pred_mask[j], objTypes, config)
+        ann, pred = DrawSeg(image[j], mask[j], seg[j], objTypes, config)
         imgs.append(np.concatenate((ann, pred), axis=1))
       i=i+1
     return imgs

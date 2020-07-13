@@ -1,13 +1,13 @@
 #!/usr/bin/env python
-import os
+import os, sys, json, argparse
 import cv2
 import numpy as np
 from flask import Flask, render_template, Response
 from camera_opencv import Camera
-import argparse
 import tflite_runtime.interpreter as tflite
 import platform
 from datetime import datetime
+sys.path.insert(0, os.path.abspath(''))
 
 parser = argparse.ArgumentParser()
 

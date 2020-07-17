@@ -31,6 +31,7 @@ config = {
       'input_shape': [FLAGS.image_size[0], FLAGS.image_size[1], FLAGS.image_depth],
       'ignore_label': trainingsetDescription['classes']['ignore'],
       'classes': trainingsetDescription['classes']['classes'],
+      'background':trainingsetDescription['classes']['background'],
       'trainingset': trainingsetDescription,
       'area_filter_min': 250,
       'size_divisible': 32
@@ -40,6 +41,7 @@ app = Flask(__name__)
 
 model = None 
 infer = None
+lut = None
 
 @app.route('/')
 def index():
@@ -87,7 +89,11 @@ def gen(camera):
     
         tPredict = datetime.now()
         #iman = img
-        iman = CreateIman(img, ann, config)
+        #iman = CreateIman(img, ann, config)
+
+        ann = [cv2.LUT(ann.astype(np.uint8), lut[:, i]) for i in range(3)]
+        ann = np.dstack(ann) 
+        iman = (img*ann).astype(np.uint8)
 
         iman = CropOrigonal(iman, height, width)
 
@@ -145,6 +151,15 @@ if __name__ == '__main__':
             infer = loaded.signatures["serving_default"]
             print(infer.structured_outputs)
             print (infer.inputs[0])
+
+            lut = np.zeros([256,3], dtype=np.uint8)
+            for obj in config['trainingset']['classes']['objects']: # Load RGB colors as BGR
+                lut[obj['trainId']][0] = obj['color'][2]
+                lut[obj['trainId']][1] = obj['color'][1]
+                lut[obj['trainId']][2] = obj['color'][0]
+            lut = lut.astype(np.float) * 1/255. # scale colors 0-1
+            lut[config['background']] = [1.0,1.0,1.0] # Pass Through
+
         except:
             print('Unable to load weghts from {}'.format(FLAGS.loadsavedmodel))
 

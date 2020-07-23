@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import tifffile
 import xmltodict
 from minio import Minio
+sys.path.insert(0, os.path.abspath(''))
 from utils.s3 import s3store
 from minio.error import (ResponseError, BucketAlreadyOwnedByYou,
                          BucketAlreadyExists)
@@ -22,58 +23,58 @@ from tqdm import tqdm
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process some integers.')
 
-    parser.add_argument('--annotations', type=json.loads, help='Array of annotation paths to include: ["<path1>", "<path2>", "<path3>"]',
+    parser.add_argument('-annotations', type=json.loads, help='Array of annotation paths to include: ["<path1>", "<path2>", "<path3>"]',
         default=['Annotations'
                  ])
 
-    parser.add_argument('--ann_dir', type=str, default='ann')
-    parser.add_argument('--record_dir', type=str, default='record', help='Path record work directory')
+    parser.add_argument('-ann_dir', type=str, default='ann')
+    parser.add_argument('-record_dir', type=str, default='record', help='Path record work directory')
 
     defaultsetname = '{}-lit'.format(datetime.now().strftime("%Y%m%d-%H%M%S"))
-    parser.add_argument('--setname', type=str, default=defaultsetname, help='Path to training set directory')
+    parser.add_argument('-setname', type=str, default=defaultsetname, help='Path to training set directory')
 
-    parser.add_argument('--image_type', type=str, default='tif', help='Expect tiff image type with microscope data tags')
+    parser.add_argument('-image_type', type=str, default='tif', help='Expect tiff image type with microscope data tags')
 
-    parser.add_argument('--annotation_decoration', type=str, default='_cls.png', help='Annotation decoration e.g.: _cls.png')
+    parser.add_argument('-annotation_decoration', type=str, default='_cls.png', help='Annotation decoration e.g.: _cls.png')
 
-    parser.add_argument('--sets', type=json.loads,
+    parser.add_argument('-sets', type=json.loads,
         default='[{"name":"training", "ratio":0.7}, {"name":"validation", "ratio":0.3}]',
         help='Json string containing an array of [{"name":"<>", "ratio":<probability>}]')
 
-    parser.add_argument('--seed', 
+    parser.add_argument('-seed', 
         type=float, 
         default=None, 
         help='Random float seed')
     
-    parser.add_argument('--shards', 
+    parser.add_argument('-shards', 
         type=int,
         default= 1,
         help='Number of tfrecord shards')
 
-    parser.add_argument('--size', type=int,
+    parser.add_argument('-size', type=int,
         default= 200,
         help='Image pizel size')
 
-    parser.add_argument('--show', 
+    parser.add_argument('-show', 
         type=bool,
         default=False,
         help='Display incremental results')
 
-    parser.add_argument('--image_format', 
+    parser.add_argument('-image_format', 
         type=str,
         default='tif',
         help='Image format.')
 
-    parser.add_argument('--minio_address', type=str, default='192.168.1.66:19002', help='Minio archive IP address')
-    parser.add_argument('--minio_access_key', type=str, default='access', help='Minio access key')
-    parser.add_argument('--minio_secret_key', type=str, default='secretkey', help='Minio secret key')
+    parser.add_argument('-minio_address', type=str, default='192.168.1.66:19002', help='Minio archive IP address')
+    parser.add_argument('-minio_access_key', type=str, default='access', help='Minio access key')
+    parser.add_argument('-minio_secret_key', type=str, default='secretkey', help='Minio secret key')
 
-    parser.add_argument('--srcbucket', type=str, default='annotations', help='Annotations bucket')
-    parser.add_argument('--destbucket', type=str, default='trainingset', help='Trainingset bucket')
+    parser.add_argument('-srcbucket', type=str, default='annotations', help='Annotations bucket')
+    parser.add_argument('-destbucket', type=str, default='trainingset', help='Trainingset bucket')
 
-    parser.add_argument('--description', type=str, default='Added exceptions')
+    parser.add_argument('-description', type=str, default='Added exceptions')
 
-    parser.add_argument('--debug', type=bool, default=True, help='True, eanble debug and stop at breakpoint')
+    parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
 
     args = parser.parse_args()
     return args
@@ -254,7 +255,7 @@ def WriteRecords(args, iman):
 
     description = {'description':args.description, 'annotations':args.annotations, 'seed':args.seed}
     with open(args.record_dir+'/description.json', 'w') as fp:
-        json.dump(description, fp)
+        json.dump(description, fp, indent=4, separators=(',', ': '))
 
 def PutDir(s3, src, bucket, setname):
     success = True

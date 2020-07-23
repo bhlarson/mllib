@@ -1,3 +1,4 @@
+#%%
 #!/usr/bin/env python
 import os, sys, json, argparse, math
 import cv2
@@ -7,7 +8,7 @@ from camera_opencv import Camera
 import tensorflow as tf
 from datetime import datetime
 sys.path.insert(0, os.path.abspath(''))
-from segment.display import CreateIman
+from segment.display import DrawFeatures
 
 parser = argparse.ArgumentParser()
 
@@ -89,7 +90,7 @@ def gen(camera):
     
         tPredict = datetime.now()
         #iman = img
-        #iman = CreateIman(img, ann, config)
+        #iman = DrawFeatures(img, ann, config)
 
         ann = [cv2.LUT(ann.astype(np.uint8), lut[:, i]) for i in range(3)]
         ann = np.dstack(ann) 

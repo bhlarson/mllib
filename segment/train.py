@@ -7,6 +7,8 @@ import sys
 import tensorflow as tf
 from datetime import datetime
 import matplotlib.pyplot as plt
+#from tensorflow.python.framework.ops import disable_eager_execution
+#disable_eager_execution()
 
 #sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath('')), '..')))
 sys.path.insert(0, os.path.abspath(''))
@@ -16,42 +18,42 @@ from networks.unet import unet_model
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--debug', action='store_true',help='Wait for debuger attach')
-parser.add_argument('--dataset_dir', type=str, default='./dataset',help='Directory to store training model')
-parser.add_argument('--saveonly', action='store_true', help='Do not train.  Only produce saved model')
+parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
+parser.add_argument('-dataset_dir', type=str, default='./dataset',help='Directory to store training model')
+parser.add_argument('-saveonly', action='store_true', help='Do not train.  Only produce saved model')
 
-parser.add_argument('--record_dir', type=str, default='record', help='Path training set tfrecord')
-parser.add_argument('--model_dir', type=str, default='./trainings/unet1',help='Directory to store training model')
-#parser.add_argument('--loadsavedmodel', type=str, default='./saved_model/2020-06-27-14-40-22-dl3', help='Saved model to load if no checkpoint')
-parser.add_argument('--loadsavedmodel', type=str, default=None, help='Saved model to load if no checkpoint')
+parser.add_argument('-record_dir', type=str, default='cocorecord', help='Path training set tfrecord')
+parser.add_argument('-model_dir', type=str, default='./trainings/unetcoco',help='Directory to store training model')
+#parser.add_argument('-loadsavedmodel', type=str, default='./saved_model/2020-07-13-17-16-49-dl3', help='Saved model to load if no checkpoint')
+parser.add_argument('-loadsavedmodel', type=str, default=None, help='Saved model to load if no checkpoint')
 
-parser.add_argument('--clean_model_dir', type=bool, default=True,
+parser.add_argument('-clean_model_dir', type=bool, default=True,
                     help='Whether to clean up the model directory if present.')
 
-parser.add_argument('--epochs', type=int, default=2, help='Number of training epochs')
+parser.add_argument('-epochs', type=int, default=2, help='Number of training epochs')
 
-parser.add_argument('--tensorboard_images_max_outputs', type=int, default=2,
+parser.add_argument('-tensorboard_images_max_outputs', type=int, default=2,
                     help='Max number of batch elements to generate for Tensorboard.')
 
-parser.add_argument('--batch_size', type=int, default=8, help='Number of examples per batch.')
-parser.add_argument('--crops', type=int, default=1, help='Crops/image/step')                
+parser.add_argument('-batch_size', type=int, default=8, help='Number of examples per batch.')
+parser.add_argument('-crops', type=int, default=1, help='Crops/image/step')                
 
-parser.add_argument('--learning_rate', type=float, default=1e-4,
+parser.add_argument('-learning_rate', type=float, default=1e-4,
                     help='Adam optimizer learning rate.')
 
-parser.add_argument("--strategy", type=str, default='onedevice', help="Replication strategy. 'mirrored', 'onedevice' now supported ")
-parser.add_argument("--devices", type=json.loads, default=["/gpu:0"],  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
+parser.add_argument("-strategy", type=str, default='onedevice', help="Replication strategy. 'mirrored', 'onedevice' now supported ")
+parser.add_argument("-devices", type=json.loads, default=["/gpu:0"],  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
 
-parser.add_argument('--training_crop', type=json.loads, default='[384, 768]', help='Training crop size [height, width]')
-parser.add_argument('--train_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB') 
+parser.add_argument('-training_crop', type=json.loads, default='[512, 512]', help='Training crop size [height, width]')
+parser.add_argument('-train_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB') 
 
 defaultfinalmodelname = '{}-dl3'.format(datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
-parser.add_argument('--finalmodel', type=str, default=defaultfinalmodelname, help='Final model')
+parser.add_argument('-finalmodel', type=str, default=defaultfinalmodelname, help='Final model')
 
-parser.add_argument('--savedmodel', type=str, default='./saved_model', help='Path to fcn savedmodel.')
+parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to fcn savedmodel.')
 defaultsavemodelname = '{}-dl3'.format(datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
-parser.add_argument('--savedmodelname', type=str, default=defaultsavemodelname, help='Final model')
-parser.add_argument('--tbport', type=int, default=6006, help='Tensorboard network port.')
+parser.add_argument('-savedmodelname', type=str, default=defaultsavemodelname, help='Final model')
+parser.add_argument('-tbport', type=int, default=6006, help='Tensorboard network port.')
 
 def WriteDictJson(outdict, path):
 
@@ -121,7 +123,7 @@ def main(unparsed):
     train_dataset = input_fn(True, FLAGS.record_dir, config)
     test_dataset = input_fn(False, FLAGS.record_dir, config)
 
-    save_callback = tf.keras.callbacks.ModelCheckpoint(filepath=FLAGS.model_dir,verbose=1,save_weights_only=False,save_freq='epoch',period=1)
+    #save_callback = tf.keras.callbacks.ModelCheckpoint(filepath=FLAGS.model_dir,verbose=1,save_weights_only=False,save_freq='epoch')
 
     outpath = '{}/{}/'.format(FLAGS.savedmodel, FLAGS.savedmodelname)
 
@@ -138,7 +140,8 @@ def main(unparsed):
                                   steps_per_epoch=int(trainingsetDescription['sets'][0]['length']/config['batch_size']),
                                   validation_steps=VALIDATION_STEPS,
                                   validation_data=test_dataset,
-                                  callbacks=[save_callback])
+                                  callbacks=[])
+                                  #callbacks=[save_callback])
 
         history = model_history.history
         if 'loss' in history:

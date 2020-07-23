@@ -103,16 +103,6 @@ def DrawFeatures(img, seg, config):
     #return ApplyColors(img, seg, objTypes, config)
 
 
-
-def DrawImAn(img, ann, config):
-
-    img = img.astype(np.uint8)
-    ann = ann.astype(np.uint8)
-
-    #annImg = copy.deepcopy(img)
-    return DrawFeatures(img, ann, config)
-
-
 def DrawSeg(img, ann, pred, objTypes, config):
     ann = tf.squeeze(ann)
     pred = tf.squeeze(pred)
@@ -143,13 +133,15 @@ def MergeImgAn(dataset, config, num=1):
     batch_size = config['batch_size']
     objTypes = config['trainingset']['classes']['objects']
     imgs = []
-    i = 0
-    for image, mask in dataset.take(num):
-      for j in range(batch_size):
+    iterator = iter(dataset)
+    for i in range(num):
+        image, mask  = iterator.get_next()
+        for j in range(batch_size):
+            img = tf.squeeze(image[j]).numpy().astype(np.uint8)
+            ann = tf.squeeze(mask[j]).numpy().astype(np.uint8)
 
-        iman = DrawImAn(image[j].numpy(), mask[j].numpy(), config)
-        imgs.append(iman)
-      i=i+1
+            iman = DrawFeatures(img, ann, config)
+            imgs.append(iman)
     return imgs
 
 def WriteImgAn(dataset, config, num=1, outpath=''):
@@ -157,10 +149,6 @@ def WriteImgAn(dataset, config, num=1, outpath=''):
     imgs = MergeImgAn(dataset, config, num=1)
     for i, img in enumerate(imgs):
         cv2.imwrite('{}/ann-pred{}.png'.format(outpath, i), img)
-
-def CreateIman(img, ann, config):
-    iman = DrawImAn(img, ann, config)
-    return iman
 
 def CreatePredictions(dataset, model, config, num=1):
     batch_size = config['batch_size']

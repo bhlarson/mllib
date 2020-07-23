@@ -48,42 +48,6 @@ def parse_record(raw_record, config):
   return image, label
 
 
-
-def random_crop_or_pad_image_and_label(image, label, crop_width, crop_height):
-    """Crops and/or pads an image to a target width and height.
-
-    Resizes an image to a target width and height by rondomly
-    cropping the image or padding it evenly with zeros.
-
-    Args:
-      image: 3-D Tensor of shape `[height, width, channels]`.
-      label: 3-D Tensor of shape `[height, width, 1]`.
-      crop_height: The new height.
-      crop_width: The new width.
-
-    Returns:
-      Cropped and/or padded image.
-      If `images` was 3-D, a 3-D float Tensor of shape
-      `[new_height, new_width, channels]`.
-    """
-
-    image_height = tf.shape(input=image)[0]
-    image_width = tf.shape(input=image)[1]
-    image_depth = tf.shape(input=image)[2]
-    label_depth = tf.shape(input=label)[2]
-
-    image_and_label = tf.concat([image, label], axis=2)
-    image_and_label_pad = tf.image.pad_to_bounding_box(
-        image_and_label, 0, 0,
-        tf.maximum(crop_height, image_height),
-        tf.maximum(crop_width, image_width))
-    image_and_label_crop = tf.image.random_crop(image_and_label_pad, [crop_height, crop_width, image_depth+label_depth])
-
-    image_crop = image_and_label_crop[:, :, :image_depth]
-    label_crop = image_and_label_crop[:, :, image_depth:]
-
-    return image_crop, label_crop
-
 def augment_image_crops(image, label, config):
 
     for i in range(config['image_crops']):
@@ -97,6 +61,7 @@ def prepare_image(image, label, config):
 
     return image, label
 
+@tf.function
 def random_crop_or_pad_image_and_label(image, label, config):
     """Crops and/or pads an image to a target width and height.
 
@@ -114,21 +79,29 @@ def random_crop_or_pad_image_and_label(image, label, config):
       If `images` was 3-D, a 3-D float Tensor of shape
       `[new_height, new_width, channels]`.
     """
+  
     image_height = tf.shape(input=image)[0]
     image_width = tf.shape(input=image)[1]
     image_depth = tf.shape(input=image)[2]
 
     image_and_label = tf.concat([image, label], axis=2)
-    image_and_label_pad = tf.image.pad_to_bounding_box(
-        image_and_label, 0, 0,
-        tf.maximum(config['input_shape'][0], image_height),
-        tf.maximum(config['input_shape'][1], image_width))
-    image_and_label_crop = tf.image.random_crop(image_and_label, [config['input_shape'][0], config['input_shape'][1], image_depth+1])
+    crop_height = tf.maximum(config['input_shape'][0], image_height)
+    crop_width = tf.maximum(config['input_shape'][1], image_width)
+    #tf.print("resize_with_crop_or_pad:", crop_height, crop_width)
+    
+    image_and_label = tf.image.resize_with_crop_or_pad(image_and_label, crop_height, crop_width )
+    #tf.print("resize_with_crop_or_pad shape:", tf.shape(image_and_label))
+    image_and_label = tf.image.random_crop(image_and_label, [config['input_shape'][0], config['input_shape'][1], image_depth+1])
 
-    image_crop = image_and_label_crop[:, :, :image_depth]
-    label_crop = image_and_label_crop[:, :, image_depth:]
+    #tf.print("random_crop shape:", tf.shape(image_and_label))
+    image = image_and_label[:, :, :image_depth]
+    label = image_and_label[:, :, image_depth:]
 
-    return image_crop, label_crop
+    return image, label
+
+def print_data(image, label, msg):
+  print("{} {}".format(msg.numpy().decode('UTF-8'), image.shape))
+  return image, label
 
 def augment_image(image, label, config):
 
@@ -203,7 +176,9 @@ def input_fn(is_training, data_dir, config, num_epochs=1):
         dataset = dataset.shuffle(buffer_size=250)
         dataset = dataset.repeat(config['epochs'])
         dataset = dataset.map(lambda raw_record: parse_record(raw_record, config), num_parallel_calls = 10)
+        #dataset = dataset.map(lambda image, label: tf.py_function(print_data, [image, label, 'Before augment:'], [tf.float32, tf.float32]))
         dataset = dataset.map(lambda image, label: augment_image(image, label, config) , num_parallel_calls = 10)
+        #dataset = dataset.map(lambda image, label: tf.py_function(print_data, [image, label, 'After augment:'], [tf.float32, tf.float32]))
 
     else:
         dataset = dataset.map(lambda raw_record: parse_record(raw_record, config), num_parallel_calls = 10)

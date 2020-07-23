@@ -1,3 +1,4 @@
+#%%
 import os
 import sys
 import argparse
@@ -15,7 +16,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
 
     parser.add_argument('--ann_dir', type=str, default='ann')
-    parser.add_argument('--record_dir', type=str, default='record', help='Path record work directory')
+    parser.add_argument('--record_dir', type=str, default='cityrecord', help='Path record work directory')
 
     parser.add_argument('--sets', type=json.loads,
         default='[{"name":"train"}, {"name":"val"}, {"name":"test"}]',
@@ -154,7 +155,7 @@ def WriteRecords(args, iman):
 
     description = {'creation date':datetime.now().strftime("%d/%m/%Y %H:%M:%S"),'author':args.author,'description':args.description, 'sets': args.sets, 'classes':args.classes}
     with open(args.record_dir+'/description.json', 'w') as fp:
-        json.dump(description, fp)
+        json.dump(description, fp, indent=4, separators=(',', ': '))
 
 def PutDir(s3, src, bucket, setname):
     success = True

@@ -79,19 +79,23 @@ def ApplyColors(img, seg, objTypes, configm, alpha = 0.50):
         notmask = cv2.cvtColor(np.logical_not(mask).astype(np.float32), cv2.COLOR_GRAY2BGR)
         mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
         imgout = imgout*notmask # zero masked pixels
-        #imgout += alpha*img*mask + (1.0-alpha)*mask*np.array(segobj['color']) # color with segmentation color
+        imgout += alpha*img*mask + (1.0-alpha)*mask*np.array(segobj['color']) # color with segmentation color
 
         #    mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
     #img *= segmask
     #img += (alpha*np.array(segobj['color']))*mask
-    img = np.clip(img, 0.0, 255.0)
+    imgout = np.clip(imgout, 0.0, 255.0)
 
-    return img.astype(np.uint8)
+    return imgout.astype(np.uint8)
 
 def ColorToBGR(color):
     return (color[2], color[1], color[0])
 
 def DrawFeatures(img, seg, config):
+    objTypes = config['trainingset']['classes']['objects']
+    return ApplyColors(img, seg, objTypes, config)
+
+def DrawContours(img, seg, config):
     objTypes = config['trainingset']['classes']['objects']
     features = ExtractFeatures(seg, objTypes, config)
     for feature in features:
@@ -101,7 +105,6 @@ def DrawFeatures(img, seg, config):
 
     return img
     #return ApplyColors(img, seg, objTypes, config)
-
 
 def DrawSeg(img, ann, pred, objTypes, config):
     ann = tf.squeeze(ann)
@@ -116,10 +119,10 @@ def DrawSeg(img, ann, pred, objTypes, config):
     pred = pred.astype(np.uint8)
 
     annImg = copy.deepcopy(img)
-    DrawFeatures(annImg, ann, config)
+    DrawContours(annImg, ann, config)
 
     predImg = copy.deepcopy(img)
-    DrawFeatures(predImg, pred, config)
+    DrawContours(predImg, pred, config)
 
     return annImg, predImg
 
@@ -156,10 +159,12 @@ def CreatePredictions(dataset, model, config, num=1):
     imgs = []
     i = 0
     for image, mask in dataset.take(num):
-      [_,seg] = model.predict(image)
+      seg = model.predict(image)
+      segmax = tf.math.argmax(seg, axis=-1, output_type=tf.int32)
+      #seg = np.argmax(seg, -1)
       for j in range(batch_size):
 
-        ann, pred = DrawSeg(image[j], mask[j], seg[j], objTypes, config)
+        ann, pred = DrawSeg(image[j], mask[j], segmax[j], objTypes, config)
         imgs.append(np.concatenate((ann, pred), axis=1))
       i=i+1
     return imgs
@@ -168,4 +173,5 @@ def WritePredictions(dataset, model, config, num=1, outpath=''):
 
     imgs = CreatePredictions(dataset, model, config, num=1)
     for i, img in enumerate(imgs):
-        cv2.imwrite('{}/ann-pred{}.png'.format(outpath, i), img)
+        im_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        cv2.imwrite('{}/ann-pred{}.png'.format(outpath, i), im_bgr)

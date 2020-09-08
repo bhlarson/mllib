@@ -12,30 +12,23 @@ from segment.display import DrawFeatures
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--debug', action='store_true',help='Wait for debugge attach')
+parser.add_argument('-debug', action='store_true',help='Wait for debugge attach')
 
-#parser.add_argument('--model_dir', type=str, default='./trainings/unet1',help='Directory to store training model')
-parser.add_argument('--model_dir', type=str, default=None,help='Directory to store training model')
-parser.add_argument('--loadsavedmodel', type=str, default='./saved_model/2020-07-13-16-55-37-dl3', help='Saved model to load if no checkpoint')
+#parser.add_argument('-model_dir', type=str, default='./trainings/unetcoco',help='Directory to store training model')
+parser.add_argument('-model_dir', type=str, default=None,help='Directory to store training model')
+parser.add_argument('-loadsavedmodel', type=str, default='./saved_model/2020-09-07-16-16-50-dl3', help='Saved model to load if no checkpoint')
 
-parser.add_argument('--record_dir', type=str, default='./record', help='Path training set tfrecord')
-parser.add_argument("--devices", type=json.loads, default=["/gpu:0"],  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
-parser.add_argument('--image_size', type=json.loads, default='[576,1024]', help='Training crop size [height, width]/  [90, 160],[120, 160],[120, 160], [144, 176],[288, 352], [240, 432],[480, 640],[576,1024],[720, 960], [720,1280],[1080, 1920]')
-parser.add_argument('--image_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB') 
+parser.add_argument('-record_dir', type=str, default='./record', help='Path training set tfrecord')
+parser.add_argument('-devices', type=json.loads, default=["/gpu:0"],  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
+parser.add_argument('-image_size', type=json.loads, default='[576,1024]', help='Training crop size [height, width]/  [90, 160],[120, 160],[120, 160], [144, 176],[288, 352], [240, 432],[480, 640],[576,1024],[720, 960], [720,1280],[1080, 1920]')
+parser.add_argument('-image_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB') 
 
 FLAGS, unparsed = parser.parse_known_args()
 
-trainingsetDescriptionFile = '{}/description.json'.format(FLAGS.record_dir)
-trainingsetDescription = json.load(open(trainingsetDescriptionFile))
-
 config = {
       'input_shape': [FLAGS.image_size[0], FLAGS.image_size[1], FLAGS.image_depth],
-      'ignore_label': trainingsetDescription['classes']['ignore'],
-      'classes': trainingsetDescription['classes']['classes'],
-      'background':trainingsetDescription['classes']['background'],
-      'trainingset': trainingsetDescription,
       'area_filter_min': 250,
-      'size_divisible': 32
+      'size_divisible': 32,
       }
 
 app = Flask(__name__)
@@ -82,19 +75,21 @@ def gen(camera):
         img = PadValid(img)
 
         if model is not None:
-            ann = model.predict(np.expand_dims(img, axis=0))
-            ann = tf.squeeze(ann) # Drop batch dimension
+            seg = model.predict(np.expand_dims(img, axis=0))
+            seg = tf.squeeze(seg).astype(np.uint8) # Drop batch dimension
         elif infer is not None:
             outputs = infer(tf.constant(np.expand_dims(img.astype(np.float32), axis=0)))
-            ann = tf.squeeze(outputs['tf_op_layer_segmentation']).numpy()
+            seg = tf.math.argmax(outputs['logits'], axis=-1, output_type=tf.int32)
+            seg = tf.squeeze(seg).numpy().astype(np.uint8)
     
         tPredict = datetime.now()
         #iman = img
-        #iman = DrawFeatures(img, ann, config)
+        #iman = DrawFeatures(img, seg, config)
 
-        ann = [cv2.LUT(ann.astype(np.uint8), lut[:, i]) for i in range(3)]
-        ann = np.dstack(ann) 
-        iman = (img*ann).astype(np.uint8)
+        seg = [cv2.LUT(seg, lut[:, i]) for i in range(3)]
+        seg = np.dstack(seg) 
+        iman = (img*seg).astype(np.uint8)
+        #iman = (img).astype(np.uint8)
 
         iman = CropOrigonal(iman, height, width)
 
@@ -136,6 +131,14 @@ if __name__ == '__main__':
         print("Debugger Attached")
 
     print(tf.version)
+
+    trainingsetDescriptionFile = '{}/description.json'.format(FLAGS.loadsavedmodel)
+    trainingsetDescription = json.load(open(trainingsetDescriptionFile))['config']['trainingset']
+
+    config['ignore_label'] = trainingsetDescription['classes']['ignore']
+    config['classes'] = trainingsetDescription['classes']['classes']
+    config['background'] = trainingsetDescription['classes']['background']
+    config['trainingset'] = trainingsetDescription
 
     if FLAGS.model_dir is not None:
         try:

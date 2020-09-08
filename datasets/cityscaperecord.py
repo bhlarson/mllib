@@ -15,40 +15,40 @@ from tqdm import tqdm
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
 
-    parser.add_argument('--ann_dir', type=str, default='ann')
-    parser.add_argument('--record_dir', type=str, default='cityrecord', help='Path record work directory')
+    parser.add_argument('-ann_dir', type=str, default='ann')
+    parser.add_argument('-record_dir', type=str, default='cityrecord', help='Path record work directory')
 
-    parser.add_argument('--sets', type=json.loads,
+    parser.add_argument('-sets', type=json.loads,
         default='[{"name":"train"}, {"name":"val"}, {"name":"test"}]',
         help='Json string containing an array of [{"name":"<>", "ratio":<probability>}]')
 
     defaultsetname = '{}-cityscape'.format(datetime.now().strftime("%Y%m%d-%H%M%S"))
-    parser.add_argument('--setname', type=str, default=defaultsetname, help='Path to training set directory')
+    parser.add_argument('-setname', type=str, default=defaultsetname, help='Path to training set directory')
 
-    parser.add_argument('--image_extension', type=str, default='_leftImg8bit.png', help='Expect tiff image type with microscope data tags')
-    parser.add_argument('--annotation_extension', type=str, default='_gtFine_labelIds.png', help='Annotation decoration e.g.: _cls.png')
+    parser.add_argument('-image_extension', type=str, default='_leftImg8bit.png', help='Expect tiff image type with microscope data tags')
+    parser.add_argument('-annotation_extension', type=str, default='_gtFine_labelIds.png', help='Annotation decoration e.g.: _cls.png')
     
-    parser.add_argument('--shards', 
+    parser.add_argument('-shards', 
         type=int,
         default= 10,
         help='Number of tfrecord shards')
 
-    parser.add_argument('--image_format', 
+    parser.add_argument('-image_format', 
         type=str,
         default='tif',
         help='Image format.')
 
-    parser.add_argument('--classes', type=json.loads, default='{}', help='Class dictionary JSON.  Leave empty if classes_file points to a JSON file.')
-    parser.add_argument('--classes_file', type=str, default='datasets/cityscapes.json', help='Class dictionary JSON file')
+    parser.add_argument('-classes', type=json.loads, default='{}', help='Class dictionary JSON.  Leave empty if classes_file points to a JSON file.')
+    parser.add_argument('-classes_file', type=str, default='datasets/cityscapes.json', help='Class dictionary JSON file')
 
-    parser.add_argument('--img', type=json.loads, default='["/store/Datasets/cityscapes/leftImg8bit_trainvaltest/leftImg8bit"]', help='Cityscape image path')
-    parser.add_argument('--ann', type=json.loads, default='["/store/Datasets/cityscapes/gtFine_trainvaltest/gtFine"]', help='Cityscape annotations path')
-    parser.add_argument('--dest', type=str, default='/store/Datasets/cityscapes/trainingset', help='Trainingset location')
+    parser.add_argument('-img', type=json.loads, default='["/store/Datasets/cityscapes/leftImg8bit_trainvaltest/leftImg8bit"]', help='Cityscape image path')
+    parser.add_argument('-ann', type=json.loads, default='["/store/Datasets/cityscapes/gtFine_trainvaltest/gtFine"]', help='Cityscape annotations path')
+    parser.add_argument('-dest', type=str, default='/store/Datasets/cityscapes/trainingset', help='Trainingset location')
 
-    parser.add_argument('--author', type=str, default='Brad Larson')
-    parser.add_argument('--description', type=str, default='Cityscapes cityscapes/gtFine_trainvaltest/gtFine annotations')
+    parser.add_argument('-author', type=str, default='Brad Larson')
+    parser.add_argument('-description', type=str, default='Cityscapes cityscapes/gtFine_trainvaltest/gtFine annotations')
 
-    parser.add_argument('--debug', action='store_true',help='Wait for debugge attach')
+    parser.add_argument('-debug', action='store_true',help='Wait for debugge attach')
 
     args = parser.parse_args()
     return args

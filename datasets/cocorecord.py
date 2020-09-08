@@ -117,8 +117,11 @@ def Shuffle(sets):
         random.Random(seed).shuffle(sets[key])
 
 def WriteRecords(args):
+
+    setDescriptions = []
     for dataset in args.datasets:
         coco = CocoIO(args.classes, dataset["jsonpath"], dataset["imagepath"], name_deccoration = dataset["name_decoration"])
+        setDescriptions.append({'name':dataset['set'], 'length': coco.len()})
         shard_id = 0
         shardImages = 0
         shards =  math.ceil(float(coco.len())/float(args.shard_images))
@@ -138,7 +141,7 @@ def WriteRecords(args):
                 shard_id += 1
 
 
-    description = {'creation date':datetime.now().strftime("%d/%m/%Y %H:%M:%S"),'author':args.author,'description':args.description, 'classes':args.classes}
+    description = {'creation date':datetime.now().strftime("%d/%m/%Y %H:%M:%S"),'author':args.author,'description':args.description, 'sets': setDescriptions, 'classes':args.classes}
     with open(args.record_dir+'/description.json', 'w') as fp:
         json.dump(description, fp, indent=4, separators=(',', ': '))
 

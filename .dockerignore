@@ -1,0 +1,18 @@
+# ignore .git and .cache folders
+.cache
+.git
+.vscode
+classify
+containers
+deeplab
+is
+model*
+saved_model
+TrainingSet
+
+
+# ignore all *.crt files in all folders, including build root
+**/*.crt
+
+# ignore all __pycache__ folders
+**/__pycache__

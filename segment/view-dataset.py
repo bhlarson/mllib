@@ -8,6 +8,7 @@ import tensorflow as tf
 from datetime import datetime
 import numpy as np
 import cv2
+from tqdm import tqdm
 
 #sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath('')), '..')))
 sys.path.insert(0, os.path.abspath(''))
@@ -27,7 +28,7 @@ parser.add_argument('-record_dir', type=str, default='cocorecord', help='Path tr
 parser.add_argument('-epochs', type=int, default=1,
                     help='Number of training epochs')
 
-parser.add_argument('-batch_size', type=int, default=8, help='Number of examples per batch.')
+parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.')
 
 parser.add_argument('-crops', type=int, default=1, help='Crops/image/step')                
 
@@ -63,15 +64,15 @@ def main(unparsed):
     # Now, all that is left to do is to compile and train the model. The loss being used here is `losses.SparseCategoricalCrossentropy(from_logits=True)`. The reason to use this loss function is because the network is trying to assign each pixel a label, just like multi-class prediction. In the true segmentation mask, each pixel has either a {0,1,2}. The network here is outputting three channels. Essentially, each channel is trying to learn to predict a class, and `losses.SparseCategoricalCrossentropy(from_logits=True)` is the recommended loss for 
     # such a scenario. Using the output of the network, the label assigned to the pixel is the channel with the highest value. This is what the create_mask function is doing.
 
-    train_dataset = input_fn(True, FLAGS.record_dir, config)
-    test_dataset = input_fn(False, FLAGS.record_dir, config)
+    train_dataset = input_fn('train', FLAGS.record_dir, config)
+    test_dataset = input_fn('val', FLAGS.record_dir, config)
 
     outpath = 'test'
     if not os.path.exists(outpath):
         os.makedirs(outpath)
 
     iterator = iter(train_dataset)
-    for i in range(5):
+    for i in tqdm(range(500)):
         image, mask  = iterator.get_next()
         for j in range(config['batch_size']):
             img = tf.squeeze(image[j]).numpy().astype(np.uint8)
@@ -80,6 +81,7 @@ def main(unparsed):
             iman = DrawFeatures(img, ann, config)
             iman = cv2.cvtColor(iman, cv2.COLOR_RGB2BGR)
             cv2.imwrite('{}/ann-pred{}.png'.format(outpath, j+i*config['batch_size']), iman)
+            cv2.imwrite('{}/ann{}.png'.format(outpath, j+i*config['batch_size']), ann*20)
 
 
     #WriteImgAn(train_dataset, config, outpath=outpath)

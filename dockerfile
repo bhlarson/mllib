@@ -23,9 +23,8 @@ RUN pip3 --no-cache-dir install \
         graphviz==0.14 \
         tensorflow-addons==0.10.0 \
         flask==1.1.2 \
-        pycocotools==2.0.1
-
-
+        pycocotools==2.0.1 \
+        shutils
 
 WORKDIR /app
 ENV LANG C.UTF-8

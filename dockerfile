@@ -26,6 +26,8 @@ RUN pip3 --no-cache-dir install \
         pycocotools==2.0.1 \
         shutils
 
+RUN pip3 install https://dl.google.com/coral/python/tflite_runtime-2.1.0.post1-cp36-cp36m-linux_x86_64.whl
+
 WORKDIR /app
 ENV LANG C.UTF-8
 

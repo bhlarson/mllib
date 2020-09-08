@@ -61,21 +61,20 @@ class CocoIO:
         annimg = np.zeros(shape=[imgDef['height'], imgDef['width']], dtype=np.uint8)
         for ann in anns:
             obj = self.catToObj[ann['category_id']]
-            contours = []
-            if type(ann['segmentation']) is list:
-                for i in range(len(ann['segmentation'])):
-
-                    contour = np.rint(np.reshape(ann['segmentation'][i], (-1, 2))).astype(np.int32)
-                    cv2.drawContours(image=annimg, contours=[contour], contourIdx=-1, color=obj['trainId'] , thickness=cv2.FILLED)
-            elif type(ann['segmentation']) is dict:
-                rle = ann['segmentation']
-                compressed_rle = mask.frPyObjects(rle, rle.get('size')[0], rle.get('size')[1])
-                annmask = mask.decode(compressed_rle)
-                annimg += annmask*obj['trainId']
+            if obj['trainId'] < self.objDict["classes"]:
+                if type(ann['segmentation']) is list:
+                    for i in range(len(ann['segmentation'])):
+                        contour = np.rint(np.reshape(ann['segmentation'][i], (-1, 2))).astype(np.int32)
+                        cv2.drawContours(image=annimg, contours=[contour], contourIdx=-1, color=obj['trainId'] , thickness=cv2.FILLED)
+                elif type(ann['segmentation']) is dict:
+                    rle = ann['segmentation']
+                    compressed_rle = mask.frPyObjects(rle, rle.get('size')[0], rle.get('size')[1])
+                    annmask = mask.decode(compressed_rle)
+                    annimg[annmask] = obj['trainId']
+                else:
+                    print('unexpected segmentation')
             else:
-                print('unexpected segmentation')
-                #contours.append(contour)
-            #cv2.drawContours(image=annimg, contours=contours, contourIdx=-1, color=obj['trainId'] , thickness=cv2.FILLED)
+                print('trainId {} >= classes {}'.format(obj['trainId'], self.objDict["classes"]))    
         return annimg
 
     def __iter__(self):

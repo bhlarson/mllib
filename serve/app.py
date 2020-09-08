@@ -83,15 +83,15 @@ def gen(camera):
             seg = tf.squeeze(seg).numpy().astype(np.uint8)
     
         tPredict = datetime.now()
-        #iman = img
-        #iman = DrawFeatures(img, seg, config)
+        #imseg = img
+        #imseg = DrawFeatures(img, seg, config)
 
         seg = [cv2.LUT(seg, lut[:, i]) for i in range(3)]
         seg = np.dstack(seg) 
-        iman = (img*seg).astype(np.uint8)
-        #iman = (img).astype(np.uint8)
+        imseg = (img*seg).astype(np.uint8)
+        #imseg = (img).astype(np.uint8)
 
-        iman = CropOrigonal(iman, height, width)
+        imseg = CropOrigonal(imseg, height, width)
 
         tAfter = datetime.now()
         dInfer = tPredict-tbefore
@@ -101,9 +101,9 @@ def gen(camera):
 
         font = cv2.FONT_HERSHEY_SIMPLEX
         resultsDisplay = 'infer:{:.3f}s display:{:.3f}s'.format(dInfer.total_seconds(), dImAn.total_seconds())
-        cv2.putText(iman, resultsDisplay, (10,25), font, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+        cv2.putText(imseg, resultsDisplay, (10,25), font, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
         # encode as a jpeg image and return it
-        frame = cv2.imencode('.jpg', iman)[1].tobytes()
+        frame = cv2.imencode('.jpg', imseg)[1].tobytes()
 
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')

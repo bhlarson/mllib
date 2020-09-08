@@ -1,0 +1,31 @@
+FROM nvcr.io/nvidia/l4t-tensorflow:r32.4.3-tf1.15-py3
+LABEL maintainer="Brad Larson"
+
+RUN echo 'alias py=python' >> ~/.bashrc
+
+RUN apt-get install -y libsm6
+RUN pip3 install --upgrade pip
+RUN pip3 --no-cache-dir install \
+        numpy \
+        minio \
+        natsort \
+        ptvsd \
+        xmltodict \
+        tqdm \
+        flask \
+        shutils
+
+WORKDIR /app
+ENV LANG C.UTF-8
+
+# jupyter port
+EXPOSE 8888 
+# tensorboard port
+EXPOSE 8008
+# debugger port
+EXPOSE 3000 
+# flask port
+EXPOSE 5000 
+
+# Launch shell script
+RUN ["/bin/bash"]

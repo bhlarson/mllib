@@ -1,9 +1,11 @@
-FROM nvcr.io/nvidia/l4t-tensorflow:r32.4.3-tf1.15-py3
+FROM nvcr.io/nvidia/l4t-tensorflow:r32.4.3-tf2.2-py3
 LABEL maintainer="Brad Larson"
 
-RUN echo 'alias py=python' >> ~/.bashrc
+RUN echo 'alias py=python3' >> ~/.bashrc
 
+RUN apt-get update
 RUN apt-get install -y libsm6
+RUN apt-get install -y python3-opencv
 RUN pip3 install --upgrade pip
 RUN pip3 --no-cache-dir install \
         numpy \

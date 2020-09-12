@@ -29,7 +29,8 @@ def input_fn(config):
     dataset, metadata = tfds.load('tf_flowers', with_info=True, split=config['split'], shuffle_files=True, as_supervised=True)
     dataset = dataset.map(lambda features, label: prepare_image(features, label, config) , num_parallel_calls = 10)
     dataset = dataset.batch(config['batch_size'])
-    dataset = dataset.prefetch(config['batch_size'])
+    #dataset = dataset.prefetch(config['batch_size'])
+    dataset = dataset.cache().prefetch(buffer_size=tf.data.experimental.AUTOTUNE) # Test new autotune prefetch 
     return dataset, metadata
 
 def main(args):

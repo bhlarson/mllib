@@ -1,71 +1,32 @@
-# mllib
+# Embedded Machine Learning Library (mllib)
 
->  --trainingset 2020310Lit --initialmodel 20200302Lit02 --debug True
+<p> The embedded machine learning library is a workspace to explore embedding computer vision 
+machine learning algorithms.  It's scope is the full supervised machine learning workflow - 
+(acquiring, annotating, training, testing, optimizing, deploying, validation).  mllib is
+based on cloud-native arctitecture througout.  
 
-Enable SSH : https://stackoverflow.com/questions/59325078/cannot-connect-to-coral-dev-board-after-updating-to-4-0-mdt-shell-does-not-work#
-1) use ssh-keygen to create private and pub key files.
-2) append (or copy) the pubkey file to target /home/mendel/.ssh/authorized_keys
-3) copy the private key file to ~/.config/mdt/keys/mdt.key
-4) add to local .ssh/config to something like this:
+<p>mllib is currently a sandbox to explore ideas and techniques.  As such it is a useful location 
+to experament with new techniques.  It is not currently a stable repository with consistent 
+interfaces.  As sush, it will hopefully help others to explore deploying machine learning in
+constrained environments.
 
-Host tpu
-         IdentityFile ~/.config/mdt/keys/mdt.key
-         IdentitiesOnly=yes
+<p>The toolset used to devlop and deploy mllib includes:  Tensorflow 2, Keras, Visual Studio Code, 
+Docker, Kubeflow, Kubernetes, Jupyter
 
-Docker build training/test image
-> docker build --pull --rm -f "dockerfile" -t ml:latest context
-> docker run --gpus '"device=0"' -it --rm -v "$(pwd):/app" -v "/store/Datasets:/store/Datasets" -p 6006:6006/tcp -p 3000:3000 mllib:latest
+## Repository Structure
+- datasets: dataset processing algorithms
+- networks: contains a set of convolutional nural networks (CNN) used on various computer vision algorithms
+- classify: algorithms to create trained classification networks
+- segment: algorithms to create trained segmentation networks
+- serve: software deployed to embedded targets.
+- target: instructions to prepare and target Jetson, Corel, and Raspberry Py boards
 
-Jupyter notebook development:
-docker pull jupyter/tensorflow-notebook
-
-<ol type="1">
-    <li>System Setup</li>
-        <ol type="a">
-            <li>Ubuntu</li>
-                <ol type="i">
-                    <li>os</li>
-                    <li>ssh</li>
-                    <li>file system</li>  
-                </ol>
-            <li>MicroK8s or Kubernetes</li>
-                <ol type="i">
-                    <li>docker</li>
-                    <li>snap</li>
-                    <li>microk8s</li>  
-                </ol>
-            <li><a href=https://zero-to-jupyterhub.readthedocs.io/en/latest/setup-jupyterhub/index.html>Jupyter Hub</a> </li>
-            <li> <a href=https://min.io>MINIO</a> data storage
-            <li><a href=https://github.com/opencv/cvat>CVAT</a></li>  
-        </ol>
-    <li>Collect images for training, test and validation</li>
-    <li>Annotation images using</li>
-    <li>Convert annotations to TFRecord training set</li>
-        <ol type="a">
-            <li></li>
-        </ol>
-    <li>Select segmentation model</li>
-    <li>Select inference hardware</li>
-    <li>Select inference server</li>
-    <li>Train model</li>
-    <li>Verify trained model</li>
-    <li>Optimize model for inference hardware</li>
-    <li>Deploy to inference hardware</li>
-    <li>Validate inference results</li>
-    <li></li>
-    <li></li>
-        <ol type="a">
-            <li></li>
-            <li></li>
-            <li></li>
-        </ol>
-    <li></li>
-    <li></li>
-</ol>
-
-# Notes:
-- 1. Development docker image
-   > docker run --device=/dev/video0:/dev/video0 --gpus '"device=0"' -it --rm -v "$(pwd):/app" -v "/store:/store" -p 8889:8888/tcp -p 8009:8008/tcp -p 5001:5000/tcp -p 3001:3000 ml:latest
 
 # To Do:
-* segmentation.py line 187 - Plot results.  pred_mask.shape (8, 224, 224, 19) - need max pooling argmax to convert to segmentation results (224,224) array
+- Remove dead code
+- Consistant document at all levels
+- Import Embedded Classification to classify
+- Instructions to setup development environment
+- Instructions to use mllib
+- Jupyter examples
+- Include images in documentation

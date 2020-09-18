@@ -1,7 +1,8 @@
 import tensorflow as tf
+import tensorflow_model_optimization as tfmot
 DEBUG = False
 
-class ImageStandardization(tf.keras.layers.Layer):
+class ImageStandardization(tf.keras.layers.Layer, tfmot.sparsity.keras.PrunableLayer):
 
   def __init__(self):
     super(ImageStandardization, self).__init__()
@@ -12,11 +13,14 @@ class ImageStandardization(tf.keras.layers.Layer):
     #tf.print("")
     #tf.print("ImageStandardization.call initial image", tf.shape(image), image.dtype)
     image = tf.cast(image, tf.float32)
-    image = tf.image.per_image_standardization(image)
+    #image = tf.image.per_image_standardization(image)
     #tf.print("ImageStandardization final image", tf.shape(image), image.dtype)
     return image
 
-class InstanceNormalization(tf.keras.layers.Layer):
+  def get_prunable_weights(self):
+    return []
+
+class InstanceNormalization(tf.keras.layers.Layer, tfmot.sparsity.keras.PrunableLayer):
   """Instance Normalization Layer (https://arxiv.org/abs/1607.08022)."""
 
   def __init__(self, epsilon=1e-5):
@@ -43,6 +47,9 @@ class InstanceNormalization(tf.keras.layers.Layer):
     inv = tf.math.rsqrt(variance + self.epsilon)
     normalized = (x - mean) * inv
     return self.scale * normalized + self.offset
+
+  def get_prunable_weights(self):
+    return []
 
 def upsample(filters, size, norm_type='batchnorm', apply_dropout=False):
   """Upsamples an input.

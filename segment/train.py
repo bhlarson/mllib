@@ -4,9 +4,11 @@ import argparse
 import json
 import os
 import sys
+import math
 import shutil
 import cv2
 import tensorflow as tf
+import tensorflow_model_optimization as tfmot
 from datetime import datetime
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -33,18 +35,21 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
 parser.add_argument('-dataset_dir', type=str, default='./dataset',help='Directory to store training model')
 parser.add_argument('-saveonly', action='store_true', help='Do not train.  Only produce saved model')
+parser.add_argument('-tflite', action='store_true',help='Run tensorflow lite postprocessing')
+parser.add_argument('-trt', action='store_true',help='Run TensorRT postprocessing')
 
 parser.add_argument('-record_dir', type=str, default='cocorecord', help='Path training set tfrecord')
 #parser.add_argument('-record_dir', type=str, default='cityrecord', help='Path training set tfrecord')
 parser.add_argument('-model_dir', type=str, default='./trainings/unetcoco',help='Directory to store training model')
 #parser.add_argument('-model_dir', type=str, default='./trainings/unetcity',help='Directory to store training model')
-#parser.add_argument('-loadsavedmodel', type=str, default='./saved_model/2020-09-04-05-14-30-dl3', help='Saved model to load if no checkpoint')
-parser.add_argument('-loadsavedmodel', type=str, default=None, help='Saved model to load if no checkpoint')
+parser.add_argument('-loadsavedmodel', type=str, default='./saved_model/2020-09-04-05-14-30-dl3', help='Saved model to load if no checkpoint')
+#parser.add_argument('-loadsavedmodel', type=str, default=None, help='Saved model to load if no checkpoint')
 
 parser.add_argument('-clean_model_dir', type=bool, default=False,
                     help='Whether to clean up the model directory if present.')
 
 parser.add_argument('-epochs', type=int, default=1, help='Number of training epochs')
+parser.add_argument('-prune_epochs', type=int, default=0, help='Number of pruning epochs')
 
 parser.add_argument('-tensorboard_images_max_outputs', type=int, default=2,
                     help='Max number of batch elements to generate for Tensorboard.')
@@ -64,9 +69,10 @@ parser.add_argument('-train_depth', type=int, default=3, help='Number of input c
 defaultfinalmodelname = '{}-dl3'.format(datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
 parser.add_argument('-finalmodel', type=str, default=defaultfinalmodelname, help='Final model')
 
-parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to fcn savedmodel.')
+parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to savedmodel.')
 defaultsavemodelname = '{}-dl3'.format(datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
 parser.add_argument('-savedmodelname', type=str, default=defaultsavemodelname, help='Final model')
+parser.add_argument('-trtmodel', type=str, default='./trt', help='Path to TensorRT.')
 parser.add_argument('-resultspath', type=str, default='/', help='Kubeflow pipeline model output')
 parser.add_argument('-tbport', type=int, default=6006, help='Tensorboard network port.')
 
@@ -229,7 +235,7 @@ def main(unparsed):
     #tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=FLAGS.model_dir, histogram_freq=1)
     callbacks = [
         save_callback,
-        tf.keras.callbacks.TensorBoard(FLAGS.model_dir)
+        #tf.keras.callbacks.TensorBoard(FLAGS.model_dir)
         #,ImageWriterCallback(config)]
     ]
     #file_writer = tf.summary.create_file_writer(FLAGS.model_dir)
@@ -238,38 +244,78 @@ def main(unparsed):
     # Failing with "AttributeError: 'dict' object has no attribute 'name'" when returning multiple outputs 
     #tf.keras.utils.plot_model(model, to_file='{}unet.png'.format(savedmodelpath), show_shapes=True)
 
+    train_images = 5000 # Guess training set if not provided
+    for dataset in trainingsetDescription['sets']:
+        if(dataset['name']=="train"):
+            train_images = dataset["length"]
+
+
     VALIDATION_STEPS = 100
     if not FLAGS.saveonly:
-        model_history = model.fit(train_dataset, epochs=config['epochs'],
-                                  steps_per_epoch=int(trainingsetDescription['sets'][1]['length']/config['batch_size']),
-                                  validation_steps=VALIDATION_STEPS,
-                                  validation_data=val_dataset,
-                                  callbacks=callbacks)
+        if config['epochs'] > 0:
+            model_history = model.fit(train_dataset, epochs=config['epochs'],
+                                    steps_per_epoch=int(train_images/config['batch_size']),
+                                    validation_steps=VALIDATION_STEPS,
+                                    validation_data=val_dataset,
+                                    callbacks=callbacks)
 
-        history = model_history.history
-        if 'loss' in history:
-            loss = model_history.history['loss']
-        else:
-            loss = []
-        if 'val_loss' in history:
-            val_loss = model_history.history['val_loss']
-        else:
-            val_loss = []
+            history = model_history.history
+            if 'loss' in history:
+                loss = model_history.history['loss']
+            else:
+                loss = []
+            if 'val_loss' in history:
+                val_loss = model_history.history['val_loss']
+            else:
+                val_loss = []
 
-        model_description = {'config':config,
-                            'results': history
-                            }
-        epochs = range(config['epochs'])
+            model_description = {'config':config,
+                                'results': history
+                                }
+            epochs = range(config['epochs'])
 
-        plt.figure()
-        plt.plot(epochs, loss, 'r', label='Training loss')
-        plt.plot(epochs, val_loss, 'bo', label='Validation loss')
-        plt.title('Training and Validation Loss')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss Value')
-        plt.ylim([0, 1])
-        plt.legend()
-        plt.savefig('{}training.svg'.format(savedmodelpath))
+            plt.figure()
+            plt.plot(epochs, loss, 'r', label='Training loss')
+            plt.plot(epochs, val_loss, 'bo', label='Validation loss')
+            plt.title('Training and Validation Loss')
+            plt.xlabel('Epoch')
+            plt.ylabel('Loss Value')
+            plt.ylim([0, 1])
+            plt.legend()
+            plt.savefig('{}training.svg'.format(savedmodelpath))
+
+        if FLAGS.prune_epochs > 0:
+            end_step = int(math.ceil(train_images*FLAGS.crops / FLAGS.batch_size)) * FLAGS.prune_epochs
+            pruning_schedule = tfmot.sparsity.keras.PolynomialDecay(
+                                initial_sparsity=0.0, final_sparsity=0.5,
+                                begin_step=0, end_step=end_step)
+
+            def pruning_layers(layer):
+                layers_to_prune=['sequential_3','concatenate_3']
+                if layer.name in layers_to_prune:
+                    return tfmot.sparsity.keras.prune_low_magnitude(layer, pruning_schedule=pruning_schedule)
+                return layer
+
+            # Use `tf.keras.models.clone_model` to apply `apply_pruning_to_dense` 
+            # to the layers of the model.
+            pruning_model = tf.keras.models.clone_model(
+                model,
+                clone_function=pruning_layers,
+            )
+
+            #pruning_model = tfmot.sparsity.keras.prune_low_magnitude(
+            #    model, pruning_schedule=pruning_schedule)
+
+            pruning_model = unet_compile(pruning_model, learning_rate=config['learning_rate'])
+            pruning_model.summary()
+
+            callbacks.append(tfmot.sparsity.keras.UpdatePruningStep())
+            #callbacks.append(tfmot.sparsity.keras.PruningSummaries(log_dir=FLAGS.model_dir))
+            prune_history = pruning_model.fit(train_dataset, epochs=FLAGS.prune_epochs,
+                                    steps_per_epoch=int(train_images/config['batch_size']),
+                                    validation_steps=VALIDATION_STEPS,
+                                    validation_data=val_dataset,
+                                    callbacks=callbacks)
 
     else:
         model_description = {'config':config,
@@ -278,7 +324,19 @@ def main(unparsed):
     model.save(savedmodelpath)
     WriteDictJson(model_description, '{}description.json'.format(savedmodelpath))
 
-    if True: # convert to Tensorflow Lite
+    # Make some predictions. In the interest of saving time, the number of epochs was kept small, but you may set this higher to achieve more accurate results.
+    WritePredictions(val_dataset, model, config, outpath=savedmodelpath)
+
+    # Kubeflow Pipeline results
+    results = model_description
+    WriteDictJson(results, '{}/results.json'.format(savedmodelpath))
+
+    if FLAGS.tflite: # convert to Tensorflow Lite
+        from tensorflow.python.compiler.tensorrt import trt_convert as trt
+        converter = trt.TrtGraphConverterV2(input_saved_model_dir=savedmodelpath)
+        converter.convert()
+        converter.save(output_saved_model_dir)
+
         converter = tf.lite.TFLiteConverter.from_saved_model(savedmodelpath)
         converter.optimizations = [tf.lite.Optimize.OPTIMIZE_FOR_LATENCY]
         #samplefiles = get_samples(FLAGS.sample_dir, FLAGS.match)
@@ -290,12 +348,22 @@ def main(unparsed):
         outflite = './tflite/{}.tflite'.format(FLAGS.savedmodelname)
         open(outflite, "wb").write(tflite_model)
 
-    # Let's make some predictions. In the interest of saving time, the number of epochs was kept small, but you may set this higher to achieve more accurate results.
-    WritePredictions(val_dataset, model, config, outpath=savedmodelpath)
+    if FLAGS.trt: # convert to TensorRT
+        from tensorflow.python.compiler.tensorrt import trt_convert as trt
 
-    # Kubeflow Pipeline results
-    results = model_description
-    WriteDictJson(results, '{}/results.json'.format(savedmodelpath))
+        parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to savedmodel.')
+        defaultsavemodelname = '{}-dl3'.format(datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
+        parser.add_argument('-savedmodelname', type=str, default=defaultsavemodelname, help='Final model')
+        parser.add_argument('-trtmodel', type=str, default='./trt', help='Path to TensorRT.')
+
+        trtmodelpath = '{}/{}/'.format(FLAGS.trtmodel, FLAGS.savedmodelname)
+        if not os.path.exists(trtmodelpath):
+            os.makedirs(trtmodelpath)
+
+        converter = trt.TrtGraphConverterV2(input_saved_model_dir=savedmodelpath)
+        converter.convert()
+        converter.save(trtmodelpath)
+
 
     print("Segmentation training complete. Results saved to {}".format(savedmodelpath))
 

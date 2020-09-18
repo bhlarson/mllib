@@ -1,14 +1,28 @@
-## Nvidia Jetson AGX Xavier
-[Jetson Developer Guide](https://docs.nvidia.com/jetson/l4t/index.html)
-[User Guide](https://developer.download.nvidia.com/assets/embedded/secure/jetson/xavier/docs/nv_jetson_agx_xavier_developer_kit_user_guide.pdf)
+# Embedded Target
+This section targets machine learning to various targets.  This includes Nvidia Jetson 
+AGX Xavier, Nvidia Jetson NX, Corel.io dev board, and Raspberry Pi.  It also includes 
+the TensorRT, Triton, and Tensorflow Lite toolsets.
 
+## Nvidia Jetson Development
+Machine learning targeting NVIDIA Jetson begins a problem a dataset.  These instructions
+begin with the problem of [image segmentation](https://en.wikipedia.org/wiki/Image_segmentation) based on the [COCO dataset](https://cocodataset.org).  Next we need a trained network which we have created with [train.py](../segment/README.md).  "train.py" produces SavedModel output.
 
-[Jetpack Release Notes](https://docs.nvidia.com/jetson/jetpack/release-notes/index.html)
+### Development PC Setup
+- Begin with a deep learning compuer (e.g. [lambda workstation](https://lambdalabs.com/)).  My prefered development GPUs now are [Titan RTX](https://www.nvidia.com/en-us/deep-learning-ai/products/titan-rtx/) with 24GB memory for big models and batch sizes.  The rule of thumb of 2x system meomory vs GPU memory == lots of memory.  IN addition to 2GB SSD for the OS and programs, add enough storage to store big datases.  My preference is ~ 10TB 3.5" HDD for lots of storage at a moderate cost.
+- On the Development PC: Install Ubuntu 18.04, [Visual Studio Code](https://code.visualstudio.com/), the lateest [NVIDIA drivers](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&target_distro=Ubuntu&target_version=1804&target_type=deblocal), [docker](https://www.docker.com/products/docker-desktop), and the [NVIDIA docker extension](https://github.com/NVIDIA/nvidia-docker )
+- In Visual Studio Code, install RemoteSSH extension by Microsoft
+- Load the mllib project.  From the command prompt:
+```console
+sudo mkdir /data
+sudo chown $USER /data
+mkdir /data/git
+cd /data/git
+git https://github.com/bhlarson/mllib.git
+```
 
-[Jetson Downloads](https://developer.nvidia.com/embedded/downloads)
+### Nvidia Jetson Setup:
+- Follow [JetPack 4.4 install instructions](https://developer.nvidia.com/embedded/jetpack)  specific hardware 
 
-- Install Jetson Jetpack on
-- Development PC: In Visual Studio Code, install RemoteSSH extension by Microsoft
 - Set docker permissions
 ```console
 $ sudo groupadd docker
@@ -50,9 +64,45 @@ $ ./drjb
 $ ./dr
 # py serve/app.py -loadsavedmodel './saved_model/2020-09-07-16-16-50-dl3'
 ```
+### Links
+- [Jetson Developer Guide](https://docs.nvidia.com/jetson/l4t/index.html)
+- [User Guide](https://developer.download.nvidia.com/assets/embedded/secure/jetson/xavier/docs/nv_jetson_agx_xavier_developer_kit_user_guide.pdf)
+- [Jetpack Release Notes](https://docs.nvidia.com/jetson/jetpack/release-notes/index.html)
+- [Jetson Downloads](https://developer.nvidia.com/embedded/downloads)
+
+## TensorRT
+This process of TensorRT inference is based on the [TensorRT Developer-Guide](https://docs.nvidia.com/deeplearning/tensorrt/developer-guide/).  Begin by building a trained segmentation network as describe in [../segment/README.md](../segment/README.md)
+1. Build dockerfile_trt development docker environment with dbtrt script: docker build --pull -f "dockerfile_trt" -t trt:latest "context"
+```console
+$ ./dbtrt
+```
+2. run dockerfile_trt development docker environment script wihth drjb script to load docker envirnment:
+```console
+$ ./drtrt
+```
+description:
+- docker run : run docker image
+- --gpus '"device=0"' 
+- -it : creating an interactive bash shell in the container
+- --rm : Automatically remove the container when it exits
+- --cap-add=CAP_SYS_ADMIN 
+- -v "$(pwd):/app" : map map the current working directory to docker image volume /app
+- -v "/store:/store" : map volume /store to docke image volume /store
+- -p 5001:5000/tcp : map port 5001 to docker port 5000 for flask server
+- -p 3000:3000 : map port 3000 to docker image port 3000 for Visual Studio Code debugging
+- --device /dev/video0:/dev/video0 : map /dev/video0 device to docker image as /dev/video0
+- trt:latest : docker image to run
+
+3. Use TF-TRT to convert savedmodel to TensorRT Model:
+```console
+# py target/trt.py -savemodel ./saved_model/2020-09-04-05-14-30-dl3
+```
+3 (alt) Convert from Tensorflow SavedModel to ONNX model to TensorRT Model.  Despite the extra step, this path is recommended in Nvidia documentation and has support for many neural network structurs.
+
+4.Inference uisng the Pythion TensorRT engine:
 
 
-## Nvidia Jetson AGX NX
+
 ## Google Corel.io dev board:
 https://coral.ai/products/dev-board/
 Enable SSH : https://stackoverflow.com/questions/59325078/cannot-connect-to-coral-dev-board-after-updating-to-4-0-mdt-shell-does-not-work#
@@ -67,7 +117,7 @@ Host tpu
 
 
 ## To start the serial consol:
-![Serial Connection](devboard-serial-power-co.jpg)
+![Serial Connection](devboa]rd-serial-power-co.jpg)
 > sudo screen /dev/ttyUSB0 115200
 
 ## ssh over USB
@@ -163,6 +213,12 @@ docker pull jupyter/tensorflow-notebook
     <li></li>
     <li></li>
 </ol>
+
+## TensorRT conversion of Tensorflow saved model
+```console
+$ 
+# py target/trt.py -debug
+```
 
 # Notes:
 - 1. Development docker image

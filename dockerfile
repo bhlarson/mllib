@@ -35,7 +35,7 @@ ENV LANG C.UTF-8
 # jupyter port
 EXPOSE 8888 
 # tensorboard port
-EXPOSE 8008
+EXPOSE 6006
 # debugger port
 EXPOSE 3000 
 # flask port

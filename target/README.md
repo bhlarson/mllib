@@ -7,19 +7,6 @@ the TensorRT, Triton, and Tensorflow Lite toolsets.
 Machine learning targeting NVIDIA Jetson begins a problem a dataset.  These instructions
 begin with the problem of [image segmentation](https://en.wikipedia.org/wiki/Image_segmentation) based on the [COCO dataset](https://cocodataset.org).  Next we need a trained network which we have created with [train.py](../segment/README.md).  "train.py" produces SavedModel output.
 
-### Development PC Setup
-- Begin with a deep learning compuer (e.g. [lambda workstation](https://lambdalabs.com/)).  My prefered development GPUs now are [Titan RTX](https://www.nvidia.com/en-us/deep-learning-ai/products/titan-rtx/) with 24GB memory for big models and batch sizes.  The rule of thumb of 2x system meomory vs GPU memory == lots of memory.  IN addition to 2GB SSD for the OS and programs, add enough storage to store big datases.  My preference is ~ 10TB 3.5" HDD for lots of storage at a moderate cost.
-- On the Development PC: Install Ubuntu 18.04, [Visual Studio Code](https://code.visualstudio.com/), the lateest [NVIDIA drivers](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&target_distro=Ubuntu&target_version=1804&target_type=deblocal), [docker](https://www.docker.com/products/docker-desktop), and the [NVIDIA docker extension](https://github.com/NVIDIA/nvidia-docker )
-- In Visual Studio Code, install RemoteSSH extension by Microsoft
-- Load the mllib project.  From the command prompt:
-```console
-sudo mkdir /data
-sudo chown $USER /data
-mkdir /data/git
-cd /data/git
-git https://github.com/bhlarson/mllib.git
-```
-
 ### Nvidia Jetson Setup:
 - Follow [JetPack 4.4 install instructions](https://developer.nvidia.com/embedded/jetpack)  specific hardware 
 

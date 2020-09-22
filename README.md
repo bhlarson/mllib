@@ -3,7 +3,9 @@
 <p> This embedded machine learning library is a workspace to explore embedding computer vision 
 machine learning algorithms.  Its scope is the full supervised machine learning workflow - 
 (acquire, annotate, train, test, optimize, deploy, validate).  mllib is
-based on cloud-native arctitecture.  
+based on cloud-native arctitecture. Below, illustrates the mllib image segmetation with the unet network of the coco dataset.  The left image illustrates the validation set segmentation and right the trained network segmentation.
+
+![Image Segmentation](img/ann-pred4.png)
 
 <p>mllib is currently a sandbox to explore ideas and techniques.  As such, it is a useful location 
 to experiment with new techniques.  It is not a stable repository with consistent interfaces.

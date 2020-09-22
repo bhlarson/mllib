@@ -23,6 +23,7 @@ mllib directories define specific steps to perform supervised machine learning. 
 
 ### Development Environment Setup
 - Begin with a deep learning compuer (e.g. [lambda workstation](https://lambdalabs.com/)) or cloud GPU server.  A good development GPUs now is [Titan RTX](https://www.nvidia.com/en-us/deep-learning-ai/products/titan-rtx/) with 24GB memory for big models and batch sizes.  A rule of thumb I have followed is 2x system meomory to GPU memory ( == lots of memory).  In addition to a 2GB SSD for the OS and programs, include enough non-volatile storage to store big datastes.  My preference is a 10TB 3.5" HDD for lots of storage at a moderate cost.
+- A USB webcam is used in in mllib as an image source for some algorithms.  The [Logitech C920](https://www.logitech.com/en-us/product/hd-pro-webcam-c920) is an expensive webcam supported in Windows, Linux, Jetson, Corel.io and Raspberry Pi through OpenCV.
 - On the Development PC: Install Ubuntu 18.04, [Visual Studio Code](https://code.visualstudio.com/), the lateest [NVIDIA drivers](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&target_distro=Ubuntu&target_version=1804&target_type=deblocal), [docker](https://www.docker.com/products/docker-desktop), and the [NVIDIA docker extension](https://github.com/NVIDIA/nvidia-docker )
 - In Visual Studio Code, install RemoteSSH extension by Microsoft
 - Load the mllib project.  From the command prompt:

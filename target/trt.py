@@ -1,5 +1,4 @@
-# Based on https://colab.research.google.com/github/tensorflow/docs/blob/master/site/en/tutorials/images/segmentation.ipynb
-
+# Convert Tensorflow savedmodel to TensorRT optimized model
 import os
 import argparse
 import platform

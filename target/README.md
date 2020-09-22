@@ -33,40 +33,32 @@ $ cd /data/git
 $ git clone https://github.com/bhlarson/mllib.git
 $ cd mllib
 ```
-- In the remote SSH visual stuido code window, open /data/git/mllib
-- To build docker image, open a Remote SSH console
+- In the remote SSH visual stuido code window, open /data/git/mllib.  
+- To build and run the tensorrt docker image, in a terminl window, type:
 ```console
-$ cd /data/git/mllib
-$ ./drjb
+$ cd /data/git/mllib 
+$ ./dbtrt # build tensorrt development docker image
+$ ./drtrt # run tensorrt development docker image
 ```
-- To build docker image, open a Remote SSH console
+
+- serve/app.py provides inference on an image stream from a USB web camera.  From the docker consol, run:
 ```console
-$ cd /data/git/mllib
-$ ./drjb
+py serve/app.py -loadsavedmodel './saved_model/2020-09-04-05-14-30-dl3'
 ```
-- Connect OpenCV recognized camera
-- Copy saved model 2020-09-07-16-16-50-dl3 to /data/git/mllib/saved_model/2020-09-07-16-16-50-dl3
-- Run 
-```console
-$ ./dr
-# py serve/app.py -loadsavedmodel './saved_model/2020-09-07-16-16-50-dl3'
-```
-### Links
-- [Jetson Developer Guide](https://docs.nvidia.com/jetson/l4t/index.html)
-- [User Guide](https://developer.download.nvidia.com/assets/embedded/secure/jetson/xavier/docs/nv_jetson_agx_xavier_developer_kit_user_guide.pdf)
-- [Jetpack Release Notes](https://docs.nvidia.com/jetson/jetpack/release-notes/index.html)
-- [Jetson Downloads](https://developer.nvidia.com/embedded/downloads)
+- Open a web broswer to http://localhost:5001/.  I have mapped port 5000 within the docker container to 5001 because port 5000 is used commonly by flask and node development.  You should see the webcam image with people ovrlayed with green, vehicles overlayed red, and animals blue.
+- Stop the server by typing ctl+c in the docker consol
 
 ## TensorRT
-This process of TensorRT inference is based on the [TensorRT Developer-Guide](https://docs.nvidia.com/deeplearning/tensorrt/developer-guide/).  Begin by building a trained segmentation network as describe in [../segment/README.md](../segment/README.md)
+TensorRT is a NVIDIA library for optimizing and running machine learning models on NVIDIA GPUs.  This process of TensorRT inference is based on the [TensorRT Developer-Guide](https://docs.nvidia.com/deeplearning/tensorrt/developer-guide/).  Begin by building a trained segmentation network as describe in [../segment/README.md](../segment/README.md)
 1. Build dockerfile_trt development docker environment with dbtrt script: docker build --pull -f "dockerfile_trt" -t trt:latest "context"
 ```console
 $ ./dbtrt
 ```
-2. run dockerfile_trt development docker environment script wihth drjb script to load docker envirnment:
+2. run dockerfile_trt development docker environment script wihth drjb script to load docker envirnment.  This dockerfile mounds the mllib directory to /app (the container working directory).  This means that files within mllib are available within the container.  Changes in the containers /var directory will be changed and preserved in the mllib directory without requireing container rebuilds or file copies.
 ```console
 $ ./drtrt
 ```
+3. Run 
 description:
 - docker run : run docker image
 - --gpus '"device=0"' 
@@ -82,12 +74,21 @@ description:
 
 3. Use TF-TRT to convert savedmodel to TensorRT Model:
 ```console
-# py target/trt.py -savemodel ./saved_model/2020-09-04-05-14-30-dl3
+py target/trt.py -savemodel ./saved_model/2020-09-04-05-14-30-dl3
 ```
 3 (alt) Convert from Tensorflow SavedModel to ONNX model to TensorRT Model.  Despite the extra step, this path is recommended in Nvidia documentation and has support for many neural network structurs.
 
 4.Inference uisng the Pythion TensorRT engine:
 
+```console
+py target/inftrt.py
+```
+
+### Links
+- [Jetson Developer Guide](https://docs.nvidia.com/jetson/l4t/index.html)
+- [User Guide](https://developer.download.nvidia.com/assets/embedded/secure/jetson/xavier/docs/nv_jetson_agx_xavier_developer_kit_user_guide.pdf)
+- [Jetpack Release Notes](https://docs.nvidia.com/jetson/jetpack/release-notes/index.html)
+- [Jetson Downloads](https://developer.nvidia.com/embedded/downloads)
 
 
 ## Google Corel.io dev board:

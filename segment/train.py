@@ -8,6 +8,7 @@ import math
 import shutil
 import cv2
 import tensorflow as tf
+#from tensorflow.python.framework.ops import disable_eager_execution
 import tensorflow_model_optimization as tfmot
 from datetime import datetime
 import matplotlib.pyplot as plt
@@ -17,19 +18,14 @@ from tensorflow.keras.callbacks import Callback
 from tensorflow.keras.utils import GeneratorEnqueuer, Sequence, OrderedEnqueuer
 
 sys.path.insert(0, os.path.abspath(''))
-from segment.display import DrawFeatures
+from segment.display import DrawFeatures, WritePredictions
+from segment.data import input_fn
+from networks.unet import unet_model, unet_compile
 
 DEBUG = False
 
-#from tensorflow.python.framework.ops import disable_eager_execution
+
 #disable_eager_execution()
-
-#sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath('')), '..')))
-sys.path.insert(0, os.path.abspath(''))
-from segment.data import input_fn
-from segment.display import WritePredictions
-from networks.unet import unet_model, unet_compile
-
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
@@ -37,18 +33,20 @@ parser.add_argument('-dataset_dir', type=str, default='./dataset',help='Director
 parser.add_argument('-saveonly', action='store_true', help='Do not train.  Only produce saved model')
 parser.add_argument('-tflite', action='store_true',help='Run tensorflow lite postprocessing')
 parser.add_argument('-trt', action='store_true',help='Run TensorRT postprocessing')
+parser.add_argument('-onnx', action='store_true',help='Run ONNX postprocessing')
+parser.add_argument('-model_precision', type=str, default='FP16', choices=['FP32', 'FP16', 'INT8'], help='Model Optimization Precision.')
 
 parser.add_argument('-record_dir', type=str, default='cocorecord', help='Path training set tfrecord')
 #parser.add_argument('-record_dir', type=str, default='cityrecord', help='Path training set tfrecord')
 parser.add_argument('-model_dir', type=str, default='./trainings/unetcoco',help='Directory to store training model')
 #parser.add_argument('-model_dir', type=str, default='./trainings/unetcity',help='Directory to store training model')
-parser.add_argument('-loadsavedmodel', type=str, default='./saved_model/2020-09-04-05-14-30-dl3', help='Saved model to load if no checkpoint')
+parser.add_argument('-loadsavedmodel', type=str, default='./saved_model/2020-09-27-07-28-38-dl3', help='Saved model to load if no checkpoint')
 #parser.add_argument('-loadsavedmodel', type=str, default=None, help='Saved model to load if no checkpoint')
 
 parser.add_argument('-clean_model_dir', type=bool, default=False,
                     help='Whether to clean up the model directory if present.')
 
-parser.add_argument('-epochs', type=int, default=1, help='Number of training epochs')
+parser.add_argument('-epochs', type=int, default=2, help='Number of training epochs')
 parser.add_argument('-prune_epochs', type=int, default=0, help='Number of pruning epochs')
 
 parser.add_argument('-tensorboard_images_max_outputs', type=int, default=2,
@@ -70,6 +68,7 @@ defaultfinalmodelname = '{}-dl3'.format(datetime.today().strftime('%Y-%m-%d-%H-%
 parser.add_argument('-finalmodel', type=str, default=defaultfinalmodelname, help='Final model')
 
 parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to savedmodel.')
+parser.add_argument('-onxdir', type=str, default='./onnx', help='Path to ONNX models.')
 defaultsavemodelname = '{}-dl3'.format(datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
 parser.add_argument('-savedmodelname', type=str, default=defaultsavemodelname, help='Final model')
 parser.add_argument('-trtmodel', type=str, default='./trt', help='Path to TensorRT.')
@@ -192,16 +191,16 @@ def main(unparsed):
         'batch_size': FLAGS.batch_size,
         'trainingset': trainingsetDescription,
         'input_shape': [FLAGS.training_crop[0], FLAGS.training_crop[1], FLAGS.train_depth],
-        'classScale': 0.001, # scale value for each product class
+        #'classScale': 0.001, # scale value for each product class
         'augment_rotation' : 0., # Rotation in degrees
         'augment_flip_x': False,
         'augment_flip_y': True,
-        'augment_brightness':0.,
-        'augment_contrast': 0.,
+        'augment_brightness':0.1,
+        'augment_contrast': 0.1,
         'augment_shift_x': 0.1, # in fraction of image
         'augment_shift_y': 0.1, # in fraction of image
         'scale_min': 0.5, # in fraction of image
-        'scale_max': 1.5, # in fraction of image
+        'scale_max': 2.0, # in fraction of image
         'ignore_label': trainingsetDescription['classes']['ignore'],
         'classes': trainingsetDescription['classes']['classes'],
         'image_crops': FLAGS.crops,
@@ -306,7 +305,7 @@ def main(unparsed):
             #pruning_model = tfmot.sparsity.keras.prune_low_magnitude(
             #    model, pruning_schedule=pruning_schedule)
 
-            pruning_model = unet_compile(pruning_model, learning_rate=config['learning_rate'])
+            #pruning_model = unet_compile(pruning_model, learning_rate=config['learning_rate'])
             pruning_model.summary()
 
             callbacks.append(tfmot.sparsity.keras.UpdatePruningStep())
@@ -332,11 +331,6 @@ def main(unparsed):
     WriteDictJson(results, '{}/results.json'.format(savedmodelpath))
 
     if FLAGS.tflite: # convert to Tensorflow Lite
-        from tensorflow.python.compiler.tensorrt import trt_convert as trt
-        converter = trt.TrtGraphConverterV2(input_saved_model_dir=savedmodelpath)
-        converter.convert()
-        converter.save(output_saved_model_dir)
-
         converter = tf.lite.TFLiteConverter.from_saved_model(savedmodelpath)
         converter.optimizations = [tf.lite.Optimize.OPTIMIZE_FOR_LATENCY]
         #samplefiles = get_samples(FLAGS.sample_dir, FLAGS.match)
@@ -345,25 +339,44 @@ def main(unparsed):
         #converter.inference_input_type = tf.uint8  # or tf.uint8
         #converter.inference_output_type = tf.uint8  # or tf.uint8
         tflite_model = converter.convert()
-        outflite = './tflite/{}.tflite'.format(FLAGS.savedmodelname)
+        outflite = '{}{}.tflite'.format(savedmodelpath,FLAGS.savedmodelname)
         open(outflite, "wb").write(tflite_model)
 
     if FLAGS.trt: # convert to TensorRT
+        trtpath = '{}/{}-{}/'.format(FLAGS.trtmodel, FLAGS.savedmodelname, FLAGS.model_precision)
         from tensorflow.python.compiler.tensorrt import trt_convert as trt
 
-        parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to savedmodel.')
-        defaultsavemodelname = '{}-dl3'.format(datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
-        parser.add_argument('-savedmodelname', type=str, default=defaultsavemodelname, help='Final model')
-        parser.add_argument('-trtmodel', type=str, default='./trt', help='Path to TensorRT.')
+        conversion_params = trt.DEFAULT_TRT_CONVERSION_PARAMS
+        conversion_params = conversion_params._replace(precision_mode=FLAGS.model_precision)
 
-        trtmodelpath = '{}/{}/'.format(FLAGS.trtmodel, FLAGS.savedmodelname)
-        if not os.path.exists(trtmodelpath):
-            os.makedirs(trtmodelpath)
-
-        converter = trt.TrtGraphConverterV2(input_saved_model_dir=savedmodelpath)
+        converter = trt.TrtGraphConverterV2(input_saved_model_dir=savedmodelpath, conversion_params=conversion_params)
         converter.convert()
-        converter.save(trtmodelpath)
+        converter.save(trtpath)
 
+        # How do I produce and output a TensorRT .play file with TensorRT
+        # https://docs.nvidia.com/deeplearning/frameworks/tf-trt-user-guide/index.html#worflow-with-savedmodel
+        # create_inference_graph has been removed from Tensorflow 2
+        '''def input_fn():
+            for _ in range(num_runs):
+                inputTensor = np.random.normal(size=(1, FLAGS.training_crop[0], FLAGS.training_crop[1], FLAGS.train_depth)).astype(np.float32)
+                yield inputTensor
+        converter.build(input_fn=input_fn)
+
+        for n in trt_graph.node:
+            if n.op == "TRTEngineOp":
+                print("Node: %s, %s" % (n.op, n.name.replace("/", "_")))
+                with tf.gfile.GFile("%s.plan" % (n.name.replace("/", "_")), 'wb') as f:
+                f.write(n.attr["serialized_segment"].s)
+            else:
+                print("Exclude Node: %s, %s" % (n.op, n.name.replace("/", "_")))'''
+
+    if FLAGS.onnx:
+        import keras2onnx
+
+        onnx_name = '{}{}.onnx'.format(savedmodelpath, FLAGS.savedmodelname)
+        onnx_model = keras2onnx.convert_keras(model, model.name)
+        content = onnx_model.SerializeToString()
+        keras2onnx.save_model(onnx_model, onnx_name)
 
     print("Segmentation training complete. Results saved to {}".format(savedmodelpath))
 
@@ -383,6 +396,6 @@ if __name__ == '__main__':
 
       ptvsd.wait_for_attach()
 
-      print("Debugger attach")
+      print("Debugger attached")
 
   main(unparsed)

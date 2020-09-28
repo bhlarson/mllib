@@ -76,7 +76,7 @@ description:
 ```console
 py target/trt.py -savemodel ./saved_model/2020-09-04-05-14-30-dl3
 ```
-3 (alt) Convert from Tensorflow SavedModel to ONNX model to TensorRT Model.  Despite the extra step, this path is recommended in Nvidia documentation and has support for many neural network structurs.
+3 (alt) Convert from Tensorflow SavedModel to ONNX model to TensorRT Model.  Despite the extra step, this path is recommended in [Speeding up Deep Learning Inference Using TensorFlow, ONNX, and TensorRT](https://developer.nvidia.com/blog/speeding-up-deep-learning-inference-using-tensorflow-onnx-and-tensorrt/) and has support for many neural network structurs.
 
 4.Inference uisng the Pythion TensorRT engine:
 
@@ -89,6 +89,7 @@ py target/inftrt.py
 - [User Guide](https://developer.download.nvidia.com/assets/embedded/secure/jetson/xavier/docs/nv_jetson_agx_xavier_developer_kit_user_guide.pdf)
 - [Jetpack Release Notes](https://docs.nvidia.com/jetson/jetpack/release-notes/index.html)
 - [Jetson Downloads](https://developer.nvidia.com/embedded/downloads)
+- [Speeding up Deep Learning Inference Using TensorFlow, ONNX, and TensorRT](https://developer.nvidia.com/blog/speeding-up-deep-learning-inference-using-tensorflow-onnx-and-tensorrt/)
 
 
 ## Google Corel.io dev board:

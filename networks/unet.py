@@ -13,7 +13,7 @@ class ImageStandardization(tf.keras.layers.Layer, tfmot.sparsity.keras.PrunableL
     #tf.print("")
     #tf.print("ImageStandardization.call initial image", tf.shape(image), image.dtype)
     image = tf.cast(image, tf.float32)
-    #image = tf.image.per_image_standardization(image)
+    image = tf.image.per_image_standardization(image)
     #tf.print("ImageStandardization final image", tf.shape(image), image.dtype)
     return image
 

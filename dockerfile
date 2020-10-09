@@ -22,6 +22,7 @@ RUN pip3 --no-cache-dir install \
         xmltodict==0.12.0 \
         tensorflow-model-optimization==0.4.1 \
         tfds-nightly \
+        keras2onnx \
         tensorflow-addons==0.11.2 \
         flask==1.1.2 \
         pycocotools==2.0.1 \

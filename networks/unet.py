@@ -1,8 +1,7 @@
 import tensorflow as tf
-import tensorflow_model_optimization as tfmot
 DEBUG = False
 
-class ImageStandardization(tf.keras.layers.Layer, tfmot.sparsity.keras.PrunableLayer):
+class ImageStandardization(tf.keras.layers.Layer):
 
   def __init__(self):
     super(ImageStandardization, self).__init__()
@@ -10,17 +9,20 @@ class ImageStandardization(tf.keras.layers.Layer, tfmot.sparsity.keras.PrunableL
   #@tf.function
   @tf.function(autograph=not DEBUG)
   def call(self, image):
-    #tf.print("")
-    #tf.print("ImageStandardization.call initial image", tf.shape(image), image.dtype)
+    if DEBUG:
+      tf.print("ImageStandardization.call initial image", tf.shape(image), image.dtype)
+
+    if tf.keras.backend.image_data_format() == 'channels_first':
+      image = tf.transpose(a=image, perm=[0, 3, 1, 2])
+
     image = tf.cast(image, tf.float32)
     image = tf.image.per_image_standardization(image)
-    #tf.print("ImageStandardization final image", tf.shape(image), image.dtype)
+
+    if DEBUG:
+      tf.print("ImageStandardization final image", tf.shape(image), image.dtype)
     return image
 
-  def get_prunable_weights(self):
-    return []
-
-class InstanceNormalization(tf.keras.layers.Layer, tfmot.sparsity.keras.PrunableLayer):
+class InstanceNormalization(tf.keras.layers.Layer):
   """Instance Normalization Layer (https://arxiv.org/abs/1607.08022)."""
 
   def __init__(self, epsilon=1e-5):
@@ -47,9 +49,6 @@ class InstanceNormalization(tf.keras.layers.Layer, tfmot.sparsity.keras.Prunable
     inv = tf.math.rsqrt(variance + self.epsilon)
     normalized = (x - mean) * inv
     return self.scale * normalized + self.offset
-
-  def get_prunable_weights(self):
-    return []
 
 def upsample(filters, size, norm_type='batchnorm', apply_dropout=False):
   """Upsamples an input.
@@ -88,14 +87,20 @@ def upsample(filters, size, norm_type='batchnorm', apply_dropout=False):
   return result
 
 @tf.function(autograph=not DEBUG)
-def unet_loss(y_true,y_pred):
-    #tf.print('unet_loss y_pred ', y_pred.shape, y_pred.dtype, 'y_true', y_true.shape, y_true.dtype)
-    y_true = tf.squeeze(tf.cast(y_true, tf.int32))
-    #tf.print('unet_loss 2 y_pred ', y_pred.shape, y_pred.dtype, 'y_true', y_true.shape, y_true.dtype)
-    #loss = tf.keras.losses.sparse_categorical_crossentropy(y_true,y_pred, from_logits=True)
-    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_true,logits=y_pred,name='Crossentropy')
+def unet_loss(labels,logits):
+    if tf.keras.backend.image_data_format() == 'channels_first':
+      logits = tf.transpose(a=logits, perm=[0, 2, 3, 1])
+
+    if DEBUG:
+      tf.print('unet_loss logits ', logits.shape, logits.dtype, 'labels', labels.shape, labels.dtype)
+
+    labels = tf.squeeze(tf.cast(labels, tf.int32))
+    #tf.print('unet_loss 2 logits ', logits.shape, logits.dtype, 'labels', labels.shape, labels.dtype)
+    #loss = tf.keras.losses.CategoricalCrossentropy(labels,logits, from_logits=True)
+    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels,logits=logits,name='Crossentropy')
     loss = tf.reduce_mean(input_tensor=(loss))
-    #tf.print('unet_loss loss:', loss, loss.shape, loss.dtype)
+    if DEBUG:
+      tf.print('unet_loss loss:', loss, loss.shape, loss.dtype)
     return loss
 
 @tf.function(autograph=not DEBUG)
@@ -106,8 +111,9 @@ def constant_loss(y_true,y_pred):
 
 def unet_compile(model, learning_rate=0.0001):
   loss = {'logits':unet_loss}
+  #loss = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
   adam = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-  model.compile(optimizer=adam, loss=loss, loss_weights=[1.0], metrics=['accuracy'], run_eagerly=DEBUG)
+  model.compile(optimizer=adam, loss=loss, loss_weights=[1.0], metrics=[], run_eagerly=DEBUG)
 
   return model
 
@@ -117,8 +123,19 @@ def unet_compile(model, learning_rate=0.0001):
 # The reason to output three channels is because there are three possible labels for each pixel. Think of this as multi-classification where each pixel is being classified into three classes.
 
 # As mentioned, the encoder will be a pretrained MobileNetV2 model which is prepared and ready to use in [tf.keras.applications](https://www.tensorflow.org/versions/r2.0/api_docs/python/tf/keras/applications). The encoder consists of specific outputs from intermediate layers in the model. Note that the encoder will not be trained during the training process.
-def unet_model(classes, input_shape, learning_rate=0.0001):
-  base_model = tf.keras.applications.MobileNetV2(input_shape=input_shape, include_top=False, weights='imagenet')
+def unet_model(classes, input_shape, learning_rate=0.0001, weights='imagenet', chanel_order='channels_last'):
+  
+  tf.keras.backend.set_image_data_format(chanel_order)
+  
+  # The decoder/upsampler is simply a series of upsample blocks implemented in TensorFlow examples.
+  if tf.keras.backend.image_data_format() == 'channels_first':
+    feature_chanel = 1
+    #input_shape = [input_shape[2], input_shape[0], input_shape[1]]
+  else:
+    feature_chanel = 3
+
+
+  base_model = tf.keras.applications.MobileNetV2(include_top=False, weights=weights)
   model_input = base_model.get_layer('Conv1').input # Remove Conv1_pad to facilitate resizing
 
   # Use the activations of these layers
@@ -137,13 +154,15 @@ def unet_model(classes, input_shape, learning_rate=0.0001):
   down_stack.trainable = False
 
 
-  # The decoder/upsampler is simply a series of upsample blocks implemented in TensorFlow examples.
-
   up_stack = [
-      upsample(512, 3),  # 4x4 -> 8x8
-      upsample(256, 3),  # 8x8 -> 16x16
-      upsample(128, 3),  # 16x16 -> 32x32
-      upsample(64, 3),   # 32x32 -> 64x64
+      upsample(512, feature_chanel),  # 4x4 -> 8x8
+      upsample(256, feature_chanel),  # 8x8 -> 16x16
+      upsample(128, feature_chanel),  # 16x16 -> 32x32
+      upsample(64, feature_chanel),   # 32x32 -> 64x64
+      #upsample(layers[3].shape[1], feature_chanel),  # 4x4 -> 8x8
+      #upsample(layers[2].shape[1], feature_chanel),  # 8x8 -> 16x16
+      #upsample(layers[1].shape[1], feature_chanel),  # 16x16 -> 32x32
+      #upsample(layers[0].shape[1], feature_chanel),   # 32x32 -> 64x64
   ]
 
   inputs = tf.keras.layers.Input(shape=input_shape)
@@ -159,7 +178,7 @@ def unet_model(classes, input_shape, learning_rate=0.0001):
   # Upsampling and establishing the skip connections
   for up, skip in zip(up_stack, skips):
     x = up(x)
-    concat = tf.keras.layers.Concatenate()
+    concat = tf.keras.layers.Concatenate(axis=feature_chanel)
     x = concat([x, skip])
 
   # This is the last layer of the model
@@ -170,22 +189,5 @@ def unet_model(classes, input_shape, learning_rate=0.0001):
 
   #model = tf.keras.Model(inputs=inputs, outputs=[x, seg], name='UnetSegmentation')
   model = tf.keras.Model(inputs=inputs, outputs=[x], name='UnetSegmentation')
-
-  model = unet_compile(model, learning_rate=learning_rate)
-
-  #loss = {'logits':unet_loss}
-  #adam = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-  #model.compile(optimizer=adam, loss=loss, loss_weights=[1.0], metrics=['accuracy'], run_eagerly=DEBUG)
-
-  '''losses = {
-    'logits':tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-    'logits':unet_loss,
-    'tf_op_layer_segmentation': constant_loss,
-  }
-
-  loss_weights={'logits':1.0, 'tf_op_layer_segmentation':0.0  }
-
-  model.compile(optimizer='adam', loss=losses, loss_weights= loss_weights, metrics=['accuracy'], run_eagerly=True)
-  '''
 
   return model

@@ -9,7 +9,7 @@ import shutil
 import cv2
 import tensorflow as tf
 #from tensorflow.python.framework.ops import disable_eager_execution
-import tensorflow_model_optimization as tfmot
+#import tensorflow_model_optimization as tfmot
 from datetime import datetime
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -29,24 +29,26 @@ DEBUG = False
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
-parser.add_argument('-dataset_dir', type=str, default='./dataset',help='Directory to store training model')
 parser.add_argument('-saveonly', action='store_true', help='Do not train.  Only produce saved model')
 parser.add_argument('-tflite', action='store_true',help='Run tensorflow lite postprocessing')
 parser.add_argument('-trt', action='store_true',help='Run TensorRT postprocessing')
 parser.add_argument('-onnx', action='store_true',help='Run ONNX postprocessing')
+parser.add_argument('-clean_model_dir', action='store_true', help='If set, delete model directory at startup.')
+
+parser.add_argument('-dataset_dir', type=str, default='./dataset',help='Directory to store training model')
 parser.add_argument('-model_precision', type=str, default='FP16', choices=['FP32', 'FP16', 'INT8'], help='Model Optimization Precision.')
+parser.add_argument('-chanel_order', type=str, default='channels_first', choices=['channels_first' or 'channels_last'], help='Model Optimization Precision.')
 
 parser.add_argument('-record_dir', type=str, default='cocorecord', help='Path training set tfrecord')
 #parser.add_argument('-record_dir', type=str, default='cityrecord', help='Path training set tfrecord')
 parser.add_argument('-model_dir', type=str, default='./trainings/unetcoco',help='Directory to store training model')
 #parser.add_argument('-model_dir', type=str, default='./trainings/unetcity',help='Directory to store training model')
-parser.add_argument('-loadsavedmodel', type=str, default='./saved_model/2020-09-27-07-28-38-dl3', help='Saved model to load if no checkpoint')
-#parser.add_argument('-loadsavedmodel', type=str, default=None, help='Saved model to load if no checkpoint')
+#parser.add_argument('-loadsavedmodel', type=str, default='./saved_model/2020-09-30-23-04-02-dl3', help='Saved model to load if no checkpoint')
+parser.add_argument('-loadsavedmodel', type=str, default=None, help='Saved model to load if no checkpoint')
 
-parser.add_argument('-clean_model_dir', type=bool, default=False,
-                    help='Whether to clean up the model directory if present.')
 
-parser.add_argument('-epochs', type=int, default=2, help='Number of training epochs')
+
+parser.add_argument('-epochs', type=int, default=20, help='Number of training epochs')
 parser.add_argument('-prune_epochs', type=int, default=0, help='Number of pruning epochs')
 
 parser.add_argument('-tensorboard_images_max_outputs', type=int, default=2,
@@ -74,6 +76,7 @@ parser.add_argument('-savedmodelname', type=str, default=defaultsavemodelname, h
 parser.add_argument('-trtmodel', type=str, default='./trt', help='Path to TensorRT.')
 parser.add_argument('-resultspath', type=str, default='/', help='Kubeflow pipeline model output')
 parser.add_argument('-tbport', type=int, default=6006, help='Tensorboard network port.')
+parser.add_argument('-weights', type=str, default='imagenet', help='Model initiation weights. None prevens loading weights from pre-trained networks')
 
 def WriteDictJson(outdict, path):
 
@@ -90,7 +93,6 @@ def LoadModel(config):
     if FLAGS.loadsavedmodel is not None:
         try:
             model = tf.keras.models.load_model(FLAGS.loadsavedmodel, compile=False) # Load from checkpoint
-            model = unet_compile(model, learning_rate=config['learning_rate'])
 
         except:
             print('Unable to load weghts from {}'.format(FLAGS.loadsavedmodel))
@@ -98,13 +100,16 @@ def LoadModel(config):
 
     if model is None:
         print('Unable to load weghts.  Restart training.')
-        model = unet_model(config['classes'], config['input_shape'], config['learning_rate'])
+        model = unet_model(classes=config['classes'], input_shape=config['input_shape'], learning_rate=config['learning_rate'], weights=config['weights'], chanel_order=config['chanel_order'])
 
         if FLAGS.model_dir:
             try:
                 model.load_weights(FLAGS.model_dir)
             except:
                 print('Unable to load weghts from {}'.format(FLAGS.model_dir))
+
+    if model:
+        model = unet_compile(model, learning_rate=config['learning_rate'])
     
 
     return model
@@ -184,6 +189,13 @@ class ImageWriterCallback(Callback):
 
 
 def main(unparsed):
+
+    if FLAGS.loadsavedmodel is not None and FLAGS.loadsavedmodel.lower() == 'none' or FLAGS.weights == '':
+        FLAGS.loadsavedmodel = None
+
+    if FLAGS.weights is not None and FLAGS.weights.lower() == 'none' or FLAGS.weights == '':
+        FLAGS.weights = None  
+
     trainingsetDescriptionFile = '{}/description.json'.format(FLAGS.record_dir)
     trainingsetDescription = json.load(open(trainingsetDescriptionFile))
 
@@ -191,12 +203,12 @@ def main(unparsed):
         'batch_size': FLAGS.batch_size,
         'trainingset': trainingsetDescription,
         'input_shape': [FLAGS.training_crop[0], FLAGS.training_crop[1], FLAGS.train_depth],
-        #'classScale': 0.001, # scale value for each product class
+        'classScale': 0.001, # scale value for each product class
         'augment_rotation' : 0., # Rotation in degrees
         'augment_flip_x': False,
         'augment_flip_y': True,
-        'augment_brightness':0.1,
-        'augment_contrast': 0.1,
+        'augment_brightness':0.,
+        'augment_contrast': 0.,
         'augment_shift_x': 0.1, # in fraction of image
         'augment_shift_y': 0.1, # in fraction of image
         'scale_min': 0.5, # in fraction of image
@@ -207,6 +219,8 @@ def main(unparsed):
         'epochs': FLAGS.epochs,
         'area_filter_min': 25,
         'learning_rate': FLAGS.learning_rate,
+        'weights': FLAGS.weights,
+        'chanel_order': FLAGS.chanel_order
         }
 
     if FLAGS.clean_model_dir:
@@ -230,10 +244,13 @@ def main(unparsed):
     train_dataset = input_fn('train', FLAGS.record_dir, config)
     val_dataset = input_fn('val', FLAGS.record_dir, config)
 
-    save_callback = tf.keras.callbacks.ModelCheckpoint(filepath=FLAGS.model_dir,verbose=1,save_weights_only=True,save_freq='epoch')
-    #tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=FLAGS.model_dir, histogram_freq=1)
+    #earlystop_callback = tf.keras.callbacks.EarlyStopping(monitor='loss', min_delta=1e-4, patience=3, verbose=0, mode='auto')
+    save_callback = tf.keras.callbacks.ModelCheckpoint(filepath=FLAGS.model_dir, monitor='loss',verbose=0,save_weights_only=False,save_freq='epoch')
+    #tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=FLAGS.model_dir, histogram_freq=100)
     callbacks = [
+        #earlystop_callback,
         save_callback,
+        #tensorboard_callback
         #tf.keras.callbacks.TensorBoard(FLAGS.model_dir)
         #,ImageWriterCallback(config)]
     ]
@@ -283,7 +300,7 @@ def main(unparsed):
             plt.legend()
             plt.savefig('{}training.svg'.format(savedmodelpath))
 
-        if FLAGS.prune_epochs > 0:
+        '''if FLAGS.prune_epochs > 0:
             end_step = int(math.ceil(train_images*FLAGS.crops / FLAGS.batch_size)) * FLAGS.prune_epochs
             pruning_schedule = tfmot.sparsity.keras.PolynomialDecay(
                                 initial_sparsity=0.0, final_sparsity=0.5,
@@ -314,7 +331,7 @@ def main(unparsed):
                                     steps_per_epoch=int(train_images/config['batch_size']),
                                     validation_steps=VALIDATION_STEPS,
                                     validation_data=val_dataset,
-                                    callbacks=callbacks)
+                                    callbacks=callbacks)'''
 
     else:
         model_description = {'config':config,
@@ -374,7 +391,7 @@ def main(unparsed):
         import keras2onnx
 
         onnx_name = '{}{}.onnx'.format(savedmodelpath, FLAGS.savedmodelname)
-        onnx_model = keras2onnx.convert_keras(model, model.name)
+        onnx_model = keras2onnx.convert_keras(model, model.name, debug_mode=True)
         content = onnx_model.SerializeToString()
         keras2onnx.save_model(onnx_model, onnx_name)
 

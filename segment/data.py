@@ -28,7 +28,7 @@ def get_filenames(data_dir, dataset='train'):
     files =  glob.glob(os.path.join(data_dir, '{}-?????-of-?????.tfrecord'.format(dataset)))
   return files
 
-def parse_record(raw_record, input_shape):
+def parse_record(raw_record, input_shape, chanel_order):
   """Parse PASCAL image and label from a tf record."""
   keys_to_features = {
       'image/height': tf.io.FixedLenFeature((), tf.int64),
@@ -49,7 +49,8 @@ def parse_record(raw_record, input_shape):
   label = tf.image.convert_image_dtype(label, dtype=tf.uint8)
   label.set_shape([None, None, 1])
 
-  #tf.print("parse_record: image", tf.shape(image), image.dtype, 'label', tf.shape(label), label.dtype)
+  if DEBUG:
+    tf.print("parse_record: image", tf.shape(image), image.dtype, 'label', tf.shape(label), label.dtype)
 
   return image, label
 
@@ -86,7 +87,9 @@ def random_crop_or_pad_image_and_label(image, label, input_shape):
     #image_and_label = tf.concat([image, label], axis=2)
     crop_height = tf.maximum(input_shape[0], image_height)
     crop_width = tf.maximum(input_shape[1], image_width)
-    #tf.print("resize_with_crop_or_pad initial image", tf.shape(image), image.dtype, 'label', tf.shape(label), label.dtype)
+
+    if DEBUG:
+      tf.print("resize_with_crop_or_pad initial image", tf.shape(image), image.dtype, 'label', tf.shape(label), label.dtype)
     
     image = tf.image.resize_with_crop_or_pad(image, crop_height, crop_width )
     label = tf.image.resize_with_crop_or_pad(label, crop_height, crop_width )
@@ -107,22 +110,24 @@ def random_crop_or_pad_image_and_label(image, label, input_shape):
     beginLabel = [yBegin, xBegin,0]
     sizeLabel = [input_shape[0], input_shape[1], 1]
 
-    #tf.print("resize_with_crop_or_pad after resize_with_crop_or_pad image", tf.shape(image), image.dtype, 'label', tf.shape(label), label.dtype)
+    if DEBUG:
+      tf.print("resize_with_crop_or_pad after resize_with_crop_or_pad image", tf.shape(image), image.dtype, 'label', tf.shape(label), label.dtype)
 
     image = tf.slice(image, beginImage, sizeImage)
     label = tf.slice(label, beginLabel, sizeLabel)
 
     #image_and_label = tf.image.random_crop(image_and_label, [input_shape[0], input_shape[1], image_depth+1])
 
-    #tf.print("resize_with_crop_or_pad shape after slice image", tf.shape(image), image.dtype, 'label', tf.shape(label), label.dtype)
+    if DEBUG:
+      tf.print("resize_with_crop_or_pad shape after slice image", tf.shape(image), image.dtype, 'label', tf.shape(label), label.dtype)
     #image = image_and_label[:, :, :image_depth]
     #label = image_and_label[:, :, image_depth:]
 
     return image, label
 
 def print_data(image, label, msg):
-  print("{} image {} {} label {} {}".format(msg.numpy().decode('UTF-8'), image.shape, image.dtype, label.shape, label.dtype))
-  return image, label
+    # print("{} image {} {} label {} {}".format(msg.numpy().decode('UTF-8'), image.shape, image.dtype, label.shape, label.dtype))
+    return image, label
 
 def augment_image_config(image, label, config):
     return augment_image(image = image, label = label, 
@@ -137,7 +142,8 @@ def augment_image_config(image, label, config):
 
 def augment_image(image, label, input_shape, augment_rotation, scale_min, scale_max, augment_shift_x, augment_shift_y, augment_flip_x, augment_flip_y):
 
-    #tf.print('image', tf.shape(image), image.dtype, 'label', tf.shape(label), label.dtype)
+    if DEBUG:
+      tf.print('augment_image image input', tf.shape(image), image.dtype, 'label', tf.shape(label), label.dtype)
     shape =  tf.cast(input_shape, tf.float32)
     # Augment transformations
     rotate = tf.random.uniform(shape=[], minval=-augment_rotation,maxval=augment_rotation,name='rotation_augmentation')
@@ -180,7 +186,8 @@ def augment_image(image, label, input_shape, augment_rotation, scale_min, scale_
         image = tf.cond(pred=flip, true_fn=lambda: tf.image.flip_left_right(image), false_fn=lambda: image)
         label = tf.cond(pred=flip, true_fn=lambda: tf.image.flip_left_right(label), false_fn=lambda: label)
 
-    #tf.print("augment_image final", tf.shape(image), image.dtype, 'label', tf.shape(label), label.dtype)
+    if DEBUG:
+      tf.print("augment_image final", tf.shape(image), image.dtype, 'label', tf.shape(label), label.dtype)
     
     return image, label
 
@@ -206,15 +213,12 @@ def input_fn(datasetname, data_dir, config, num_epochs=1, shuffle_buffer=1, num_
         dataset = dataset.shuffle(buffer_size=shuffle_buffer)
         dataset = dataset.repeat(config['epochs'])
 
-    dataset = dataset.map(lambda raw_record: parse_record(raw_record, config['input_shape']), num_parallel_calls = num_parallel_calls)
-    #dataset = dataset.map(lambda image, label: tf.py_function(print_data, [image, label, 'Before augment:'], [image.dtype, label.dtype]))
+    dataset = dataset.map(lambda raw_record: parse_record(raw_record, config['input_shape'], config['chanel_order']), num_parallel_calls = num_parallel_calls)
 
     if datasetname=='train':
         dataset = dataset.map(lambda image, label: augment_image_config(image, label, config) , num_parallel_calls = num_parallel_calls)
     
-    #dataset = dataset.map(lambda image, label: tf.py_function(print_data, [image, label, 'After augment:'], [tf.float32, tf.float32]))
     dataset = dataset.map(lambda image, label: random_crop_or_pad_image_and_label(image, label, config['input_shape']) , num_parallel_calls = num_parallel_calls)
-    #dataset = dataset.map(lambda image, label: tf.py_function(print_data, [image, label, 'After random_crop:'], [tf.float32, tf.float32]))
 
     # We call repeat after shuffling, rather than before, to prevent separate
     # epochs from blending together.

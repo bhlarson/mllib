@@ -40,6 +40,8 @@ def parse_arguments():
         default= 500,
         help='Number images per shard')
 
+    http://images.cocodataset.org/zips/train2017.zip
+
     parser.add_argument('-classes', type=json.loads, default='{}', help='Class dictionary JSON.  Leave empty if classes_file points to a JSON file.')
     parser.add_argument('-classes_file', type=str, default='datasets/coco.json', help='Class dictionary JSON file')
 

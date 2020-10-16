@@ -12,16 +12,16 @@ sys.path.insert(0, os.path.abspath(''))
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
 parser.add_argument('-image_size', type=json.loads, default='[1, 480, 640, 3]', help='Training crop size [height, width]/  [90, 160],[120, 160],[120, 160], [144, 176],[288, 352], [240, 432],[480, 640],[576,1024],[720, 960], [720,1280],[1080, 1920]')
-parser.add_argument('-onnxmodel', type=str, default='./saved_model/2020-10-02-00-37-58-dl3/2020-10-02-00-37-58-dl3.onnx', help='Saved model to load if no checkpoint')
-parser.add_argument('-plan', type=str, default='./saved_model/2020-10-02-00-37-58-dl3/trt-480-640.plan', help="TensorRT Plan")
-parser.add_argument('-trtmodel', type=str, default='./saved_model/2020-10-02-00-37-58-dl3/unet.trt', help='Path to TensorRT.')
+parser.add_argument('-onnxmodel', type=str, default='./saved_model/2020-10-09-13-08-58-dl3/2020-10-09-13-08-58-dl3.onnx', help='Saved model to load if no checkpoint')
+parser.add_argument('-plan', type=str, default='./saved_model/2020-10-09-13-08-58-dl3/trt-480-640.plan', help="TensorRT Plan")
+parser.add_argument('-trtmodel', type=str, default='./saved_model/2020-10-09-13-08-58-dl3/unet.trt', help='Path to TensorRT.')
 
-TRT_LOGGER = trt.Logger(trt.Logger.ERROR)
+TRT_LOGGER = trt.Logger(trt.Logger.VERBOSE)
 trt_runtime = trt.Runtime(TRT_LOGGER)
 def build_engine(onnx_path, input_shape = [1,224,224,3]):
 
     with trt.Builder(TRT_LOGGER) as builder, builder.create_network(1) as network, trt.OnnxParser(network, TRT_LOGGER) as onnxParser:
-        builder.max_workspace_size = (256 << 20)
+        #builder.max_workspace_size = (256 << 20)
 
         #with open(onnx_path, 'rb') as model:
         #    succeeded = onnxParser.parse(model.read())

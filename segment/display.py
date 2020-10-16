@@ -169,9 +169,9 @@ def CreatePredictions(dataset, model, config, num=1):
       i=i+1
     return imgs
 
-def WritePredictions(dataset, model, config, num=1, outpath=''):
+def WritePredictions(dataset, model, config, num_batch=1, outpath='', imgname='ann-pred'):
 
-    imgs = CreatePredictions(dataset, model, config, num=1)
+    imgs = CreatePredictions(dataset, model, config, num=num_batch)
     for i, img in enumerate(imgs):
         im_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        cv2.imwrite('{}/ann-pred{}.png'.format(outpath, i), im_bgr)
+        cv2.imwrite('{}/{}{}.png'.format(outpath, imgname, i), im_bgr)

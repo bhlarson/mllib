@@ -1,4 +1,5 @@
-FROM tensorflow/tensorflow:2.3.0-gpu
+#FROM tensorflow/tensorflow:2.3.1-gpu
+FROM tensorflow/tensorflow:2.2.1-gpu-py3
 LABEL maintainer="Brad Larson"
 
 RUN echo 'alias py=python' >> ~/.bashrc
@@ -11,8 +12,8 @@ RUN apt-get install -y libsm6 libxext6 ffmpeg # required by opencv-python==4.4.0
 RUN pip3 install --upgrade pip
 RUN pip3 --no-cache-dir install \
         opencv-python==4.4.0.42 \
-        numpy==1.18.5 \ 
-        scipy==1.4.1 \ 
+        #numpy==1.18.5 \ 
+        #scipy==1.4.1 \ 
         matplotlib==3.3.1\
         minio==6.0.0 \
         tqdm==4.48.2 \
@@ -22,7 +23,7 @@ RUN pip3 --no-cache-dir install \
         xmltodict==0.12.0 \
         tensorflow-model-optimization==0.4.1 \
         tfds-nightly \
-        keras2onnx \
+        keras2onnx==1.7.0 \
         tensorflow-addons==0.11.2 \
         flask==1.1.2 \
         pycocotools==2.0.1 \

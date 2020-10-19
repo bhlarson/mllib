@@ -35,7 +35,7 @@ parser.add_argument('-trt', action='store_true',help='Run TensorRT postprocessin
 parser.add_argument('-onnx', action='store_true',help='Run ONNX postprocessing')
 
 parser.add_argument('-model_precision', type=str, default='FP16', choices=['FP32', 'FP16', 'INT8'], help='Model Optimization Precision.')
-parser.add_argument('-channel_order', type=str, default='channels_first', choices=['channels_first' or 'channels_last'], help='Model Optimization Precision.')
+parser.add_argument('-channel_order', type=str, default='channels_first', choices=['channels_first' or 'channels_last'], help='Channels_last = NHWC, Tensorflow default, channels_first=NCHW')
 
 parser.add_argument("-strategy", type=str, default='onedevice', help="Replication strategy. 'mirrored', 'onedevice' now supported ")
 parser.add_argument("-devices", type=json.loads, default=["/gpu:0"],  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')

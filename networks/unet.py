@@ -129,6 +129,8 @@ def unet_model(classes, input_shape, learning_rate=0.0001, weights='imagenet', c
   #  feature_channel = 3
 
   base_model = tf.keras.applications.MobileNetV2(include_top=False, weights=weights)
+  print('Display MobileNetV2 encoder')
+  base_model.summary()
   model_input = base_model.get_layer('Conv1').input # Remove Conv1_pad to facilitate resizing
 
   # Use the activations of these layers

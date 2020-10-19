@@ -33,7 +33,7 @@ parser.add_argument('-clean', action='store_true', help='If set, delete model di
 
 parser.add_argument('-dataset_dir', type=str, default='./dataset',help='Directory to store training model')
 parser.add_argument('-model_precision', type=str, default='FP16', choices=['FP32', 'FP16', 'INT8'], help='Model Optimization Precision.')
-parser.add_argument('-channel_order', type=str, default='channels_last', choices=['channels_first', 'channels_last'], help='Model Optimization Precision.')
+parser.add_argument('-channel_order', type=str, default='channels_last', choices=['channels_first', 'channels_last'], help='Channels_last = NHWC, Tensorflow default, channels_first=NCHW')
 
 parser.add_argument('-record_dir', type=str, default='cocorecord', help='Path training set tfrecord')
 #parser.add_argument('-record_dir', type=str, default='cityrecord', help='Path training set tfrecord')

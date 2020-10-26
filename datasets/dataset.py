@@ -11,7 +11,7 @@ import random
 import google.protobuf.text_format as text_format
 import tensorflow as tf
 
-R"""
+"""
 python caltech_to_example.py \
     --images= \
     --output_train=/train.tfrecord \

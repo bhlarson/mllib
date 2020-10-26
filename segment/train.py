@@ -35,7 +35,7 @@ parser.add_argument('-dataset_dir', type=str, default='./dataset',help='Director
 parser.add_argument('-model_precision', type=str, default='FP16', choices=['FP32', 'FP16', 'INT8'], help='Model Optimization Precision.')
 parser.add_argument('-channel_order', type=str, default='channels_last', choices=['channels_first', 'channels_last'], help='Channels_last = NHWC, Tensorflow default, channels_first=NCHW')
 
-parser.add_argument('-record_dir', type=str, default='cocorecord', help='Path training set tfrecord')
+parser.add_argument('-record_dir', type=str, default='/store/Datasets/coco/record', help='Path training set tfrecord')
 #parser.add_argument('-record_dir', type=str, default='cityrecord', help='Path training set tfrecord')
 parser.add_argument('-model_dir', type=str, default='./trainings/unetcoco',help='Directory to store training model')
 parser.add_argument('-checkpoint', type=str, default='train.ckpt',help='Directory to store training model')
@@ -54,8 +54,8 @@ parser.add_argument('-crops', type=int, default=1, help='Crops/image/step')
 
 parser.add_argument('-learning_rate', type=float, default=1e-3, help='Adam optimizer learning rate.')
 
-parser.add_argument("-strategy", type=str, default='onedevice', help="Replication strategy. 'mirrored', 'onedevice' now supported ")
-parser.add_argument("-devices", type=json.loads, default=["/gpu:0"],  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
+parser.add_argument("-strategy", type=str, default='mirrored', help="Replication strategy. 'mirrored', 'onedevice' now supported ")
+parser.add_argument("-devices", type=json.loads, default=None,  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
 
 parser.add_argument('-training_crop', type=json.loads, default='[480, 512]', help='Training crop size [height, width]')
 parser.add_argument('-train_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB') 
@@ -184,6 +184,7 @@ class ImageWriterCallback(Callback):
 
 def main(unparsed):
 
+    print('In main')
     if FLAGS.loadsavedmodel is not None and FLAGS.loadsavedmodel.lower() == 'none' or FLAGS.weights == '':
         FLAGS.loadsavedmodel = None
 
@@ -217,6 +218,26 @@ def main(unparsed):
         'channel_order': FLAGS.channel_order
         }
 
+    strategy = None
+    if(FLAGS.strategy == 'mirrored'):
+        strategy = tf.distribute.MirroredStrategy(devices=None) # All deives
+
+    else:
+        strategy = tf.distribute.OneDeviceStrategy(device="/gpu:0")
+
+        #print('onedevice strategy')
+        #FLAGS.strategy = 'onedevice'
+        #
+        #if(FLAGS.devices is not None and len(FLAGS.devices) > 0):
+        #    device = FLAGS.devices[0]
+        #else:
+        #    device = None
+        #    
+        #print('device  {}'.format(device))
+        #strategy = tf.distribute.OneDeviceStrategy(device=device)
+
+    print('{} distribute with {} GPUs'.format(FLAGS.strategy,strategy.num_replicas_in_sync))
+
     if FLAGS.clean:
         shutil.rmtree(FLAGS.model_dir, ignore_errors=True)
 
@@ -230,107 +251,106 @@ def main(unparsed):
     # Now, all that is left to do is to compile and train the model. The loss being used here is `losses.SparseCategoricalCrossentropy(from_logits=True)`. The reason to use this loss function is because the network is trying to assign each pixel a label, just like multi-class prediction. In the true segmentation mask, each pixel has either a {0,1,2}. The network here is outputting three channels. Essentially, each channel is trying to learn to predict a class, and `losses.SparseCategoricalCrossentropy(from_logits=True)` is the recommended loss for 
     # such a scenario. Using the output of the network, the label assigned to the pixel is the channel with the highest value. This is what the create_mask function is doing.
 
-    model =  LoadModel(config, model_dir=FLAGS.model_dir, loadsavedmodel=FLAGS.loadsavedmodel)
+    with strategy.scope():
+        model =  LoadModel(config) 
 
-    # Display model
-    model.summary()
+        # Display model
+        model.summary()
 
-    train_dataset = input_fn('train', FLAGS.record_dir, config)
-    val_dataset = input_fn('val', FLAGS.record_dir, config)
+        train_dataset = input_fn('train', FLAGS.record_dir, config)
+        val_dataset = input_fn('val', FLAGS.record_dir, config)
 
-    #earlystop_callback = tf.keras.callbacks.EarlyStopping(monitor='loss', min_delta=1e-4, patience=3, verbose=0, mode='auto')
-    save_callback = tf.keras.callbacks.ModelCheckpoint(filepath=FLAGS.model_dir, monitor='loss',verbose=0,save_weights_only=False,save_freq='epoch')
-    tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=FLAGS.model_dir, histogram_freq=100)
-    callbacks = [
-        #earlystop_callback,
-        save_callback,
-        tensorboard_callback
-        #tf.keras.callbacks.TensorBoard(FLAGS.model_dir)
-        #,ImageWriterCallback(config)]
-    ]
-    #file_writer = tf.summary.create_file_writer(FLAGS.model_dir)
+        #earlystop_callback = tf.keras.callbacks.EarlyStopping(monitor='loss', min_delta=1e-4, patience=3, verbose=0, mode='auto')
+        save_callback = tf.keras.callbacks.ModelCheckpoint(filepath=FLAGS.model_dir, monitor='loss',verbose=0,save_weights_only=False,save_freq='epoch')
+        tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=FLAGS.model_dir, histogram_freq=100)
+        callbacks = [
+            #earlystop_callback,
+            save_callback,
+            tensorboard_callback
+            #tf.keras.callbacks.TensorBoard(FLAGS.model_dir)
+            #,ImageWriterCallback(config)]
+        ]
+        #file_writer = tf.summary.create_file_writer(FLAGS.model_dir)
 
-    # Save plot of model model
-    # Failing with "AttributeError: 'dict' object has no attribute 'name'" when returning multiple outputs 
-    #tf.keras.utils.plot_model(model, to_file='{}unet.png'.format(savedmodelpath), show_shapes=True)
+        # Save plot of model model
+        # Failing with "AttributeError: 'dict' object has no attribute 'name'" when returning multiple outputs 
+        #tf.keras.utils.plot_model(model, to_file='{}unet.png'.format(savedmodelpath), show_shapes=True)
 
-    train_images = 100 # Guess training set if not provided
-    for dataset in trainingsetDescription['sets']:
-        if(dataset['name']=="train"):
-            train_images = dataset["length"]
+        train_images = 100 # Guess training set if not provided
+        for dataset in trainingsetDescription['sets']:
+            if(dataset['name']=="train"):
+                train_images = dataset["length"]
 
 
-    #VALIDATION_STEPS = 100
-    if config['epochs'] > 0:
-        model_history = model.fit(train_dataset, epochs=config['epochs'],
-                                  steps_per_epoch=int(train_images/config['batch_size']),
-                                  validation_data=val_dataset,
-                                  #validation_steps=VALIDATION_STEPS,
-                                  callbacks=callbacks)
-
-        history = model_history.history
-        if 'loss' in history:
-            loss = model_history.history['loss']
-        else:
-            loss = []
-        if 'val_loss' in history:
-            val_loss = model_history.history['val_loss']
-        else:
-            val_loss = []
-
-        model_description = {'config':config,
-                            'results': history
-                            }
-        epochs = range(config['epochs'])
-
-        plt.figure()
-        plt.plot(epochs, loss, 'r', label='Training loss')
-        plt.plot(epochs, val_loss, 'bo', label='Validation loss')
-        plt.title('Training and Validation Loss')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss Value')
-        plt.ylim([0, 1])
-        plt.legend()
-        plt.savefig('{}/training.svg'.format(savedmodelpath))
-
-        '''if FLAGS.prune_epochs > 0:
-            end_step = int(math.ceil(train_images*FLAGS.crops / FLAGS.batch_size)) * FLAGS.prune_epochs
-            pruning_schedule = tfmot.sparsity.keras.PolynomialDecay(
-                                initial_sparsity=0.0, final_sparsity=0.5,
-                                begin_step=0, end_step=end_step)
-
-            def pruning_layers(layer):
-                layers_to_prune=['sequential_3','concatenate_3']
-                if layer.name in layers_to_prune:
-                    return tfmot.sparsity.keras.prune_low_magnitude(layer, pruning_schedule=pruning_schedule)
-                return layer
-
-            # Use `tf.keras.models.clone_model` to apply `apply_pruning_to_dense` 
-            # to the layers of the model.
-            pruning_model = tf.keras.models.clone_model(
-                model,
-                clone_function=pruning_layers,
-            )
-
-            #pruning_model = tfmot.sparsity.keras.prune_low_magnitude(
-            #    model, pruning_schedule=pruning_schedule)
-
-            #pruning_model = unet_compile(pruning_model, learning_rate=config['learning_rate'])
-            pruning_model.summary()
-
-            callbacks.append(tfmot.sparsity.keras.UpdatePruningStep())
-            #callbacks.append(tfmot.sparsity.keras.PruningSummaries(log_dir=FLAGS.model_dir))
-            prune_history = pruning_model.fit(train_dataset, epochs=FLAGS.prune_epochs,
+        if config['epochs'] > 0:
+            model_history = model.fit(train_dataset, epochs=config['epochs'],
                                     steps_per_epoch=int(train_images/config['batch_size']),
-                                    validation_steps=VALIDATION_STEPS,
                                     validation_data=val_dataset,
-                                    callbacks=callbacks)'''
+                                    #validation_steps=VALIDATION_STEPS,
+                                    callbacks=callbacks)
 
-    else:
-        model_description = {'config':config,
-                          }
+            history = model_history.history
+            if 'loss' in history:
+                loss = model_history.history['loss']
+            else:
+                loss = []
+            if 'val_loss' in history:
+                val_loss = model_history.history['val_loss']
+            else:
+                val_loss = []
 
-    #model.save('{}/seg.h5'.format(savedmodelpath), save_format='h5')
+            model_description = {'config':config,
+                                'results': history
+                                }
+            epochs = range(config['epochs'])
+
+            plt.figure()
+            plt.plot(epochs, loss, 'r', label='Training loss')
+            plt.plot(epochs, val_loss, 'bo', label='Validation loss')
+            plt.title('Training and Validation Loss')
+            plt.xlabel('Epoch')
+            plt.ylabel('Loss Value')
+            plt.ylim([0, 1])
+            plt.legend()
+            plt.savefig('{}/training.svg'.format(savedmodelpath))
+
+            '''if FLAGS.prune_epochs > 0:
+                end_step = int(math.ceil(train_images*FLAGS.crops / FLAGS.batch_size)) * FLAGS.prune_epochs
+                pruning_schedule = tfmot.sparsity.keras.PolynomialDecay(
+                                    initial_sparsity=0.0, final_sparsity=0.5,
+                                    begin_step=0, end_step=end_step)
+
+                def pruning_layers(layer):
+                    layers_to_prune=['sequential_3','concatenate_3']
+                    if layer.name in layers_to_prune:
+                        return tfmot.sparsity.keras.prune_low_magnitude(layer, pruning_schedule=pruning_schedule)
+                    return layer
+
+                # Use `tf.keras.models.clone_model` to apply `apply_pruning_to_dense` 
+                # to the layers of the model.
+                pruning_model = tf.keras.models.clone_model(
+                    model,
+                    clone_function=pruning_layers,
+                )
+
+                #pruning_model = tfmot.sparsity.keras.prune_low_magnitude(
+                #    model, pruning_schedule=pruning_schedule)
+
+                #pruning_model = unet_compile(pruning_model, learning_rate=config['learning_rate'])
+                pruning_model.summary()
+
+                callbacks.append(tfmot.sparsity.keras.UpdatePruningStep())
+                #callbacks.append(tfmot.sparsity.keras.PruningSummaries(log_dir=FLAGS.model_dir))
+                prune_history = pruning_model.fit(train_dataset, epochs=FLAGS.prune_epochs,
+                                        steps_per_epoch=int(train_images/config['batch_size']),
+                                        validation_steps=VALIDATION_STEPS,
+                                        validation_data=val_dataset,
+                                        callbacks=callbacks)'''
+
+        else:
+            model_description = {'config':config,
+                            }
+
     model.save(savedmodelpath, save_format='tf')
     WriteDictJson(model_description, '{}/description.json'.format(savedmodelpath))
 

@@ -52,7 +52,7 @@ parser.add_argument('-tensorboard_images_max_outputs', type=int, default=2,
 parser.add_argument('-batch_size', type=int, default=16, help='Number of examples per batch.')
 parser.add_argument('-crops', type=int, default=1, help='Crops/image/step')                
 
-parser.add_argument('-learning_rate', type=float, default=1e-4, help='Adam optimizer learning rate.')
+parser.add_argument('-learning_rate', type=float, default=1e-3, help='Adam optimizer learning rate.')
 
 parser.add_argument("-strategy", type=str, default='onedevice', help="Replication strategy. 'mirrored', 'onedevice' now supported ")
 parser.add_argument("-devices", type=json.loads, default=["/gpu:0"],  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
@@ -74,35 +74,39 @@ def WriteDictJson(outdict, path):
        
     return True
 
-def LoadModel(config):
+def LoadModel(config, model_dir=None, loadsavedmodel=None):
     model = None 
 
-    if FLAGS.loadsavedmodel is not None and len(FLAGS.loadsavedmodel)>0:
+    if loadsavedmodel is not None and len(loadsavedmodel)>0:
         try:
-            model = tf.keras.models.load_model(FLAGS.loadsavedmodel) # Load from checkpoint
+            model = tf.keras.models.load_model(loadsavedmodel) # Load from checkpoint
 
         except:
-            print('Unable to load weghts from {}'.format(FLAGS.loadsavedmodel))
+            print('Unable to load weghts from {}'.format(loadsavedmodel))
             model = None 
 
     if model is None:
-        if FLAGS.model_dir is not None and len(FLAGS.model_dir)>0:
+        if model_dir is not None and len(model_dir)>0:
             try:
-                model = tf.keras.models.load_model(FLAGS.model_dir)
+                model = tf.keras.models.load_model(model_dir)
             except:
-                print('Unable to load weghts from {}'.format(FLAGS.model_dir))
+                print('Unable to load weghts from {}'.format(model_dir))
 
     if model is None:
-        model = unet_model(classes=config['classes'], input_shape=config['input_shape'], learning_rate=config['learning_rate'], weights=config['weights'], channel_order=config['channel_order'])
+        model = unet_model(classes=config['classes'], 
+                           input_shape=config['input_shape'], 
+                           weights=config['weights'], 
+                           channel_order=config['channel_order'])
 
-        if not FLAGS.clean:
-            model.load_weights(FLAGS.model_dir)
+        if not config.clean:
+            model.load_weights(model_dir)
 
     if model:
         model = unet_compile(model, learning_rate=config['learning_rate'])
     
 
     return model
+
 
 def make_image_tensor(tensor):
     """
@@ -226,7 +230,7 @@ def main(unparsed):
     # Now, all that is left to do is to compile and train the model. The loss being used here is `losses.SparseCategoricalCrossentropy(from_logits=True)`. The reason to use this loss function is because the network is trying to assign each pixel a label, just like multi-class prediction. In the true segmentation mask, each pixel has either a {0,1,2}. The network here is outputting three channels. Essentially, each channel is trying to learn to predict a class, and `losses.SparseCategoricalCrossentropy(from_logits=True)` is the recommended loss for 
     # such a scenario. Using the output of the network, the label assigned to the pixel is the channel with the highest value. This is what the create_mask function is doing.
 
-    model =  LoadModel(config) 
+    model =  LoadModel(config, model_dir=FLAGS.model_dir, loadsavedmodel=FLAGS.loadsavedmodel)
 
     # Display model
     model.summary()

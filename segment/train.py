@@ -98,7 +98,7 @@ def LoadModel(config, model_dir=None, loadsavedmodel=None):
                            weights=config['weights'], 
                            channel_order=config['channel_order'])
 
-        if not config.clean:
+        if not config['clean'] and model_dir is not None:
             model.load_weights(model_dir)
 
     if model:
@@ -129,6 +129,16 @@ def make_image_tensor(tensor):
                             colorspace=channel,
                             encoded_image_string=image_string)
 
+def graph_history(epochs,loss,val_loss,savedmodelpath):
+    plt.figure()
+    plt.plot(epochs, loss, 'r', label='Training loss')
+    plt.plot(epochs, val_loss, 'bo', label='Validation loss')
+    plt.title('Training and Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss Value')
+    plt.ylim([0, 1])
+    plt.legend()
+    plt.savefig('{}/training.svg'.format(savedmodelpath))
 
 class TensorboardWriter:
 
@@ -215,26 +225,20 @@ def main(unparsed):
         'area_filter_min': 25,
         'learning_rate': FLAGS.learning_rate,
         'weights': FLAGS.weights,
-        'channel_order': FLAGS.channel_order
+        'channel_order': FLAGS.channel_order,
+        'clean': FLAGS.clean,
         }
 
     strategy = None
     if(FLAGS.strategy == 'mirrored'):
-        strategy = tf.distribute.MirroredStrategy(devices=None) # All deives
+        strategy = tf.distribute.MirroredStrategy(devices=FLAGS.devices)
 
     else:
-        strategy = tf.distribute.OneDeviceStrategy(device="/gpu:0")
+        device = "/gpu:0"
+        if FLAGS.devices is not None and len(FLAGS.devices > 0):
+            device = FLAGS.devices[0]
 
-        #print('onedevice strategy')
-        #FLAGS.strategy = 'onedevice'
-        #
-        #if(FLAGS.devices is not None and len(FLAGS.devices) > 0):
-        #    device = FLAGS.devices[0]
-        #else:
-        #    device = None
-        #    
-        #print('device  {}'.format(device))
-        #strategy = tf.distribute.OneDeviceStrategy(device=device)
+        strategy = tf.distribute.OneDeviceStrategy(device=device)
 
     print('{} distribute with {} GPUs'.format(FLAGS.strategy,strategy.num_replicas_in_sync))
 
@@ -264,11 +268,8 @@ def main(unparsed):
         save_callback = tf.keras.callbacks.ModelCheckpoint(filepath=FLAGS.model_dir, monitor='loss',verbose=0,save_weights_only=False,save_freq='epoch')
         tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=FLAGS.model_dir, histogram_freq=100)
         callbacks = [
-            #earlystop_callback,
             save_callback,
             tensorboard_callback
-            #tf.keras.callbacks.TensorBoard(FLAGS.model_dir)
-            #,ImageWriterCallback(config)]
         ]
         #file_writer = tf.summary.create_file_writer(FLAGS.model_dir)
 
@@ -304,15 +305,7 @@ def main(unparsed):
                                 }
             epochs = range(config['epochs'])
 
-            plt.figure()
-            plt.plot(epochs, loss, 'r', label='Training loss')
-            plt.plot(epochs, val_loss, 'bo', label='Validation loss')
-            plt.title('Training and Validation Loss')
-            plt.xlabel('Epoch')
-            plt.ylabel('Loss Value')
-            plt.ylim([0, 1])
-            plt.legend()
-            plt.savefig('{}/training.svg'.format(savedmodelpath))
+            graph_history(epochs,loss,val_loss,savedmodelpath)
 
             '''if FLAGS.prune_epochs > 0:
                 end_step = int(math.ceil(train_images*FLAGS.crops / FLAGS.batch_size)) * FLAGS.prune_epochs

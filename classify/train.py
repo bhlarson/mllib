@@ -32,7 +32,7 @@ parser.add_argument('-dataset', type=str, default='tf_flowers', choices=['tf_flo
 
 parser.add_argument("-strategy", type=str, default='mirrored', help="Replication strategy. 'mirrored', 'onedevice' now supported ")
 parser.add_argument("-devices", type=json.loads, default=None,  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
-defaultsavemodeldir = '{}'.format(datetime.now().strftime('%Y-%m-%d-%H-%M-%S'))
+defaultsavemodeldir = '{}'.format(datetime.now().strftime('%Y-%m-%d-%H-%M-%S-cfy'))
 parser.add_argument('-savedmodelname', type=str, default=defaultsavemodeldir, help='Final model')
 parser.add_argument('-weights', type=str, default='imagenet', help='Model initiation weights. None prevens loading weights from pre-trained networks')
 
@@ -57,7 +57,7 @@ def LoadModel(config, model_dir=None, loadsavedmodel=None):
             model = None 
 
     if model is None:
-        if model_dir is not None and len(model_dir)>0:
+        if not config['clean'] and model_dir is not None:
             try:
                 model = tf.keras.models.load_model(model_dir)
             except:

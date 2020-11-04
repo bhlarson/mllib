@@ -6,7 +6,6 @@ import platform
 import json
 import numpy as np
 import tensorrt as trt
-from PIL import Image
 import cv2
 
 sys.path.insert(0, os.path.abspath(''))
@@ -15,9 +14,8 @@ import inference as inf
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
-parser.add_argument('-onnxmodel', type=str, default='./saved_model/2020-10-02-00-37-58-dl3/2020-10-02-00-37-58-dl3.onnx', help='Saved model to load if no checkpoint')
-parser.add_argument('-trtmodel', type=str, default='./saved_model/2020-10-02-00-37-58-dl3/unet.trt', help='Path to TensorRT.')
-parser.add_argument('-image_size', type=json.loads, default='[1, 480, 640, 3]', help='Training crop size [height, width]/  [90, 160],[120, 160],[120, 160], [144, 176],[288, 352], [240, 432],[480, 640],[576,1024],[720, 960], [720,1280],[1080, 1920]')
+parser.add_argument('-trtmodel', type=str, default='./saved_model/2020-11-04-05-45-02/classify.trt', help='Path to TensorRT.')
+parser.add_argument('-image_size', type=json.loads, default='[1, 224, 224, 3]', help='Training size [batch, height, width, colors]')
 
 
 def crop(image, out_size):
@@ -79,13 +77,14 @@ def main(args):
 
     trt_runtime = trt.Runtime(trt.Logger(trt.Logger.WARNING))
     f = open(args.trtmodel, "rb")
-    engine = runtime.deserialize_cuda_engine(f.read())
+    engine = trt_runtime.deserialize_cuda_engine(f.read())
     context = engine.create_execution_context()
 
-    print('input shape: {}'.format(engine.get_binding_shape(0)))
-    print('output shape: {}'.format(engine.get_binding_shape(1))) 
+    input_shape = engine.get_binding_shape(0)
+    output_shape = engine.get_binding_shape(1)
 
-
+    print('input shape: {}'.format(input_shape))
+    print('output shape: {}'.format(output_shape)) 
 
     images = ['testtrt/000000001761.jpg', 'testtrt/000000119088.jpg', 'testtrt/000000139099.jpg', 'testtrt/000000143998.jpg', 'testtrt/000000222235.jpg', 'testtrt/000000276707.jpg', 'testtrt/000000386134.jpg', 'testtrt/000000428218.jpg', 'testtrt/000000530854.jpg', 'testtrt/000000538067.jpg']
 
@@ -99,22 +98,6 @@ def main(args):
         img = cv2.imread(image,0)
         img = resize_with_crop_or_pad(img, [input_shape[1],input_shape[2]])
         out = inf.do_inference(engine, img.astype(np.uint16), h_input, d_input, h_output, d_output, stream, 1, input_shape[1], input_shape[2])
-
-
-
-    '''out = inf.do_inference(engine, im, h_input, d_input, h_output, d_output, stream, 1, HEIGHT, WIDTH)
-    out = color_map(out)
-
-    colorImage_trt = Image.fromarray(out.astype(np.uint8))
-    colorImage_trt.save(“trt_output.png”)
-
-    semantic_model = keras.models.load_model('/path/to/semantic_segmentation.hdf5')
-    out_keras= semantic_model.predict(im.reshape(-1, 3, HEIGHT, WIDTH))
-
-    out_keras = color_map(out_keras)
-    colorImage_k = Image.fromarray(out_keras.astype(np.uint8))
-    colorImage_k.save(“keras_output.png”)'''
-
 
 if __name__ == '__main__':
   args, unparsed = parser.parse_known_args()

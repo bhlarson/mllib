@@ -6,6 +6,9 @@ import platform
 import json
 import numpy as np
 import tensorrt as trt
+import pycuda.driver as cuda
+import pycuda.autoinit
+from datetime import datetime
 import cv2
 
 sys.path.insert(0, os.path.abspath(''))
@@ -89,15 +92,48 @@ def main(args):
     images = ['testtrt/000000001761.jpg', 'testtrt/000000119088.jpg', 'testtrt/000000139099.jpg', 'testtrt/000000143998.jpg', 'testtrt/000000222235.jpg', 'testtrt/000000276707.jpg', 'testtrt/000000386134.jpg', 'testtrt/000000428218.jpg', 'testtrt/000000530854.jpg', 'testtrt/000000538067.jpg']
 
     engine = eng.load_engine(trt_runtime, args.trtmodel)
-    print('input shape: {}'.format(engine.get_binding_shape(0)))
-    print('output shape: {}'.format(engine.get_binding_shape(1))) 
-    output_shape = engine.get_binding_shape(1)
-    h_input, d_input, h_output, d_output, stream = inf.allocate_buffers(engine, 1, trt.float32)
 
+    #h_input, d_input, h_output, d_output, stream = inf.allocate_buffers(engine, 1, trt.float32)
+    inputBuffer = np.zeros(input_shape)
+    output = np.empty(output_shape[1], dtype = np.float32)
+
+    # Allocate device memory
+    d_input = cuda.mem_alloc(1 * inputBuffer.nbytes)
+    d_output = cuda.mem_alloc(1 * output.nbytes)
+
+    bindings = [int(d_input), int(d_output)]
+
+    stream = cuda.Stream()
+
+    def predict_batch(input_data, d_input, stream, bindings, output, d_output): # result gets copied into output
+        # Transfer input_data to device
+        cuda.memcpy_htod_async(d_input, input_data, stream)
+        # Execute model
+        context.execute_async(1, bindings, stream.handle, None)
+        # Transfer predictions back
+        cuda.memcpy_dtoh_async(output, d_output, stream)
+        # Syncronize threads
+        stream.synchronize()
+        return output
+
+    print("Load model and dependencies...")
+
+    predict_batch(inputBuffer, d_input, stream, bindings, output, d_output)
+
+    print("Begin inferences")
+    begin = datetime.now() 
+    dtSum = 0.0
     for image in images:
         img = cv2.imread(image,0)
         img = resize_with_crop_or_pad(img, [input_shape[1],input_shape[2]])
-        out = inf.do_inference(engine, img.astype(np.uint16), h_input, d_input, h_output, d_output, stream, 1, input_shape[1], input_shape[2])
+        # Using current time 
+        initial = datetime.now() 
+        predict_batch(img.astype(np.float32), d_input, stream, bindings, output, d_output)
+        prediction = np.argmax(output)
+        dt = (datetime.now()-initial).total_seconds()
+        dtSum += dt
+        print ("Prediction: {} dt {}".format(prediction, dt) )
+    print ("Average time {}".format(dtSum/len(images)) )
 
 if __name__ == '__main__':
   args, unparsed = parser.parse_known_args()

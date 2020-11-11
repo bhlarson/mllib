@@ -69,3 +69,5 @@ docker pull jupyter/tensorflow-notebook
 
 # To Do:
 * segmentation.py line 187 - Plot results.  pred_mask.shape (8, 224, 224, 19) - need max pooling argmax to convert to segmentation results (224,224) array
+
+# jtop diagnostics: https://github.com/rbonghi/jetson_stats

@@ -278,17 +278,22 @@ def main(unparsed):
         #tf.keras.utils.plot_model(model, to_file='{}unet.png'.format(savedmodelpath), show_shapes=True)
 
         train_images = 100 # Guess training set if not provided
+        validation_steps = 10
         for dataset in trainingsetDescription['sets']:
             if(dataset['name']=="train"):
                 train_images = dataset["length"]
 
+        steps_per_epoch=int(train_images/config['batch_size'])
+        validation_steps = 
+
 
         if config['epochs'] > 0:
-            model_history = model.fit(train_dataset, epochs=config['epochs'],
-                                    steps_per_epoch=int(train_images/config['batch_size']),
+            model_history = model.fit(train_dataset, 
                                     validation_data=val_dataset,
-                                    #validation_steps=VALIDATION_STEPS,
-                                    callbacks=callbacks)
+                                    epochs=config['epochs'],
+                                    steps_per_epoch=steps_per_epoch,
+                                    validation_steps=validation_steps,
+                                    callbacks=validation_steps)
 
             history = model_history.history
             if 'loss' in history:

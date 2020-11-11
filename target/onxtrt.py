@@ -16,10 +16,12 @@ parser.add_argument('-savedmodel', type=str, default='./saved_model/2020-11-04-0
 parser.add_argument('-onnxmodel', type=str, default='classify.onnx', help='Saved model to load if no checkpoint')
 parser.add_argument('-plan', type=str, default='classify.plan', help="TensorRT Plan")
 parser.add_argument('-trtmodel', type=str, default='classify.trt', help='Path to TensorRT.')
+parser.add_argument('-precision', type=str, default='undefined', choices=['undefined','fp16', 'int8'], help='Path to TensorRT.')
+fp16
 
 TRT_LOGGER = trt.Logger(trt.Logger.VERBOSE)
 trt_runtime = trt.Runtime(TRT_LOGGER)
-def build_engine(onnx_path, input_shape = [1,224,224,3]):
+def build_engine(onnx_path, config):
 
     with trt.Builder(TRT_LOGGER) as builder, builder.create_network(1) as network, trt.OnnxParser(network, TRT_LOGGER) as onnxParser:
         #builder.max_workspace_size = (256 << 20)
@@ -29,11 +31,16 @@ def build_engine(onnx_path, input_shape = [1,224,224,3]):
         #print('onnxParser onnx succeeded={} with {} errors'.format(succeeded, onnxParser.num_errors))
         #for i in range(onnxParser.num_errors):
         #    print('parse error {}: {}'.format(i, onnxParser.get_error(i)))
-        
+        if config['precision']=='int8':
+            builder.int8_mode = True
+            builder.strict_type_constraints = True
+        else if config['precision']=='fp16':
+            builder.fp16_mode = True
+            builder.strict_type_constraints = True
         succeeded = onnxParser.parse_from_file(onnx_path)
 
         if succeeded:
-            network.get_input(0).shape = input_shape
+            network.get_input(0).shape = config['input_shape']
             last_layer = network.get_layer(network.num_layers - 1)
             network.mark_output(last_layer.get_output(0))
             engine = builder.build_cuda_engine(network)
@@ -57,6 +64,20 @@ def main(args):
     print('Platform: {}'.format(platform.platform()))
     print('Python: {}'.format(platform.python_version()))
 
+    config = {
+        'precision':args.precision,
+        'image_size': args.image_size,
+        'shape': (args.size_y, args.size_x, args.depth),
+        'split': tfds.Split.TRAIN,
+        'classes': 0, # load classes from dataset
+        'learning_rate': args.learning_rate,
+        'init_weights':'imagenet',
+        'clean': args.clean,
+        'epochs':args.epochs,
+        'trining':'train[:80%]',
+        'validation':'train[80%:]',
+    }
+
     onnxmodelname = '{}/{}'.format(args.savedmodel, args.onnxmodel)
     planname = '{}/{}'.format(args.savedmodel, args.plan)
     trtname = '{}/{}'.format(args.savedmodel, args.trtmodel)
@@ -66,7 +87,7 @@ def main(args):
     
 
     # Convert using TensorRT python API (https://docs.nvidia.com/deeplearning/tensorrt/api/python_api/)
-    engine = build_engine(onnx_path=onnxmodelname, input_shape=args.image_size)
+    engine = build_engine(onnx_path=onnxmodelname, config=config)
     if engine:
         save_engine(engine, args.plan)
 

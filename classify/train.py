@@ -8,6 +8,7 @@ from tensorflow import keras
 import tensorflow_datasets as tfds
 from datetime import datetime
 import matplotlib.pyplot as plt
+from datetime import datetime
 
 print('Python Version {}'.format(sys.version))
 print('Tensorflow version {}'.format(tf.__version__))
@@ -19,11 +20,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debugger attach')
 parser.add_argument('-clean', action='store_true', help='If set, delete model directory at startup.')
 parser.add_argument('-batch_size', type=int, default=32, help='Number of examples per batch.')
-parser.add_argument('-classes', type=int, default=5, help='Number of examples per batch.')
 parser.add_argument('-size_x', type=int, default=224, help='Training image size_x')
 parser.add_argument('-size_y', type=int, default=224, help='Training image size_y')
 parser.add_argument('-depth', type=int, default=3, help='Training image depth')
-parser.add_argument('-epochs', type=int, default=3, help='Training epochs')
+parser.add_argument('-epochs', type=int, default=30, help='Training epochs')
 parser.add_argument('-model_dir', type=str, default='./trainings/unetcoco',help='Directory to store training model')
 parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to savedmodel.')
 parser.add_argument('-loadsavedmodel', type=str, default=None, help='Saved model to load if no checkpoint')
@@ -65,10 +65,8 @@ def LoadModel(config, model_dir=None, loadsavedmodel=None):
 
     if model is None:
 
-        model = keras.applications.ResNet50V2(
-            include_top=True, weights=config['init_weights'], input_shape=config['shape'],
-            classifier_activation='softmax'
-        )
+        model = keras.applications.ResNet50V2(include_top=True, weights=config['init_weights'], 
+            input_shape=config['shape'], classes=config['classes'])
 
         if model_dir is not None and not config['clean']:
             model.load_weights(model_dir)
@@ -96,18 +94,50 @@ def input_fn(config, split):
 def graph_history(epochs,loss,val_loss,savedmodelpath):
     plt.figure()
     if loss:
-        plt.plot(epochs, loss, 'r', label='Training loss')
+        plt.plot(loss, 'r', label='Training loss')
     if val_loss:
-        plt.plot(epochs, val_loss, 'bo', label='Validation loss')
+        plt.plot(val_loss, 'bo', label='Validation loss')
     plt.title('Training and Validation Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss Value')
-    plt.ylim([0, 1])
     plt.legend()
     plt.savefig('{}/training.svg'.format(savedmodelpath))
 
+def PrepareInference(dataset, model):
+    for image, label in dataset.take(1):
+        logits = model.predict(image) 
+
+def CreatePredictions(dataset, model, config, outpath, imgname, num=1):
+    i = 0
+    dtSum = 0.0
+    for image, label in dataset.take(num):
+      initial = datetime.now()
+      logits = model.predict(image)
+      classification = tf.math.argmax(logits, axis=-1, output_type=tf.int32)
+      dt = (datetime.now()-initial).total_seconds()
+      dtSum += dt
+      for j in range(config['batch_size']):
+        filename = '{}/{}{}.png'.format(outpath, imgname, i)
+        ax = plt.imshow(image[j])
+        plt.autoscale(True)
+        plt.axis('off')
+        plt.gca().get_legend().set_visible(False)
+        plt.tight_layout()
+        datastr = 'label:{}, pred:{} conf:{:.4f}, dt:{:.4f}'.format(
+            label[j].numpy(),
+            classification[j].numpy(),
+            logits[j][classification[j].numpy()],
+            dt/config['batch_size'])
+        plt.title(datastr)
+        plt.savefig(filename)
+        i=i+1
+
+        print (datastr)
+    print ("Average time {}".format(dtSum/i) )
+
 def main(args):
     tf.config.experimental_run_functions_eagerly(False)
+    training_percent = 0.8
     config = {
         'dataset':args.dataset,
         'batch_size': args.batch_size,
@@ -115,11 +145,14 @@ def main(args):
         'split': tfds.Split.TRAIN,
         'classes': 0, # load classes from dataset
         'learning_rate': args.learning_rate,
-        'init_weights':'imagenet',
+        'init_weights':None,
         'clean': args.clean,
         'epochs':args.epochs,
-        'trining':'train[:80%]',
-        'validation':'train[80%:]',
+        'training_percent':training_percent,
+        'training':'train[:{}%]'.format(int(100*training_percent)),
+        'validation':'train[{}%:]'.format(int(100*training_percent)),
+        #'training':'train[:80%]',
+        #'validation':'train[80%:]',
     }
 
     strategy = None
@@ -152,17 +185,24 @@ def main(args):
             #tensorboard_callback
         ]
 
+        train_dataset, datasetdata = input_fn(config, split=config['training'])
+        val_dataset, _ = input_fn(config, split=config['validation'])
+        config['classes'] = datasetdata.features['label'].num_classes
+        train_images = int(datasetdata.splits.total_num_examples*config['training_percent'])
+
+        steps_per_epoch=int(train_images/config['batch_size'])
+        validation_steps = int(datasetdata.splits.total_num_examples*(1.0-config['training_percent']/config['batch_size']))
+
         model =  LoadModel(config, args.model_dir)
 
         # Display model
         model.summary()
 
-        train_set, datasetdata = input_fn(config, split=config['trining'])
-        val_set, _ = input_fn(config, split=config['validation'])
-
-        model_history = model.fit(train_set, 
-                                  validation_data=val_set,
-                                  epochs=args.epochs, 
+        model_history = model.fit(train_dataset, 
+                                  validation_data=val_dataset,
+                                  epochs=args.epochs,
+                                  #steps_per_epoch=steps_per_epoch,
+                                  #validation_steps=validation_steps,
                                   callbacks=callbacks)
         history = model_history.history
 
@@ -184,10 +224,17 @@ def main(args):
         graph_history(epochs,loss,val_loss,savedmodelpath)
 
     model.save(savedmodelpath, save_format='tf')
+    
+    PrepareInference(dataset=train_dataset, model=model)
+    CreatePredictions(dataset=train_dataset, model=model, config=config, outpath=savedmodelpath, imgname='train')
+    CreatePredictions(dataset=val_dataset, model=model, config=config, outpath=savedmodelpath, imgname='val')
+
     model_description = {'config':config,
                          'results': history
                         }
     WriteDictJson(model_description, '{}/description.json'.format(savedmodelpath))
+
+    # Save confusion matrix: https://www.kaggle.com/grfiv4/plot-a-confusion-matrix
 
     print("Training complete. Results saved to {}".format(savedmodelpath))
 

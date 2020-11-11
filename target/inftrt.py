@@ -121,7 +121,6 @@ def main(args):
     predict_batch(inputBuffer, d_input, stream, bindings, output, d_output)
 
     print("Begin inferences")
-    begin = datetime.now() 
     dtSum = 0.0
     for image in images:
         img = cv2.imread(image,0)

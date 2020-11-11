@@ -1,3 +1,5 @@
+# Model based on https://www.tensorflow.org/tutorials/images/segmentation
+
 import tensorflow as tf
 DEBUG = False
 
@@ -9,11 +11,14 @@ class ImageStandardization(tf.keras.layers.Layer):
   #@tf.function
   @tf.function(autograph=not DEBUG)
   def call(self, image):
-    #tf.print("")
-    #tf.print("ImageStandardization.call initial image", tf.shape(image), image.dtype)
+    if DEBUG:
+      tf.print("ImageStandardization.call initial image", tf.shape(image), image.dtype)
+
     image = tf.cast(image, tf.float32)
     image = tf.image.per_image_standardization(image)
-    #tf.print("ImageStandardization final image", tf.shape(image), image.dtype)
+
+    if DEBUG:
+      tf.print("ImageStandardization final image", tf.shape(image), image.dtype)
     return image
 
 class InstanceNormalization(tf.keras.layers.Layer):
@@ -81,37 +86,51 @@ def upsample(filters, size, norm_type='batchnorm', apply_dropout=False):
   return result
 
 @tf.function(autograph=not DEBUG)
-def unet_loss(y_true,y_pred):
-    #tf.print('unet_loss y_pred ', y_pred.shape, y_pred.dtype, 'y_true', y_true.shape, y_true.dtype)
-    y_true = tf.squeeze(tf.cast(y_true, tf.int32))
-    #tf.print('unet_loss 2 y_pred ', y_pred.shape, y_pred.dtype, 'y_true', y_true.shape, y_true.dtype)
-    #loss = tf.keras.losses.sparse_categorical_crossentropy(y_true,y_pred, from_logits=True)
-    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_true,logits=y_pred,name='Crossentropy')
+def unet_loss(labels,logits):
+    if DEBUG:
+      tf.print('unet_loss logits ', logits.shape, logits.dtype, 'labels', labels.shape, labels.dtype)
+
+    labels = tf.squeeze(tf.cast(labels, tf.int32))
+    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels,logits=logits,name='Crossentropy')
     loss = tf.reduce_mean(input_tensor=(loss))
-    #tf.print('unet_loss loss:', loss, loss.shape, loss.dtype)
+    if DEBUG:
+      tf.print('unet_loss loss:', loss, loss.shape, loss.dtype)
     return loss
 
-@tf.function(autograph=not DEBUG)
-def constant_loss(y_true,y_pred):
-    loss = tf.constant(0.0, shape=[], dtype=tf.float32)
-    #tf.print('constant_loss loss:', loss, loss.shape, loss.dtype)
-    return loss
 
 def unet_compile(model, learning_rate=0.0001):
-  loss = {'logits':unet_loss}
-  adam = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-  model.compile(optimizer=adam, loss=loss, loss_weights=[1.0], metrics=['accuracy'], run_eagerly=DEBUG)
-
+  #loss = {'format2_channels_last':unet_loss}
+  loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+  optimizers = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+  model.compile(optimizer=optimizers, loss=loss, loss_weights=[1.0], metrics=['accuracy'], run_eagerly=DEBUG)
   return model
 
 # ## Define the model
-# The model being used here is a modified U-Net. A U-Net consists of an encoder (downsampler) and decoder (upsampler). In-order to learn robust features, and reduce the number of trainable parameters, a pretrained model can be used as the encoder. Thus, the encoder for this task will be a pretrained MobileNetV2 model, whose intermediate outputs will be used, and the decoder will be the upsample block already implemented in TensorFlow Examples in the [Pix2pix tutorial](https://github.com/tensorflow/examples/blob/master/tensorflow_examples/models/pix2pix/pix2pix.py). 
-# 
-# The reason to output three channels is because there are three possible labels for each pixel. Think of this as multi-classification where each pixel is being classified into three classes.
+# The model being used here is a modified U-Net. A U-Net consists of an encoder (downsampler) and decoder (upsampler). 
+# In-order to learn robust features, and reduce the number of trainable parameters, a pretrained model can be used as 
+# the encoder. Thus, the encoder for this task will be a pretrained MobileNetV2 model, whose intermediate outputs will 
+# be used, and the decoder will be the upsample block already implemented in TensorFlow Examples in the 
+# [Pix2pix tutorial](https://github.com/tensorflow/examples/blob/master/tensorflow_examples/models/pix2pix/pix2pix.py). 
+#
+# The encoder, a pretrained MobileNetV2 model, is prepared and ready to use in 
+# [tf.keras.applications](https://www.tensorflow.org/versions/r2.0/api_docs/python/tf/keras/applications). The encoder 
+# consists of specific outputs from intermediate layers in the model. Note that the encoder will not be trained during 
+# the training process.
+def unet_model(classes, input_shape, learning_rate=0.0001, weights='imagenet', channel_order='channels_last', train_base_model = True):
+  
+  tf.keras.backend.set_image_data_format(channel_order)
+  
+  # The decoder/upsampler is simply a series of upsample blocks implemented in TensorFlow examples.
+  feature_channel = 1 if channel_order == 'channels_first' else len(input_shape)
 
-# As mentioned, the encoder will be a pretrained MobileNetV2 model which is prepared and ready to use in [tf.keras.applications](https://www.tensorflow.org/versions/r2.0/api_docs/python/tf/keras/applications). The encoder consists of specific outputs from intermediate layers in the model. Note that the encoder will not be trained during the training process.
-def unet_model(classes, input_shape, learning_rate=0.0001):
-  base_model = tf.keras.applications.MobileNetV2(input_shape=input_shape, include_top=False, weights='imagenet')
+  #if channel_order == 'channels_first':
+  #  feature_channel = 1
+  #else:
+  #  feature_channel = 3
+
+  base_model = tf.keras.applications.MobileNetV2(input_shape=input_shape, include_top=False, weights=weights)
+  print('Display MobileNetV2 encoder')
+  base_model.summary()
   model_input = base_model.get_layer('Conv1').input # Remove Conv1_pad to facilitate resizing
 
   # Use the activations of these layers
@@ -127,22 +146,26 @@ def unet_model(classes, input_shape, learning_rate=0.0001):
   # Create the feature extraction model
   down_stack = tf.keras.Model(inputs=base_model.input, outputs=layers)
 
-  down_stack.trainable = False
-
-
-  # The decoder/upsampler is simply a series of upsample blocks implemented in TensorFlow examples.
+  down_stack.trainable = train_base_model
 
   up_stack = [
-      upsample(512, 3),  # 4x4 -> 8x8
-      upsample(256, 3),  # 8x8 -> 16x16
-      upsample(128, 3),  # 16x16 -> 32x32
-      upsample(64, 3),   # 32x32 -> 64x64
+      upsample(512, feature_channel),  # 4x4 -> 8x8
+      upsample(256, feature_channel),  # 8x8 -> 16x16
+      upsample(128, feature_channel),  # 16x16 -> 32x32
+      upsample(64, feature_channel),   # 32x32 -> 64x64
   ]
 
   inputs = tf.keras.layers.Input(shape=input_shape)
+
   x = inputs
+
+  if channel_order == 'channels_first':
+    NCHW = tf.keras.layers.Permute((3, 1, 2))
+    x = NCHW(x)
+
+  #x = tf.keras.applications.mobilenet_v2.preprocess_input(x)
   standardization = ImageStandardization()
-  x = standardization(inputs)
+  x = standardization(x)
 
   # Downsampling through the model
   skips = down_stack(x)
@@ -152,33 +175,23 @@ def unet_model(classes, input_shape, learning_rate=0.0001):
   # Upsampling and establishing the skip connections
   for up, skip in zip(up_stack, skips):
     x = up(x)
-    concat = tf.keras.layers.Concatenate()
+    concat = tf.keras.layers.Concatenate(axis=feature_channel)
     x = concat([x, skip])
 
   # This is the last layer of the model
-  Conv2DTranspose = tf.keras.layers.Conv2DTranspose(classes, 3, strides=2,padding='same', name='logits')
+  Conv2DTranspose = tf.keras.layers.Conv2DTranspose(classes, 3, strides=2,padding='same', name='Conv2DTranspose')
   x = Conv2DTranspose(x)
 
-  #seg = tf.argmax(x, axis=-1, name='segmentation')
+  if channel_order == 'channels_first':
+    NHWC = tf.keras.layers.Permute((2, 3, 1))
+    x = NHWC(x)
 
-  #model = tf.keras.Model(inputs=inputs, outputs=[x, seg], name='UnetSegmentation')
   model = tf.keras.Model(inputs=inputs, outputs=[x], name='UnetSegmentation')
 
-  model = unet_compile(model, learning_rate=learning_rate)
 
-  #loss = {'logits':unet_loss}
-  #adam = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-  #model.compile(optimizer=adam, loss=loss, loss_weights=[1.0], metrics=['accuracy'], run_eagerly=DEBUG)
+  # How do I output both logits and argmax operation is computed by the GPU?
+  #seg = tf.argmax(logits, axis=-1, name='segmentation')
+  #model = tf.keras.Model(inputs=inputs, outputs=[x, seg], name='UnetSegmentation')
 
-  '''losses = {
-    'logits':tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-    'logits':unet_loss,
-    'tf_op_layer_segmentation': constant_loss,
-  }
-
-  loss_weights={'logits':1.0, 'tf_op_layer_segmentation':0.0  }
-
-  model.compile(optimizer='adam', loss=losses, loss_weights= loss_weights, metrics=['accuracy'], run_eagerly=True)
-  '''
 
   return model

@@ -16,25 +16,24 @@ from tqdm import tqdm
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
 
-    parser.add_argument('-ann_dir', type=json.loads, default='[]')
-    parser.add_argument('-record_dir', type=str, default='cocorecord', help='Path record work directory')
+    parser.add_argument('-dataset_path', type=str, default='/store/Datasets/coco', help='Path coco dataset direcotry')
+    parser.add_argument('-record_dir', type=str, default='/store/Datasets/coco/record', help='Path record work directory')
 
     parser.add_argument('-datasets', type=json.loads,
         default='[ \
-                  { "jsonpath":"/store/Datasets/coco/instances_val2017.json", \
-                    "imagepath":"/store/Datasets/coco/val2017", \
+                  { "jsonpath":"annotations/instances_train2017.json", \
+                    "imagepath":"train2017", \
                     "name_decoration":"", \
-                    "set":"val"}, \
-                  { "jsonpath":"/store/Datasets/coco/instances_train2017.json", \
-                    "imagepath":"/store/Datasets/coco/train2017", \
+                    "set":"train" \
+                  }, \
+                  { "jsonpath":"annotations/instances_val2017.json", \
+                    "imagepath":"val2017", \
                     "name_decoration":"", \
-                    "set":"train"} \
+                    "set":"val" \
+                  } \
                 ]',
         help='Json string containing an array of [{"jsonpath":"<>", "imagepath":"<>", "name_decoration":"<>","set":"<>",}]')
-
-    defaultsetname = '{}-coco'.format(datetime.now().strftime("%Y%m%d-%H%M%S"))
-    parser.add_argument('-setname', type=str, default=defaultsetname, help='Path to training set directory')
-    
+   
     parser.add_argument('-shard_images', 
         type=int,
         default= 500,
@@ -120,12 +119,14 @@ def WriteRecords(args):
 
     setDescriptions = []
     for dataset in args.datasets:
-        coco = CocoIO(args.classes, dataset["jsonpath"], dataset["imagepath"], name_deccoration = dataset["name_decoration"])
+        jsonpath = '{}/{}'.format(args.dataset_path, dataset["jsonpath"])
+        imagepath = '{}/{}'.format(args.dataset_path, dataset["imagepath"])
+        coco = CocoIO(args.classes, jsonpath, imagepath, name_deccoration = dataset["name_decoration"])
         setDescriptions.append({'name':dataset['set'], 'length': coco.len()})
         shard_id = 0
         shardImages = 0
         shards =  math.ceil(float(coco.len())/float(args.shard_images))
-        print('Processing {} dataset with {} images from {}'.format(dataset["set"], coco.len(), dataset["jsonpath"]))
+        print('Processing {} dataset with {} images from {}'.format(dataset["set"], coco.len(), jsonpath))
         for i, iman in enumerate(tqdm(coco, total=coco.len())):
 
             if shardImages == 0:

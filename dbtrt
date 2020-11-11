@@ -1,0 +1,1 @@
+docker build --pull -f "target/dockerfile" -t trt:latest "context"

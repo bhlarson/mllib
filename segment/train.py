@@ -4,9 +4,12 @@ import argparse
 import json
 import os
 import sys
+import math
 import shutil
 import cv2
 import tensorflow as tf
+#from tensorflow.python.framework.ops import disable_eager_execution
+#import tensorflow_model_optimization as tfmot
 from datetime import datetime
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -15,60 +18,52 @@ from tensorflow.keras.callbacks import Callback
 from tensorflow.keras.utils import GeneratorEnqueuer, Sequence, OrderedEnqueuer
 
 sys.path.insert(0, os.path.abspath(''))
-from segment.display import DrawFeatures
+from segment.display import DrawFeatures, WritePredictions
+from segment.data import input_fn
+from networks.unet import unet_model, unet_compile
 
 DEBUG = False
 
-#from tensorflow.python.framework.ops import disable_eager_execution
+
 #disable_eager_execution()
-
-#sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath('')), '..')))
-sys.path.insert(0, os.path.abspath(''))
-from segment.data import input_fn
-from segment.display import WritePredictions
-from networks.unet import unet_model, unet_compile
-
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
-parser.add_argument('-dataset_dir', type=str, default='./dataset',help='Directory to store training model')
-parser.add_argument('-saveonly', action='store_true', help='Do not train.  Only produce saved model')
+parser.add_argument('-clean', action='store_true', help='If set, delete model directory at startup.')
 
-parser.add_argument('-record_dir', type=str, default='cocorecord', help='Path training set tfrecord')
+parser.add_argument('-dataset_dir', type=str, default='./dataset',help='Directory to store training model')
+parser.add_argument('-model_precision', type=str, default='FP16', choices=['FP32', 'FP16', 'INT8'], help='Model Optimization Precision.')
+parser.add_argument('-channel_order', type=str, default='channels_last', choices=['channels_first', 'channels_last'], help='Channels_last = NHWC, Tensorflow default, channels_first=NCHW')
+
+parser.add_argument('-record_dir', type=str, default='/store/Datasets/coco/record', help='Path training set tfrecord')
 #parser.add_argument('-record_dir', type=str, default='cityrecord', help='Path training set tfrecord')
 parser.add_argument('-model_dir', type=str, default='./trainings/unetcoco',help='Directory to store training model')
+parser.add_argument('-checkpoint', type=str, default='train.ckpt',help='Directory to store training model')
 #parser.add_argument('-model_dir', type=str, default='./trainings/unetcity',help='Directory to store training model')
-#parser.add_argument('-loadsavedmodel', type=str, default='./saved_model/2020-09-04-05-14-30-dl3', help='Saved model to load if no checkpoint')
+#parser.add_argument('-loadsavedmodel', type=str, default='./saved_model/2020-10-13-16-02-17-dl3', help='Saved model to load if no checkpoint')
 parser.add_argument('-loadsavedmodel', type=str, default=None, help='Saved model to load if no checkpoint')
 
-parser.add_argument('-clean_model_dir', type=bool, default=False,
-                    help='Whether to clean up the model directory if present.')
-
-parser.add_argument('-epochs', type=int, default=1, help='Number of training epochs')
+parser.add_argument('-epochs', type=int, default=10, help='Number of training epochs')
+parser.add_argument('-prune_epochs', type=int, default=0, help='Number of pruning epochs')
 
 parser.add_argument('-tensorboard_images_max_outputs', type=int, default=2,
                     help='Max number of batch elements to generate for Tensorboard.')
 
-parser.add_argument('-batch_size', type=int, default=32, help='Number of examples per batch.')
+parser.add_argument('-batch_size', type=int, default=16, help='Number of examples per batch.')
 parser.add_argument('-crops', type=int, default=1, help='Crops/image/step')                
 
-parser.add_argument('-learning_rate', type=float, default=1e-3,
-                    help='Adam optimizer learning rate.')
+parser.add_argument('-learning_rate', type=float, default=1e-3, help='Adam optimizer learning rate.')
 
-parser.add_argument("-strategy", type=str, default='onedevice', help="Replication strategy. 'mirrored', 'onedevice' now supported ")
-parser.add_argument("-devices", type=json.loads, default=["/gpu:0"],  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
+parser.add_argument("-strategy", type=str, default='mirrored', help="Replication strategy. 'mirrored', 'onedevice' now supported ")
+parser.add_argument("-devices", type=json.loads, default=None,  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
 
 parser.add_argument('-training_crop', type=json.loads, default='[480, 512]', help='Training crop size [height, width]')
 parser.add_argument('-train_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB') 
 
-defaultfinalmodelname = '{}-dl3'.format(datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
-parser.add_argument('-finalmodel', type=str, default=defaultfinalmodelname, help='Final model')
-
-parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to fcn savedmodel.')
-defaultsavemodelname = '{}-dl3'.format(datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
-parser.add_argument('-savedmodelname', type=str, default=defaultsavemodelname, help='Final model')
-parser.add_argument('-resultspath', type=str, default='/', help='Kubeflow pipeline model output')
-parser.add_argument('-tbport', type=int, default=6006, help='Tensorboard network port.')
+parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to savedmodel.')
+defaultsavemodeldir = '{}'.format(datetime.now().strftime('%Y-%m-%d-%H-%M-%S'))
+parser.add_argument('-savedmodelname', type=str, default=defaultsavemodeldir, help='Final model')
+parser.add_argument('-weights', type=str, default='imagenet', help='Model initiation weights. None prevens loading weights from pre-trained networks')
 
 def WriteDictJson(outdict, path):
 
@@ -79,30 +74,39 @@ def WriteDictJson(outdict, path):
        
     return True
 
-def LoadModel(config):
+def LoadModel(config, model_dir=None, loadsavedmodel=None):
     model = None 
 
-    if FLAGS.loadsavedmodel is not None:
+    if loadsavedmodel is not None and len(loadsavedmodel)>0:
         try:
-            model = tf.keras.models.load_model(FLAGS.loadsavedmodel, compile=False) # Load from checkpoint
-            model = unet_compile(model, learning_rate=config['learning_rate'])
+            model = tf.keras.models.load_model(loadsavedmodel) # Load from checkpoint
 
         except:
-            print('Unable to load weghts from {}'.format(FLAGS.loadsavedmodel))
+            print('Unable to load weghts from {}'.format(loadsavedmodel))
             model = None 
 
     if model is None:
-        print('Unable to load weghts.  Restart training.')
-        model = unet_model(config['classes'], config['input_shape'], config['learning_rate'])
-
-        if FLAGS.model_dir:
+        if model_dir is not None and len(model_dir)>0:
             try:
-                model.load_weights(FLAGS.model_dir)
+                model = tf.keras.models.load_model(model_dir)
             except:
-                print('Unable to load weghts from {}'.format(FLAGS.model_dir))
+                print('Unable to load weghts from {}'.format(model_dir))
+
+    if model is None:
+        model = unet_model(classes=config['classes'], 
+                           input_shape=config['input_shape'], 
+                           weights=config['weights'], 
+                           channel_order=config['channel_order'])
+
+        if not config['clean'] and model_dir is not None:
+            model.load_weights(model_dir)
+
+    if model:
+        model = unet_compile(model, learning_rate=config['learning_rate'])
     
 
     return model
+
 
 def make_image_tensor(tensor):
     """
@@ -125,6 +129,16 @@ def make_image_tensor(tensor):
                             colorspace=channel,
                             encoded_image_string=image_string)
 
+def graph_history(epochs,loss,val_loss,savedmodelpath):
+    plt.figure()
+    plt.plot(epochs, loss, 'r', label='Training loss')
+    plt.plot(epochs, val_loss, 'bo', label='Validation loss')
+    plt.title('Training and Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss Value')
+    plt.ylim([0, 1])
+    plt.legend()
+    plt.savefig('{}/training.svg'.format(savedmodelpath))
 
 class TensorboardWriter:
 
@@ -179,6 +193,14 @@ class ImageWriterCallback(Callback):
 
 
 def main(unparsed):
+
+    print('In main')
+    if FLAGS.loadsavedmodel is not None and FLAGS.loadsavedmodel.lower() == 'none' or FLAGS.weights == '':
+        FLAGS.loadsavedmodel = None
+
+    if FLAGS.weights is not None and FLAGS.weights.lower() == 'none' or FLAGS.weights == '':
+        FLAGS.weights = None  
+
     trainingsetDescriptionFile = '{}/description.json'.format(FLAGS.record_dir)
     trainingsetDescription = json.load(open(trainingsetDescriptionFile))
 
@@ -187,7 +209,7 @@ def main(unparsed):
         'trainingset': trainingsetDescription,
         'input_shape': [FLAGS.training_crop[0], FLAGS.training_crop[1], FLAGS.train_depth],
         'classScale': 0.001, # scale value for each product class
-        'augment_rotation' : 0., # Rotation in degrees
+        'augment_rotation' : 15., # Rotation in degrees
         'augment_flip_x': False,
         'augment_flip_y': True,
         'augment_brightness':0.,
@@ -195,19 +217,35 @@ def main(unparsed):
         'augment_shift_x': 0.1, # in fraction of image
         'augment_shift_y': 0.1, # in fraction of image
         'scale_min': 0.5, # in fraction of image
-        'scale_max': 1.5, # in fraction of image
+        'scale_max': 2.0, # in fraction of image
         'ignore_label': trainingsetDescription['classes']['ignore'],
         'classes': trainingsetDescription['classes']['classes'],
         'image_crops': FLAGS.crops,
         'epochs': FLAGS.epochs,
         'area_filter_min': 25,
         'learning_rate': FLAGS.learning_rate,
+        'weights': FLAGS.weights,
+        'channel_order': FLAGS.channel_order,
+        'clean': FLAGS.clean,
         }
 
-    if FLAGS.clean_model_dir:
+    strategy = None
+    if(FLAGS.strategy == 'mirrored'):
+        strategy = tf.distribute.MirroredStrategy(devices=FLAGS.devices)
+
+    else:
+        device = "/gpu:0"
+        if FLAGS.devices is not None and len(FLAGS.devices > 0):
+            device = FLAGS.devices[0]
+
+        strategy = tf.distribute.OneDeviceStrategy(device=device)
+
+    print('{} distribute with {} GPUs'.format(FLAGS.strategy,strategy.num_replicas_in_sync))
+
+    if FLAGS.clean:
         shutil.rmtree(FLAGS.model_dir, ignore_errors=True)
 
-    savedmodelpath = '{}/{}/'.format(FLAGS.savedmodel, FLAGS.savedmodelname)
+    savedmodelpath = '{}/{}'.format(FLAGS.savedmodel, FLAGS.savedmodelname)
     if not os.path.exists(savedmodelpath):
         os.makedirs(savedmodelpath)
     if not os.path.exists(FLAGS.model_dir):
@@ -217,81 +255,106 @@ def main(unparsed):
     # Now, all that is left to do is to compile and train the model. The loss being used here is `losses.SparseCategoricalCrossentropy(from_logits=True)`. The reason to use this loss function is because the network is trying to assign each pixel a label, just like multi-class prediction. In the true segmentation mask, each pixel has either a {0,1,2}. The network here is outputting three channels. Essentially, each channel is trying to learn to predict a class, and `losses.SparseCategoricalCrossentropy(from_logits=True)` is the recommended loss for 
     # such a scenario. Using the output of the network, the label assigned to the pixel is the channel with the highest value. This is what the create_mask function is doing.
 
-    model =  LoadModel(config) 
+    with strategy.scope():
+        model =  LoadModel(config) 
 
-    # Display model
-    model.summary()
+        # Display model
+        model.summary()
 
-    train_dataset = input_fn('train', FLAGS.record_dir, config)
-    val_dataset = input_fn('val', FLAGS.record_dir, config)
+        train_dataset = input_fn('train', FLAGS.record_dir, config)
+        val_dataset = input_fn('val', FLAGS.record_dir, config)
 
-    save_callback = tf.keras.callbacks.ModelCheckpoint(filepath=FLAGS.model_dir,verbose=1,save_weights_only=True,save_freq='epoch')
-    #tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=FLAGS.model_dir, histogram_freq=1)
-    callbacks = [
-        save_callback,
-        tf.keras.callbacks.TensorBoard(FLAGS.model_dir)
-        #,ImageWriterCallback(config)]
-    ]
-    #file_writer = tf.summary.create_file_writer(FLAGS.model_dir)
+        #earlystop_callback = tf.keras.callbacks.EarlyStopping(monitor='loss', min_delta=1e-4, patience=3, verbose=0, mode='auto')
+        save_callback = tf.keras.callbacks.ModelCheckpoint(filepath=FLAGS.model_dir, monitor='loss',verbose=0,save_weights_only=False,save_freq='epoch')
+        tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=FLAGS.model_dir, histogram_freq=100)
+        callbacks = [
+            save_callback,
+            tensorboard_callback
+        ]
+        #file_writer = tf.summary.create_file_writer(FLAGS.model_dir)
 
-    # Save plot of model model
-    # Failing with "AttributeError: 'dict' object has no attribute 'name'" when returning multiple outputs 
-    #tf.keras.utils.plot_model(model, to_file='{}unet.png'.format(savedmodelpath), show_shapes=True)
+        # Save plot of model model
+        # Failing with "AttributeError: 'dict' object has no attribute 'name'" when returning multiple outputs 
+        #tf.keras.utils.plot_model(model, to_file='{}unet.png'.format(savedmodelpath), show_shapes=True)
 
-    VALIDATION_STEPS = 100
-    if not FLAGS.saveonly:
-        model_history = model.fit(train_dataset, epochs=config['epochs'],
-                                  steps_per_epoch=int(trainingsetDescription['sets'][1]['length']/config['batch_size']),
-                                  validation_steps=VALIDATION_STEPS,
-                                  validation_data=val_dataset,
-                                  callbacks=callbacks)
+        train_images = 100 # Guess training set if not provided
+        validation_steps = 10
+        for dataset in trainingsetDescription['sets']:
+            if(dataset['name']=="train"):
+                train_images = dataset["length"]
 
-        history = model_history.history
-        if 'loss' in history:
-            loss = model_history.history['loss']
+        steps_per_epoch=int(train_images/config['batch_size'])
+        validation_steps = 
+
+
+        if config['epochs'] > 0:
+            model_history = model.fit(train_dataset, 
+                                    validation_data=val_dataset,
+                                    epochs=config['epochs'],
+                                    steps_per_epoch=steps_per_epoch,
+                                    validation_steps=validation_steps,
+                                    callbacks=validation_steps)
+
+            history = model_history.history
+            if 'loss' in history:
+                loss = model_history.history['loss']
+            else:
+                loss = []
+            if 'val_loss' in history:
+                val_loss = model_history.history['val_loss']
+            else:
+                val_loss = []
+
+            model_description = {'config':config,
+                                'results': history
+                                }
+            epochs = range(config['epochs'])
+
+            graph_history(epochs,loss,val_loss,savedmodelpath)
+
+            '''if FLAGS.prune_epochs > 0:
+                end_step = int(math.ceil(train_images*FLAGS.crops / FLAGS.batch_size)) * FLAGS.prune_epochs
+                pruning_schedule = tfmot.sparsity.keras.PolynomialDecay(
+                                    initial_sparsity=0.0, final_sparsity=0.5,
+                                    begin_step=0, end_step=end_step)
+
+                def pruning_layers(layer):
+                    layers_to_prune=['sequential_3','concatenate_3']
+                    if layer.name in layers_to_prune:
+                        return tfmot.sparsity.keras.prune_low_magnitude(layer, pruning_schedule=pruning_schedule)
+                    return layer
+
+                # Use `tf.keras.models.clone_model` to apply `apply_pruning_to_dense` 
+                # to the layers of the model.
+                pruning_model = tf.keras.models.clone_model(
+                    model,
+                    clone_function=pruning_layers,
+                )
+
+                #pruning_model = tfmot.sparsity.keras.prune_low_magnitude(
+                #    model, pruning_schedule=pruning_schedule)
+
+                #pruning_model = unet_compile(pruning_model, learning_rate=config['learning_rate'])
+                pruning_model.summary()
+
+                callbacks.append(tfmot.sparsity.keras.UpdatePruningStep())
+                #callbacks.append(tfmot.sparsity.keras.PruningSummaries(log_dir=FLAGS.model_dir))
+                prune_history = pruning_model.fit(train_dataset, epochs=FLAGS.prune_epochs,
+                                        steps_per_epoch=int(train_images/config['batch_size']),
+                                        validation_steps=VALIDATION_STEPS,
+                                        validation_data=val_dataset,
+                                        callbacks=callbacks)'''
+
         else:
-            loss = []
-        if 'val_loss' in history:
-            val_loss = model_history.history['val_loss']
-        else:
-            val_loss = []
-
-        model_description = {'config':config,
-                            'results': history
+            model_description = {'config':config,
                             }
-        epochs = range(config['epochs'])
 
-        plt.figure()
-        plt.plot(epochs, loss, 'r', label='Training loss')
-        plt.plot(epochs, val_loss, 'bo', label='Validation loss')
-        plt.title('Training and Validation Loss')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss Value')
-        plt.ylim([0, 1])
-        plt.legend()
-        plt.savefig('{}training.svg'.format(savedmodelpath))
+    model.save(savedmodelpath, save_format='tf')
+    WriteDictJson(model_description, '{}/description.json'.format(savedmodelpath))
 
-    else:
-        model_description = {'config':config,
-                          }
-
-    model.save(savedmodelpath)
-    WriteDictJson(model_description, '{}description.json'.format(savedmodelpath))
-
-    if True: # convert to Tensorflow Lite
-        converter = tf.lite.TFLiteConverter.from_saved_model(savedmodelpath)
-        converter.optimizations = [tf.lite.Optimize.OPTIMIZE_FOR_LATENCY]
-        #samplefiles = get_samples(FLAGS.sample_dir, FLAGS.match)
-        #converter.representative_dataset = lambda:representative_dataset_gen(samplefiles)
-        #converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-        #converter.inference_input_type = tf.uint8  # or tf.uint8
-        #converter.inference_output_type = tf.uint8  # or tf.uint8
-        tflite_model = converter.convert()
-        outflite = './tflite/{}.tflite'.format(FLAGS.savedmodelname)
-        open(outflite, "wb").write(tflite_model)
-
-    # Let's make some predictions. In the interest of saving time, the number of epochs was kept small, but you may set this higher to achieve more accurate results.
-    WritePredictions(val_dataset, model, config, outpath=savedmodelpath)
+    # Make some predictions. In the interest of saving time, the number of epochs was kept small, but you may set this higher to achieve more accurate results.
+    WritePredictions(train_dataset, model, config, outpath=savedmodelpath, imgname='train_img')
+    WritePredictions(val_dataset, model, config, outpath=savedmodelpath, imgname='val_img')
 
     # Kubeflow Pipeline results
     results = model_description
@@ -315,6 +378,6 @@ if __name__ == '__main__':
 
       ptvsd.wait_for_attach()
 
-      print("Debugger attach")
+      print("Debugger attached")
 
   main(unparsed)

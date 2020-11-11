@@ -20,7 +20,7 @@ parser.add_argument('-loadsavedmodel', type=str, default='./saved_model/2020-09-
 
 parser.add_argument('-record_dir', type=str, default='./record', help='Path training set tfrecord')
 parser.add_argument('-devices', type=json.loads, default=["/gpu:0"],  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
-parser.add_argument('-image_size', type=json.loads, default='[144, 176]', help='Training crop size [height, width]/  [90, 160],[120, 160],[120, 160], [144, 176],[288, 352], [240, 432],[480, 640],[576,1024],[720, 960], [720,1280],[1080, 1920]')
+parser.add_argument('-image_size', type=json.loads, default='[480, 640]', help='Training crop size [height, width]/  [90, 160],[120, 160],[120, 160], [144, 176],[288, 352], [240, 432],[480, 640],[576,1024],[720, 960], [720,1280],[1080, 1920]')
 parser.add_argument('-image_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB') 
 
 FLAGS, unparsed = parser.parse_known_args()

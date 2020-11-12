@@ -4,7 +4,7 @@ import sys
 import argparse
 import platform
 import json
-#from onnx import ModelProto
+from tf2onnx import convert
 import tensorrt as trt
 
 sys.path.insert(0, os.path.abspath(''))
@@ -12,12 +12,11 @@ sys.path.insert(0, os.path.abspath(''))
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
 parser.add_argument('-image_size', type=json.loads, default='[1, 224, 224, 3]', help='Training size [batch, height, width, colors]')
-parser.add_argument('-savedmodel', type=str, default='./saved_model/2020-11-04-05-45-02', help='Saved model to load if no checkpoint')
+parser.add_argument('-savedmodel', type=str, default='./saved_model/2020-11-07-10-37-57-cfy', help='Saved model to load if no checkpoint')
 parser.add_argument('-onnxmodel', type=str, default='classify.onnx', help='Saved model to load if no checkpoint')
 parser.add_argument('-plan', type=str, default='classify.plan', help="TensorRT Plan")
 parser.add_argument('-trtmodel', type=str, default='classify.trt', help='Path to TensorRT.')
 parser.add_argument('-precision', type=str, default='undefined', choices=['undefined','fp16', 'int8'], help='Path to TensorRT.')
-fp16
 
 TRT_LOGGER = trt.Logger(trt.Logger.VERBOSE)
 trt_runtime = trt.Runtime(TRT_LOGGER)
@@ -34,13 +33,13 @@ def build_engine(onnx_path, config):
         if config['precision']=='int8':
             builder.int8_mode = True
             builder.strict_type_constraints = True
-        else if config['precision']=='fp16':
+        elif config['precision']=='fp16':
             builder.fp16_mode = True
             builder.strict_type_constraints = True
         succeeded = onnxParser.parse_from_file(onnx_path)
 
         if succeeded:
-            network.get_input(0).shape = config['input_shape']
+            network.get_input(0).shape = config['image_size'][1:]
             last_layer = network.get_layer(network.num_layers - 1)
             network.mark_output(last_layer.get_output(0))
             engine = builder.build_cuda_engine(network)
@@ -59,32 +58,60 @@ def load_engine(trt_runtime, plan_path):
    engine = trt_runtime.deserialize_cuda_engine(engine_data)
    return engine
 
+def tfonnxconvert(config, paths_to_check=None):
+    args = ['',
+            '--saved-model',
+            config['savedmodel'],
+            '--output',
+            config['onnxmodel']
+    ]
+    
+    """ run case and clean up """
+    if paths_to_check is None:
+        paths_to_check = [args[-1]]
+    sys.argv = args
+    convert.main()
+    ret = True
+    for p in paths_to_check:
+        if os.path.exists(p):
+            os.remove(p)
+        else:
+            ret = False
+    return ret
+
+def WriteDictJson(outdict, path):
+    jsonStr = json.dumps(outdict, sort_keys=False)
+    f = open(path,"w")
+    f.write(jsonStr)
+    f.close()
+
 def main(args):
 
     print('Platform: {}'.format(platform.platform()))
     print('Python: {}'.format(platform.python_version()))
 
-    config = {
-        'precision':args.precision,
-        'image_size': args.image_size,
-        'shape': (args.size_y, args.size_x, args.depth),
-        'split': tfds.Split.TRAIN,
-        'classes': 0, # load classes from dataset
-        'learning_rate': args.learning_rate,
-        'init_weights':'imagenet',
-        'clean': args.clean,
-        'epochs':args.epochs,
-        'trining':'train[:80%]',
-        'validation':'train[80%:]',
-    }
 
     onnxmodelname = '{}/{}'.format(args.savedmodel, args.onnxmodel)
     planname = '{}/{}'.format(args.savedmodel, args.plan)
     trtname = '{}/{}'.format(args.savedmodel, args.trtmodel)
 
+    config = {
+        'savedmodel':args.savedmodel,
+        'onnxmodel':onnxmodelname,
+        'trtmodel':trtname,
+        'platform':platform.platform(),
+        'python':platform.python_version(),
+        'tf2onnx version': sys.modules['tf2onnx'].__version__,
+        'tensorrt version': sys.modules['tensorrt'].__version__,
+        'precision':args.precision,
+        'image_size': args.image_size
+    }
+
     tf2onx = 'python -m tf2onnx.convert --saved-model {} --output {}'.format(args.savedmodel, onnxmodelname)
     os.system(tf2onx)
-    
+
+
+    #if tfonnxconvert(config):   
 
     # Convert using TensorRT python API (https://docs.nvidia.com/deeplearning/tensorrt/api/python_api/)
     engine = build_engine(onnx_path=onnxmodelname, config=config)
@@ -94,7 +121,8 @@ def main(args):
     # Convert using trtexec (https://github.com/NVIDIA/TensorRT/blob/master/samples/opensource/trtexec/README.md)
     input_shape = '{}x{}x{}x{}'.format(args.image_size[0], args.image_size[1], args.image_size[2], args.image_size[3])
     os.system('trtexec --onnx={} --saveEngine={} --shapes=input:{} --explicitBatch=1 2>&1'.format(onnxmodelname, trtname, input_shape))
-    
+        
+    WriteDictJson(config, '{}/tfonxtrt.json'.format(args.savedmodel))
     print("TensorRT Conversion complete. Results saved to {}".format(trtname))
     
 

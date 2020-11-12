@@ -1,2 +1,2 @@
-# docker run --gpus '"device=0"' -it --rm --cap-add=CAP_SYS_ADMIN -v "$(pwd):/app" -v "/store:/store" -p 5001:5000/tcp -p 3000:3000 --device /dev/video0:/dev/video0 trt:latest
-docker run --gpus '"device=0"' -it --rm --shm-size=1g --ulimit memlock=-1 --ulimit stack=67108864 -v "$(pwd):/app" -v "/store:/store" -p 5001:5000/tcp -p 3000:3000 --device /dev/video0:/dev/video0 trt:latest
+# docker run --gpus '"device=0"' -it --rm --shm-size=1g --ulimit memlock=-1 --ulimit stack=67108864 -v "$(pwd):/app" -v "/store:/store" -p 5001:5000/tcp -p 3000:3000 --device /dev/video0:/dev/video0 trt:latest
+docker run --gpus '"device=0"' -it --rm --shm-size=1g --ulimit memlock=-1 --ulimit stack=67108864 -v "$(pwd):/app" -v "/store:/store" -p 5001:5000/tcp -p 3000:3000 trt:latest

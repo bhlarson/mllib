@@ -1,0 +1,43 @@
+# https://ngc.nvidia.com/catalog/containers/nvidia:tensorflow/tags
+FROM nvcr.io/nvidia/l4t-base:r32.4.4
+LABEL maintainer="Brad Larson"
+
+# Aliases
+RUN echo 'alias py=python3' >> ~/.bashrc
+
+# Configure timezone
+ENV TZ=America/Los_Angeles
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# apt installs
+RUN apt-get update
+RUN apt-get install -y python3-pip
+RUN apt-get install -y libsm6
+RUN apt-get install -y python3-opencv
+
+# pip installs
+RUN pip3 --no-cache-dir install \
+        numpy \
+        minio \
+        natsort \
+        ptvsd \
+        tqdm \
+        flask \
+        shutils
+
+# Configure file system
+WORKDIR /app
+ENV LANG C.UTF-8
+
+# Configure network
+# jupyter port
+EXPOSE 8888 
+# tensorboard port
+EXPOSE 8008
+# debugger port
+EXPOSE 3000 
+# flask port
+EXPOSE 5000 
+
+# Startup Launch
+RUN ["/bin/bash"]

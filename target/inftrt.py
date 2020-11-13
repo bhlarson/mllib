@@ -17,7 +17,7 @@ import inference as inf
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
-parser.add_argument('-trtmodel', type=str, default='./saved_model/2020-11-04-05-45-02/classify.trt', help='Path to TensorRT.')
+parser.add_argument('-trtmodel', type=str, default='./saved_model/2020-11-07-10-37-57-cfy/classify.trt', help='Path to TensorRT.')
 parser.add_argument('-image_size', type=json.loads, default='[1, 224, 224, 3]', help='Training size [batch, height, width, colors]')
 
 

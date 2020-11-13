@@ -1,0 +1,1 @@
+docker build --pull -f "dockerfile-jetson-min" -t trtjmin:latest "context"

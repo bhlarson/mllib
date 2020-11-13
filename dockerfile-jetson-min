@@ -17,13 +17,14 @@ RUN apt-get install -y python3-opencv
 
 # pip installs
 RUN pip3 --no-cache-dir install \
-        numpy \
-        minio \
-        natsort \
-        ptvsd \
-        tqdm \
-        flask \
-        shutils
+        #numpy==1.19.4 \ # already installed
+        minio==6.0.0 \
+        natsort==7.0.1 \
+        ptvsd==4.3.2 \
+        tqdm==4.51.0 \
+        flask==1.1.2 \
+        shutils==0.1.0 \
+        pycuda==2020.1
 
 # Configure file system
 WORKDIR /app

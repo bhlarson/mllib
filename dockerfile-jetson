@@ -1,21 +1,26 @@
-FROM nvcr.io/nvidia/l4t-tensorflow:r32.4.3-tf2.2-py3
+FROM nvcr.io/nvidia/l4t-tensorflow:r32.4.4-tf2.3-py3
 LABEL maintainer="Brad Larson"
 
 RUN echo 'alias py=python3' >> ~/.bashrc
 
 RUN apt-get update
-RUN apt-get install -y libsm6
+RUN apt-get install -y cmake
+#RUN apt-get install -y libsm6
 RUN apt-get install -y python3-opencv
+RUN apt-get install -y protobuf-compiler 
+
 RUN pip3 install --upgrade pip
 RUN pip3 --no-cache-dir install \
-        numpy \
-        minio \
-        natsort \
-        ptvsd \
+        #numpy \
+        minio==6.0.0 \
+        tqdm==4.48.2 \
+        natsort==7.0.1 \
+        ptvsd==4.3.2 \
         xmltodict \
-        tqdm \
-        flask \
-        shutils
+        flask==1.1.2 \
+        # onnxruntime==1.5.2\
+        tf2onnx==1.7.1\
+        shutils==0.1.0
 
 WORKDIR /app
 ENV LANG C.UTF-8
@@ -23,7 +28,7 @@ ENV LANG C.UTF-8
 # jupyter port
 EXPOSE 8888 
 # tensorboard port
-EXPOSE 8008
+EXPOSE 6006
 # debugger port
 EXPOSE 3000 
 # flask port

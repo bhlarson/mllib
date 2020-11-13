@@ -80,7 +80,7 @@ def tfonnxconvert(config, paths_to_check=None):
     return ret
 
 def WriteDictJson(outdict, path):
-    jsonStr = json.dumps(outdict, sort_keys=False)
+    jsonStr = json.dumps(outdict, sort_keys=False, indent=4)
     f = open(path,"w")
     f.write(jsonStr)
     f.close()

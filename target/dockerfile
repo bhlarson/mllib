@@ -1,5 +1,5 @@
 # https://ngc.nvidia.com/catalog/containers/nvidia:tensorflow/tags
-FROM nvcr.io/nvidia/tensorflow:20.08-tf2-py3
+FROM nvcr.io/nvidia/tensorflow:20.10-tf2-py3
 LABEL maintainer="Brad Larson"
 
 RUN echo 'alias py=python' >> ~/.bashrc

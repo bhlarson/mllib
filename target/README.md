@@ -116,9 +116,9 @@ Host tpu
 ## ssh over Ethernet/WIFI
 > mdt devices # get network address over OTG connection 
 Returns network name and address
-eml             (192.168.1.69) 
+eml             (192.168.1.81) 
 
->  ssh mendel@192.168.1.69
+>  ssh mendel@192.168.1.81
 
 ## sftp in Nautilu (Ubuntu file browser)
 Add named configuration to ssh;
@@ -127,7 +127,7 @@ Add named configuration to ssh;
 Add configuraiton with specified IP address:
 
 Host eml
-	 HostName 192.168.1.69         
+	 HostName 192.168.1.81         
 	 IdentityFile ~/.config/mdt/keys/mdt.key
          IdentitiesOnly=yes
          User mendel
@@ -151,6 +151,9 @@ Enable SSH : https://stackoverflow.com/questions/59325078/cannot-connect-to-cora
 Host tpu
          IdentityFile ~/.config/mdt/keys/mdt.key
          IdentitiesOnly=yes
+
+## Connect to Corel Edge TPU from Windows:
+[Connecting to a Coral TPU Dev Board with Windows](https://blog.questionable.services/article/coral-edge-tpu-windows/)
 
 Docker build training/test image
 > docker build --pull --rm -f "dockerfile" -t ml:latest context

@@ -10,6 +10,9 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 from datetime import datetime
 
+sys.path.append('utils')
+from s3 import s3store
+
 print('Python Version {}'.format(sys.version))
 print('Tensorflow version {}'.format(tf.__version__))
 print('GPU Available: {}'.format(tf.test.is_gpu_available()))
@@ -50,6 +53,7 @@ def LoadModel(config, model_dir=None, loadsavedmodel=None):
 
     if loadsavedmodel is not None and len(loadsavedmodel)>0:
         try:
+
             model = tf.keras.models.load_model(loadsavedmodel) # Load from checkpoint
 
         except:

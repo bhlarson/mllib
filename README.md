@@ -34,6 +34,7 @@ mkdir /data/git
 cd /data/git
 git https://github.com/bhlarson/mllib.git
 ```
+- The [MINIO](https://min.io/) s3 object storage stores and distributes machine learning data.  This provides dataset and result sharing between embedded devices, servers, and develelopment PCs.  
 
 ## References:
 [Visual Stuido Code C++ setup](https://code.visualstudio.com/docs/cpp/config-linux)

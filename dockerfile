@@ -1,5 +1,5 @@
 #FROM tensorflow/tensorflow:2.3.1-gpu
-FROM tensorflow/tensorflow:2.3.1-gpu
+FROM tensorflow/tensorflow:2.3.0-gpu
 LABEL maintainer="Brad Larson"
 
 RUN echo 'alias py=python' >> ~/.bashrc

@@ -93,7 +93,7 @@ def WriteDictJson(outdict, path):
 
 def LoadModel(config, s3):
     model = None 
-
+    print('LoadModel initial model: {}, training directory: {}, '.format(config['initialmodel'], config['training_dir']))
     if config['initialmodel'] is not None:
         tempinitmodel = tempfile.TemporaryDirectory(prefix='initmodel', dir='.')
         modelpath = tempinitmodel.name+'/'+config['initialmodel']
@@ -230,8 +230,9 @@ def main(unparsed):
 
     if FLAGS.clean:
         shutil.rmtree(config['training_dir'], ignore_errors=True)
-
+    
     trainingset = '{}/{}/'.format(s3def['sets']['trainingset']['prefix'] , FLAGS.trainingset)
+    print('Load training set {}/{} to {}'.format(s3def['sets']['trainingset']['bucket'],trainingset,FLAGS.trainingset_dir ))
     s3.Mirror(s3def['sets']['trainingset']['bucket'], trainingset, FLAGS.trainingset_dir)
 
     if FLAGS.loadsavedmodel is not None and FLAGS.loadsavedmodel.lower() == 'none' or FLAGS.weights == '':
@@ -324,7 +325,7 @@ def main(unparsed):
         save_callback = tf.keras.callbacks.ModelCheckpoint(filepath=config['training_dir'], monitor='loss',verbose=0,save_weights_only=False,save_freq='epoch')
         tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=config['training_dir'], histogram_freq=100)
         callbacks = [
-            save_callback,
+            #save_callback,
             #tensorboard_callback
         ]
         #file_writer = tf.summary.create_file_writer(config['training_dir'])
@@ -335,15 +336,20 @@ def main(unparsed):
 
         train_images = 100 # Guess training set if not provided
         validation_steps = 10
-        
-        if(FLAGS.steps_per_epoch ==0):
-            for dataset in trainingsetDescription['sets']:
-                if(dataset['name']=="train"):
-                    train_images = dataset["length"]
 
-            steps_per_epoch=int(train_images/config['batch_size'])
-        else:
-            steps_per_epoch=FLAGS.steps_per_epoch
+        for dataset in trainingsetDescription['sets']:
+            if(dataset['name']=="train"):
+                train_images = dataset["length"]
+        steps_per_epoch=int(train_images/config['batch_size'])        
+        
+        #if(FLAGS.steps_per_epoch ==0):
+        #    for dataset in trainingsetDescription['sets']:
+        #        if(dataset['name']=="train"):
+        #            train_images = dataset["length"]
+        #
+        #    steps_per_epoch=int(train_images/config['batch_size'])
+        #else:
+        #    steps_per_epoch=FLAGS.steps_per_epoch
         #validation_steps = 
 
 
@@ -419,8 +425,6 @@ def main(unparsed):
     # Kubeflow Pipeline results
     results = model_description
     WriteDictJson(results, '{}/results.json'.format(savedmodelpath))
-
-    s3.PutSavedModel(s3def['sets']['model'], savedmodel.decode('utf-8'), save_info['name'])
 
     savedmodelpath = '{}/{}/'.format(s3def['sets']['model']['prefix'] , FLAGS.savedmodelname)
     s3.PutSavedModel(s3def['sets']['model']['bucket'], savedmodelpath, FLAGS.trainingset_dir)

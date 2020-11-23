@@ -7,7 +7,8 @@ import natsort as ns
 from minio import Minio
 from minio.error import (ResponseError, BucketAlreadyOwnedByYou, BucketAlreadyExists)
 
-
+def remove_prefix(text, prefix):
+    return text[text.startswith(prefix) and len(prefix):]
 class s3store:
 
     def __init__(self, address, access_key, secret_key, secure = False):
@@ -33,8 +34,9 @@ class s3store:
             raise err
 
         try:
-            for file in tqdm(files):
-                filename = setname+'/'+file.lstrip(path)
+            for file in tqdm(files, total=len(files)):
+                objstr = remove_prefix(file, setname+'/')
+                filename = setname+'/'+ remove_prefix(file, path)
                 self.s3.fput_object(bucket, filename, file)
         except ResponseError as err:
             print(err)
@@ -52,7 +54,8 @@ class s3store:
                 objects = self.s3.list_objects(bucket, prefix=setname, recursive=True) # Recreate object to reset iteratorator to beginning
                 for obj in tqdm(objects, total=fileCount):
                     try:
-                        destination = '{}/{}'.format(destdir,obj.object_name.lstrip(setname))
+                        
+                        destination = '{}/{}'.format(destdir,remove_prefix(obj.object_name, setname))
                         if obj.is_dir:
                             if not os.path.isdir(destination):
                                 os.mkdir(destination)
@@ -88,7 +91,8 @@ class s3store:
                 objects = self.s3.list_objects(bucket, prefix=setname, recursive=True) # Recreate object to reset iteratorator to beginning
                 for obj in tqdm(objects, total=fileCount):
                     try:
-                        destination = '{}/{}'.format(destdir,obj.object_name.lstrip(setname+'/'))
+                        objstr = remove_prefix(obj.object_name, setname)
+                        destination = '{}/{}'.format(destdir,objstr)
                         if obj.is_dir:
                             if not os.path.isdir(destination):
                                 os.mkdir(destination)

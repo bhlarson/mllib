@@ -1,4 +1,4 @@
-docker run --gpus all -it --rm --cap-add=CAP_SYS_ADMIN \
+docker run --gpus device=0 -it --rm --cap-add=CAP_SYS_ADMIN \
     -v "$(pwd):/app" \
     -v "/store:/store" \
     -v /etc/localtime:/etc/localtime:ro \

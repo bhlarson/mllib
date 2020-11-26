@@ -92,11 +92,11 @@ def ColorToBGR(color):
     return (color[2], color[1], color[0])
 
 def DrawFeatures(img, seg, config):
-    objTypes = config['trainingset']['classes']['objects']
+    objTypes = config['trainingset description']['classes']['objects']
     return ApplyColors(img, seg, objTypes, config)
 
 def DrawContours(img, seg, config):
-    objTypes = config['trainingset']['classes']['objects']
+    objTypes = config['trainingset description']['classes']['objects']
     features = ExtractFeatures(seg, objTypes, config)
     for feature in features:
         obj = FindObjectType(feature['class'], objTypes)
@@ -134,7 +134,7 @@ def create_mask(pred_mask):
 
 def MergeImgAn(dataset, config, num=1):
     batch_size = config['batch_size']
-    objTypes = config['trainingset']['classes']['objects']
+    objTypes = config['trainingset description']['classes']['objects']
     imgs = []
     iterator = iter(dataset)
     for i in range(num):
@@ -155,7 +155,7 @@ def WriteImgAn(dataset, config, num=1, outpath=''):
 
 def CreatePredictions(dataset, model, config, num=1):
     batch_size = config['batch_size']
-    objTypes = config['trainingset']['classes']['objects']
+    objTypes = config['trainingset description']['classes']['objects']
     imgs = []
     i = 0
     for image, mask in dataset.take(num):

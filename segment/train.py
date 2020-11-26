@@ -32,6 +32,7 @@ DEBUG = False
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
 parser.add_argument('-clean', action='store_true', help='If set, delete model directory at startup.')
+parser.add_argument('-min', action='store_true', help='If set, minimum training to generate output.')
 
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 parser.add_argument('-model_precision', type=str, default='FP16', choices=['FP32', 'FP16', 'INT8'], help='Model Optimization Precision.')
@@ -41,25 +42,19 @@ parser.add_argument('-trainingset_dir', type=str, default='/store/training/coco'
 parser.add_argument('-training_dir', type=str, default='./trainings/unetcoco',help='Training directory.  Empty string for auto-generated tempory directory')
 parser.add_argument('-checkpoint', type=str, default='train.ckpt',help='Directory to store training model')
 
-parser.add_argument('--minio_address', type=str, default='192.168.1.42:32000', help='Minio archive IP address')
-parser.add_argument('--minio_access_key', type=str, default='access', help='Minio access key')
-parser.add_argument('--minio_secret_key', type=str, default='mysecretkey', help='Minio secret key')
-parser.add_argument('--mllibbucket', type=str, default='mllib', help='Trainingset bucket')
-
 parser.add_argument('--datasetprefix', type=str, default='dataset', help='Dataset prefix')
 parser.add_argument('--trainingsetprefix', type=str, default='trainingset', help='Trainingset prefix')
 parser.add_argument('--modelprefix', type=str, default='model', help='Model prefix')
 
 parser.add_argument('--trainingset', type=str, default='coco', help='training set')
-parser.add_argument('--initialmodel', type=str, default='2020-11-07-10-37-57-cfy', help='Initial model.  Empty string if no initial model')
+parser.add_argument('--initialmodel', type=str, default='2020-11-26-11-50-22-cocoseg', help='Initial model.  Empty string if no initial model')
 parser.add_argument('--finalmodel', type=str, default="", help='Final model.  Empty string if auto-generated final model name')
 
 parser.add_argument('--temp_savedmodel', type=str, default='./saved_model', help='Temporary path to savedmodel.')
 
-parser.add_argument('-loadsavedmodel', type=str, default=None, help='Saved model to load if no checkpoint')
+parser.add_argument('-loadsavedmodel', type=str, default='2020-11-26-11-50-22-cocoseg', help='Saved model to load if no checkpoint')
 
-parser.add_argument('-epochs', type=int, default=1, help='Number of training epochs')
-parser.add_argument('-steps_per_epoch', type=int, default=5, help='0 for all data /epic.  #to override with a specific number of steps')
+parser.add_argument('-epochs', type=int, default=10, help='Number of training epochs')
 
 parser.add_argument('-prune_epochs', type=int, default=0, help='Number of pruning epochs')
 
@@ -78,7 +73,7 @@ parser.add_argument('-training_crop', type=json.loads, default='[480, 512]', hel
 parser.add_argument('-train_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB') 
 
 parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to savedmodel.')
-defaultsavemodeldir = '{}'.format(datetime.now().strftime('%Y-%m-%d-%H-%M-%S'))
+defaultsavemodeldir = '{}'.format(datetime.now().strftime('%Y-%m-%d-%H-%M-%S-cocoseg'))
 parser.add_argument('-savedmodelname', type=str, default=defaultsavemodeldir, help='Final model')
 parser.add_argument('-weights', type=str, default='imagenet', help='Model initiation weights. None prevens loading weights from pre-trained networks')
 
@@ -268,11 +263,11 @@ def main(unparsed):
         'weights': FLAGS.weights,
         'channel_order': FLAGS.channel_order,
         'clean': FLAGS.clean,
-        'minio_address':FLAGS.minio_address,
-        'mllibbucket':FLAGS.mllibbucket,
-        'trainingset':FLAGS.trainingsetprefix +'/'+ FLAGS.trainingset+'/',
-        'initialmodel':FLAGS.modelprefix +'/'+ FLAGS.initialmodel+'/',
-        'finalmodel':FLAGS.modelprefix +'/'+ FLAGS.finalmodel+'/',
+        'minio_address':s3def['address'],
+        'mllibbucket':s3def['sets']['trainingset']['bucket'],
+        'trainingset':trainingset,
+        'initialmodel':FLAGS.initialmodel,
+        'finalmodel':FLAGS.finalmodel,
         'training_dir': FLAGS.training_dir,
     }
 
@@ -325,8 +320,8 @@ def main(unparsed):
         save_callback = tf.keras.callbacks.ModelCheckpoint(filepath=config['training_dir'], monitor='loss',verbose=0,save_weights_only=False,save_freq='epoch')
         tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=config['training_dir'], histogram_freq=100)
         callbacks = [
-            #save_callback,
-            #tensorboard_callback
+            save_callback,
+            tensorboard_callback
         ]
         #file_writer = tf.summary.create_file_writer(config['training_dir'])
 
@@ -334,31 +329,31 @@ def main(unparsed):
         # Failing with "AttributeError: 'dict' object has no attribute 'name'" when returning multiple outputs 
         #tf.keras.utils.plot_model(model, to_file='{}unet.png'.format(savedmodelpath), show_shapes=True)
 
-        train_images = 100 # Guess training set if not provided
-        validation_steps = 10
+        train_images = config['batch_size'] # Guess training set if not provided
+        val_images = config['batch_size']
 
         for dataset in trainingsetDescription['sets']:
             if(dataset['name']=="train"):
                 train_images = dataset["length"]
+            if(dataset['name']=="val"):
+                val_images = dataset["length"]
         steps_per_epoch=int(train_images/config['batch_size'])        
-        
-        #if(FLAGS.steps_per_epoch ==0):
-        #    for dataset in trainingsetDescription['sets']:
-        #        if(dataset['name']=="train"):
-        #            train_images = dataset["length"]
-        #
-        #    steps_per_epoch=int(train_images/config['batch_size'])
-        #else:
-        #    steps_per_epoch=FLAGS.steps_per_epoch
-        #validation_steps = 
+        validation_steps=int(val_images/config['batch_size'])
+              
+        if(FLAGS.min):
+            steps_per_epoch= min(5, steps_per_epoch)
+            validation_steps=min(5, validation_steps)
+            config['epochs'] = 1
 
 
         if config['epochs'] > 0:
+
+            print("Fit model to data")
             model_history = model.fit(train_dataset, 
                                     validation_data=val_dataset,
                                     epochs=config['epochs'],
                                     steps_per_epoch=steps_per_epoch,
-                                    #validation_steps=validation_steps,
+                                    validation_steps=validation_steps,
                                     callbacks=callbacks)
 
             history = model_history.history
@@ -415,6 +410,7 @@ def main(unparsed):
             model_description = {'config':config,
                             }
 
+    print("Create saved model")
     model.save(savedmodelpath, save_format='tf')
     WriteDictJson(model_description, '{}/description.json'.format(savedmodelpath))
 
@@ -426,13 +422,15 @@ def main(unparsed):
     results = model_description
     WriteDictJson(results, '{}/results.json'.format(savedmodelpath))
 
-    savedmodelpath = '{}/{}/'.format(s3def['sets']['model']['prefix'] , FLAGS.savedmodelname)
-    s3.PutSavedModel(s3def['sets']['model']['bucket'], savedmodelpath, FLAGS.trainingset_dir)
+    saved_name = '{}/{}'.format(s3def['sets']['model']['prefix'] , FLAGS.savedmodelname)
+    print('Save model to {}/{}'.format(s3def['sets']['model']['bucket'],saved_name))
+    if s3.PutDir(s3def['sets']['model']['bucket'], savedmodelpath, saved_name):
+        shutil.rmtree(savedmodelpath, ignore_errors=True)
 
     if FLAGS.clean or FLAGS.training_dir is None or len(FLAGS.training_dir) == 0:
         shutil.rmtree(config['training_dir'], ignore_errors=True)
 
-    print("Segmentation training complete. Results saved to {}".format(savedmodelpath))
+    print("Segmentation training complete. Results saved to http://{}/minio/{}/{}".format(s3def['address'], s3def['sets']['model']['bucket'],saved_name))
 
 
 if __name__ == '__main__':

@@ -34,8 +34,10 @@ class s3store:
             raise err
 
         try:
+            if path[len(path)-1] != '/':
+                path = path +'/'
             for file in tqdm(files, total=len(files)):
-                objstr = remove_prefix(file, setname+'/')
+                #objstr = remove_prefix(file, setname+'/')
                 filename = setname+'/'+ remove_prefix(file, path)
                 self.s3.fput_object(bucket, filename, file)
         except ResponseError as err:
@@ -281,3 +283,36 @@ class s3store:
             raise err
 
         return checkpoints
+
+    def CloneObjects(self, destbucket, destsetname, srcS3, srcbucket, srcsetname):
+        success = True
+
+        # List all object paths in bucket that begin with my-prefixname.
+        try:
+            objects = srcS3.list_objects(srcbucket, prefix=srcsetname, recursive=True)
+            fileCount = len(tuple(objects)) 
+            if(fileCount > 0):
+                objects = srcS3.list_objects(srcbucket, prefix=setname, recursive=True)
+                for obj in tqdm(objects, total=fileCount):
+                    try:
+                        destination = '{}/{}'.format(destsetname,remove_prefix(obj.object_name,srcsetname))
+
+                        srcobj = srcS3.GetObject(srcbucket, obj.object_name)
+                        self.PutObject(destbucket, destination, srcobj)
+
+                        #if obj.is_dir:
+                        #    if not os.path.isdir(destination):
+                        #        os.mkdir(destination)
+                        #else:
+                        #    self.s3.fget_object(bucket, obj.object_name, destination)
+                    except:
+                        print('Failed to copy from {}/{} to {}/{}'.format(srcbucket,obj.object_name, destbucket, destination))
+                        success = False            
+            else:
+                print('{}/{} contains {} objects'.format(srcbucket, setname, fileCount))
+
+        except ResponseError as err:
+            print(err)
+            raise err
+
+        return success

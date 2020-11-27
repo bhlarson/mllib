@@ -95,7 +95,7 @@ def LoadModel(config, s3):
 
         except:
             print('Unable to load weghts from http://{}/minio/{}/{}'.format(
-                config['minio_address'],
+                config['s3_address'],
                 config['mllibsets']['model']['prefix'],
                 modelpath)
             )
@@ -175,71 +175,37 @@ class TensorboardWriter:
         """
         self.writer.close()
 
-class ImageWriterCallback(Callback):
-
-    def __init__(self, config):
-        self.config = config
-
-    @tf.function(autograph=not DEBUG)
-    def on_train_batch_end(self, batch, logs=None):
-        print("For batch {}, loss is {:7.2f}.".format(batch, logs["loss"]))
-
-        img = tf.keras.preprocessing.image.array_to_img(self.model.inputs[0])
-        array = tf.keras.preprocessing.image.img_to_array(img)
-
-        img = self.model.inputs[0].numpy()
-        seg = tf.argmax(self.model.outputs[0], axis=-1, name='argmax').numpy()
-
-        [batch,_,_,_] = img.shape()
-        for i in range(batch):
-            iman = DrawFeatures(img[i], seg[i], self.config)
-
-            iman = cv2.cvtColor(iman, cv2.COLOR_RGB2BGR)
-            cv2.imwrite('{}/pred{}{}.png'.format(FLAGS.training_dir, batch, i), iman)
-
-    def on_test_batch_end(self, batch, logs=None):
-        print("For batch {}, loss is {:7.2f}.".format(batch, logs["loss"]))
-
-    def on_epoch_end(self, epoch, logs=None):
-        print(
-            "The average loss for epoch {} is {:7.2f} "
-            "and mean absolute error is {:7.2f}.".format(
-                epoch, logs["loss"], logs["mean_absolute_error"]
-            )
-        )
-
-
-def main(unparsed):
+def main(args):
 
     print('Start training')
 
     creds = {}
-    with open(FLAGS.credentails) as json_file:
+    with open(args.credentails) as json_file:
         creds = json.load(json_file)
     if not creds:
-        print('Failed to load credentials file {}. Exiting'.format(FLAGS.credentails))
+        print('Failed to load credentials file {}. Exiting'.format(args.credentails))
 
     s3def = creds['s3'][0]
     s3 = s3store(s3def['address'], s3def['access key'], s3def['secret key'])
 
-    if FLAGS.clean:
+    if args.clean:
         shutil.rmtree(config['training_dir'], ignore_errors=True)
     
-    trainingset = '{}/{}/'.format(s3def['sets']['trainingset']['prefix'] , FLAGS.trainingset)
-    print('Load training set {}/{} to {}'.format(s3def['sets']['trainingset']['bucket'],trainingset,FLAGS.trainingset_dir ))
-    s3.Mirror(s3def['sets']['trainingset']['bucket'], trainingset, FLAGS.trainingset_dir)
+    trainingset = '{}/{}/'.format(s3def['sets']['trainingset']['prefix'] , args.trainingset)
+    print('Load training set {}/{} to {}'.format(s3def['sets']['trainingset']['bucket'],trainingset,args.trainingset_dir ))
+    s3.Mirror(s3def['sets']['trainingset']['bucket'], trainingset, args.trainingset_dir)
 
-    if FLAGS.weights is not None and FLAGS.weights.lower() == 'none' or FLAGS.weights == '':
-        FLAGS.weights = None
+    if args.weights is not None and args.weights.lower() == 'none' or args.weights == '':
+        args.weights = None
 
-    trainingsetDescriptionFile = '{}/description.json'.format(FLAGS.trainingset_dir)
+    trainingsetDescriptionFile = '{}/description.json'.format(args.trainingset_dir)
     trainingsetDescription = json.load(open(trainingsetDescriptionFile))
 
     config = {
-        'batch_size': FLAGS.batch_size,
+        'batch_size': args.batch_size,
         'traningset': trainingset,
         'trainingset description': trainingsetDescription,
-        'input_shape': [FLAGS.training_crop[0], FLAGS.training_crop[1], FLAGS.train_depth],
+        'input_shape': [args.training_crop[0], args.training_crop[1], args.train_depth],
         'classScale': 0.001, # scale value for each product class
         'augment_rotation' : 15., # Rotation in degrees
         'augment_flip_x': False,
@@ -252,40 +218,40 @@ def main(unparsed):
         'scale_max': 2.0, # in fraction of image
         'ignore_label': trainingsetDescription['classes']['ignore'],
         'classes': trainingsetDescription['classes']['classes'],
-        'epochs': FLAGS.epochs,
+        'epochs': args.epochs,
         'area_filter_min': 25,
-        'learning_rate': FLAGS.learning_rate,
-        'weights': FLAGS.weights,
-        'channel_order': FLAGS.channel_order,
-        'clean': FLAGS.clean,
-        'minio_address':s3def['address'],
+        'learning_rate': args.learning_rate,
+        'weights': args.weights,
+        'channel_order': args.channel_order,
+        'clean': args.clean,
+        's3_address':s3def['address'],
         'mllibsets':s3def['sets'],
-        'initialmodel':FLAGS.initialmodel,
-        'training_dir': FLAGS.training_dir,
+        'initialmodel':args.initialmodel,
+        'training_dir': args.training_dir,
     }
 
-    if FLAGS.trainingset is None or len(FLAGS.trainingset) == 0:
+    if args.trainingset is None or len(args.trainingset) == 0:
         config['trainingset'] = None
-    if len(FLAGS.initialmodel) == 0:
+    if len(args.initialmodel) == 0:
         config['initialmodel'] = None
-    if FLAGS.training_dir is None or len(FLAGS.training_dir) == 0:
+    if args.training_dir is None or len(args.training_dir) == 0:
         config['training_dir'] = tempfile.TemporaryDirectory(prefix='train', dir='.')
 
 
     strategy = None
-    if(FLAGS.strategy == 'mirrored'):
-        strategy = tf.distribute.MirroredStrategy(devices=FLAGS.devices)
+    if(args.strategy == 'mirrored'):
+        strategy = tf.distribute.MirroredStrategy(devices=args.devices)
 
     else:
         device = "/gpu:0"
-        if FLAGS.devices is not None and len(FLAGS.devices > 0):
-            device = FLAGS.devices[0]
+        if args.devices is not None and len(args.devices > 0):
+            device = args.devices[0]
 
         strategy = tf.distribute.OneDeviceStrategy(device=device)
 
-    print('{} distribute with {} GPUs'.format(FLAGS.strategy,strategy.num_replicas_in_sync))
+    print('{} distribute with {} GPUs'.format(args.strategy,strategy.num_replicas_in_sync))
 
-    savedmodelpath = '{}/{}'.format(FLAGS.savedmodel, FLAGS.savedmodelname)
+    savedmodelpath = '{}/{}'.format(args.savedmodel, args.savedmodelname)
     if not os.path.exists(savedmodelpath):
         os.makedirs(savedmodelpath)
     if not os.path.exists(config['training_dir']):
@@ -301,8 +267,8 @@ def main(unparsed):
         # Display model
         model.summary()
 
-        train_dataset = input_fn('train', FLAGS.trainingset_dir, config)
-        val_dataset = input_fn('val', FLAGS.trainingset_dir, config)
+        train_dataset = input_fn('train', args.trainingset_dir, config)
+        val_dataset = input_fn('val', args.trainingset_dir, config)
 
         #earlystop_callback = tf.keras.callbacks.EarlyStopping(monitor='loss', min_delta=1e-4, patience=3, verbose=0, mode='auto')
         save_callback = tf.keras.callbacks.ModelCheckpoint(filepath=config['training_dir'], monitor='loss',verbose=0,save_weights_only=False,save_freq='epoch')
@@ -328,7 +294,7 @@ def main(unparsed):
         steps_per_epoch=int(train_images/config['batch_size'])        
         validation_steps=int(val_images/config['batch_size'])
               
-        if(FLAGS.min):
+        if(args.min):
             steps_per_epoch= min(5, steps_per_epoch)
             validation_steps=min(5, validation_steps)
             config['epochs'] = 1
@@ -361,8 +327,8 @@ def main(unparsed):
 
             graph_history(epochs,loss,val_loss,savedmodelpath)
 
-            '''if FLAGS.prune_epochs > 0:
-                end_step = int(math.ceil(train_images / FLAGS.batch_size)) * FLAGS.prune_epochs
+            '''if args.prune_epochs > 0:
+                end_step = int(math.ceil(train_images / args.batch_size)) * args.prune_epochs
                 pruning_schedule = tfmot.sparsity.keras.PolynomialDecay(
                                     initial_sparsity=0.0, final_sparsity=0.5,
                                     begin_step=0, end_step=end_step)
@@ -388,7 +354,7 @@ def main(unparsed):
 
                 callbacks.append(tfmot.sparsity.keras.UpdatePruningStep())
                 #callbacks.append(tfmot.sparsity.keras.PruningSummaries(log_dir=config['training_dir']))
-                prune_history = pruning_model.fit(train_dataset, epochs=FLAGS.prune_epochs,
+                prune_history = pruning_model.fit(train_dataset, epochs=args.prune_epochs,
                                         steps_per_epoch=int(train_images/config['batch_size']),
                                         validation_steps=VALIDATION_STEPS,
                                         validation_data=val_dataset,
@@ -410,21 +376,21 @@ def main(unparsed):
     results = model_description
     WriteDictJson(results, '{}/results.json'.format(savedmodelpath))
 
-    saved_name = '{}/{}'.format(s3def['sets']['model']['prefix'] , FLAGS.savedmodelname)
+    saved_name = '{}/{}'.format(s3def['sets']['model']['prefix'] , args.savedmodelname)
     print('Save model to {}/{}'.format(s3def['sets']['model']['bucket'],saved_name))
     if s3.PutDir(s3def['sets']['model']['bucket'], savedmodelpath, saved_name):
         shutil.rmtree(savedmodelpath, ignore_errors=True)
 
-    if FLAGS.clean or FLAGS.training_dir is None or len(FLAGS.training_dir) == 0:
+    if args.clean or args.training_dir is None or len(args.training_dir) == 0:
         shutil.rmtree(config['training_dir'], ignore_errors=True)
 
     print("Segmentation training complete. Results saved to http://{}/minio/{}/{}".format(s3def['address'], s3def['sets']['model']['bucket'],saved_name))
 
 
 if __name__ == '__main__':
-  FLAGS, unparsed = parser.parse_known_args()
+  args, unparsed = parser.parse_known_args()
   
-  if FLAGS.debug:
+  if args.debug:
       print("Wait for debugger attach")
       import ptvsd
       # https://code.visualstudio.com/docs/python/debugging#_remote-debugging
@@ -438,4 +404,4 @@ if __name__ == '__main__':
 
       print("Debugger attached")
 
-  main(unparsed)
+  main(args)

@@ -47,12 +47,8 @@ parser.add_argument('--trainingsetprefix', type=str, default='trainingset', help
 parser.add_argument('--modelprefix', type=str, default='model', help='Model prefix')
 
 parser.add_argument('--trainingset', type=str, default='coco', help='training set')
-parser.add_argument('--initialmodel', type=str, default='2020-11-26-11-50-22-cocoseg', help='Initial model.  Empty string if no initial model')
-parser.add_argument('--finalmodel', type=str, default="", help='Final model.  Empty string if auto-generated final model name')
-
+parser.add_argument('--initialmodel', type=str, default='2020-11-26-11-56-17-cocoseg', help='Initial model.  Empty string if no initial model')
 parser.add_argument('--temp_savedmodel', type=str, default='./saved_model', help='Temporary path to savedmodel.')
-
-parser.add_argument('-loadsavedmodel', type=str, default='2020-11-26-11-50-22-cocoseg', help='Saved model to load if no checkpoint')
 
 parser.add_argument('-epochs', type=int, default=10, help='Number of training epochs')
 
@@ -61,8 +57,7 @@ parser.add_argument('-prune_epochs', type=int, default=0, help='Number of prunin
 parser.add_argument('-tensorboard_images_max_outputs', type=int, default=2,
                     help='Max number of batch elements to generate for Tensorboard.')
 
-parser.add_argument('-batch_size', type=int, default=16, help='Number of examples per batch.')
-parser.add_argument('-crops', type=int, default=1, help='Crops/image/step')                
+parser.add_argument('-batch_size', type=int, default=16, help='Number of examples per batch.')               
 
 parser.add_argument('-learning_rate', type=float, default=1e-3, help='Adam optimizer learning rate.')
 
@@ -94,12 +89,16 @@ def LoadModel(config, s3):
         modelpath = tempinitmodel.name+'/'+config['initialmodel']
         os.makedirs(modelpath)
         try:
-
-            success = s3.GetDir(config['mllibbucket'], config['initialmodel'], tempinitmodel.name)
+            s3model=config['mllibsets']['model']['prefix']+'/'+config['initialmodel']
+            success = s3.GetDir(config['mllibsets']['model']['bucket'], s3model, modelpath)
             model = tf.keras.models.load_model(modelpath) # Load from checkpoint
 
         except:
-            print('Unable to load weghts from http://{}/minio/{}/{}'.format(config['minio_address'],config['mllibbucket'],config['initialmodel']))
+            print('Unable to load weghts from http://{}/minio/{}/{}'.format(
+                config['minio_address'],
+                config['mllibsets']['model']['prefix'],
+                modelpath)
+            )
             model = None 
         shutil.rmtree(tempinitmodel, ignore_errors=True)
 
@@ -230,9 +229,6 @@ def main(unparsed):
     print('Load training set {}/{} to {}'.format(s3def['sets']['trainingset']['bucket'],trainingset,FLAGS.trainingset_dir ))
     s3.Mirror(s3def['sets']['trainingset']['bucket'], trainingset, FLAGS.trainingset_dir)
 
-    if FLAGS.loadsavedmodel is not None and FLAGS.loadsavedmodel.lower() == 'none' or FLAGS.weights == '':
-        FLAGS.loadsavedmodel = None
-
     if FLAGS.weights is not None and FLAGS.weights.lower() == 'none' or FLAGS.weights == '':
         FLAGS.weights = None
 
@@ -256,7 +252,6 @@ def main(unparsed):
         'scale_max': 2.0, # in fraction of image
         'ignore_label': trainingsetDescription['classes']['ignore'],
         'classes': trainingsetDescription['classes']['classes'],
-        'image_crops': FLAGS.crops,
         'epochs': FLAGS.epochs,
         'area_filter_min': 25,
         'learning_rate': FLAGS.learning_rate,
@@ -264,22 +259,15 @@ def main(unparsed):
         'channel_order': FLAGS.channel_order,
         'clean': FLAGS.clean,
         'minio_address':s3def['address'],
-        'mllibbucket':s3def['sets']['trainingset']['bucket'],
-        'trainingset':trainingset,
+        'mllibsets':s3def['sets'],
         'initialmodel':FLAGS.initialmodel,
-        'finalmodel':FLAGS.finalmodel,
         'training_dir': FLAGS.training_dir,
     }
 
-    if FLAGS.finalmodel is None or len(FLAGS.finalmodel) == 0:
-        defaultname =  '{}-lit'.format(datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
-        config['finalmodel'] = FLAGS.modelprefix +'/'+ defaultname+'/',
     if FLAGS.trainingset is None or len(FLAGS.trainingset) == 0:
         config['trainingset'] = None
     if len(FLAGS.initialmodel) == 0:
         config['initialmodel'] = None
-    if len(FLAGS.finalmodel) == 0:
-        config['finalmodel'] = None
     if FLAGS.training_dir is None or len(FLAGS.training_dir) == 0:
         config['training_dir'] = tempfile.TemporaryDirectory(prefix='train', dir='.')
 
@@ -374,7 +362,7 @@ def main(unparsed):
             graph_history(epochs,loss,val_loss,savedmodelpath)
 
             '''if FLAGS.prune_epochs > 0:
-                end_step = int(math.ceil(train_images*FLAGS.crops / FLAGS.batch_size)) * FLAGS.prune_epochs
+                end_step = int(math.ceil(train_images / FLAGS.batch_size)) * FLAGS.prune_epochs
                 pruning_schedule = tfmot.sparsity.keras.PolynomialDecay(
                                     initial_sparsity=0.0, final_sparsity=0.5,
                                     begin_step=0, end_step=end_step)

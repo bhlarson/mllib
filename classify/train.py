@@ -13,6 +13,7 @@ from datetime import datetime
 
 sys.path.append('utils')
 from s3 import s3store
+from jsonutils import WriteDictJson
 
 print('Python Version {}'.format(sys.version))
 print('Tensorflow version {}'.format(tf.__version__))
@@ -22,6 +23,7 @@ if(tf.test.is_gpu_available()):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debugger attach')
+parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
 parser.add_argument('-clean', action='store_true', help='If set, delete model directory at startup.')
 parser.add_argument('-min', action='store_true', help='If set, minimum training to generate output.')
 parser.add_argument('-min_steps', type=int, default=3, help='Minimum steps')
@@ -46,15 +48,6 @@ parser.add_argument("-devices", type=json.loads, default=None,  help='GPUs to in
 defaultsavemodeldir = '{}'.format(datetime.now().strftime('%Y-%m-%d-%H-%M-%S-cfy'))
 parser.add_argument('-savedmodelname', type=str, default=defaultsavemodeldir, help='Final model')
 parser.add_argument('-weights', type=str, default='imagenet', help='Model initiation weights. None prevens loading weights from pre-trained networks')
-
-def WriteDictJson(outdict, path):
-
-    jsonStr = json.dumps(outdict, sort_keys=False)
-    f = open(path,"w")
-    f.write(jsonStr)
-    f.close()
-       
-    return True
 
 def LoadModel(config, s3, model_dir=None):
     model = None 
@@ -314,7 +307,7 @@ if __name__ == '__main__':
       # Launch applicaiton on remote computer: 
       # > python3 -m ptvsd --host 10.150.41.30 --port 3000 --wait fcn/train.py
       # Allow other computers to attach to ptvsd at this IP address and port.
-      ptvsd.enable_attach(address=('0.0.0.0', 3000), redirect_output=True)
+      ptvsd.enable_attach(address=('0.0.0.0', args.debug_port), redirect_output=True)
       # Pause the program until a remote debugger is attached
 
       ptvsd.wait_for_attach()

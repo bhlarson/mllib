@@ -20,6 +20,7 @@ from segment.display import DrawFeatures, WritePredictions
 from segment.data import input_fn
 from networks.unet import unet_model, unet_compile
 from utils.s3 import s3store
+from utils.jsonutils import WriteDictJson
 
 DEBUG = False
 
@@ -28,6 +29,8 @@ DEBUG = False
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
+parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
+
 parser.add_argument('-clean', action='store_true', help='If set, delete model directory at startup.')
 parser.add_argument('-min', action='store_true', help='If set, minimum training to generate output.')
 
@@ -68,15 +71,6 @@ parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path
 defaultsavemodeldir = '{}'.format(datetime.now().strftime('%Y-%m-%d-%H-%M-%S-cocoseg'))
 parser.add_argument('-savedmodelname', type=str, default=defaultsavemodeldir, help='Final model')
 parser.add_argument('-weights', type=str, default='imagenet', help='Model initiation weights. None prevens loading weights from pre-trained networks')
-
-def WriteDictJson(outdict, path):
-
-    jsonStr = json.dumps(outdict, sort_keys=False)
-    f = open(path,"w")
-    f.write(jsonStr)
-    f.close()
-       
-    return True
 
 def LoadModel(config, s3):
     model = None 
@@ -225,7 +219,6 @@ def main(args):
     if args.training_dir is None or len(args.training_dir) == 0:
         config['training_dir'] = tempfile.TemporaryDirectory(prefix='train', dir='.')
 
-
     strategy = None
     if(args.strategy == 'mirrored'):
         strategy = tf.distribute.MirroredStrategy(devices=args.devices)
@@ -348,7 +341,7 @@ if __name__ == '__main__':
       # Launch applicaiton on remote computer: 
       # > python3 -m ptvsd --host 10.150.41.30 --port 3000 --wait fcn/train.py
       # Allow other computers to attach to ptvsd at this IP address and port.
-      ptvsd.enable_attach(address=('0.0.0.0', 3000), redirect_output=True)
+      ptvsd.enable_attach(address=('0.0.0.0', args.debug_port), redirect_output=True)
       # Pause the program until a remote debugger is attached
 
       ptvsd.wait_for_attach()

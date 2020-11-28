@@ -4,13 +4,10 @@ import argparse
 import json
 import os
 import sys
-import math
 import shutil
 import cv2
 import tempfile
 import tensorflow as tf
-#from tensorflow.python.framework.ops import disable_eager_execution
-#import tensorflow_model_optimization as tfmot
 from datetime import datetime
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -89,14 +86,14 @@ def LoadModel(config, s3):
         modelpath = tempinitmodel.name+'/'+config['initialmodel']
         os.makedirs(modelpath)
         try:
-            s3model=config['mllibsets']['model']['prefix']+'/'+config['initialmodel']
-            success = s3.GetDir(config['mllibsets']['model']['bucket'], s3model, modelpath)
+            s3model=config['s3_sets']['model']['prefix']+'/'+config['initialmodel']
+            success = s3.GetDir(config['s3_sets']['model']['bucket'], s3model, modelpath)
             model = tf.keras.models.load_model(modelpath) # Load from checkpoint
 
         except:
             print('Unable to load weghts from http://{}/minio/{}/{}'.format(
                 config['s3_address'],
-                config['mllibsets']['model']['prefix'],
+                config['s3_sets']['model']['prefix'],
                 modelpath)
             )
             model = None 
@@ -146,34 +143,25 @@ def make_image_tensor(tensor):
                             colorspace=channel,
                             encoded_image_string=image_string)
 
-def graph_history(epochs,loss,val_loss,savedmodelpath):
+def graph_history(loss,val_loss,savedmodelpath):
+
+    i_loss = range(1,len(loss)+1,1)
+
     plt.figure()
-    plt.plot(epochs, loss, 'r', label='Training loss')
-    plt.plot(epochs, val_loss, 'bo', label='Validation loss')
+    if loss:
+        i_loss = range(1,len(loss)+1,1)
+        plt.plot(i_loss, loss, 'r', label='Training loss')
+    if val_loss:
+        i_val_loss = range(1,len(val_loss)+1,1)
+        plt.plot(i_val_loss, val_loss, 'bo', label='Validation loss')
     plt.title('Training and Validation Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss Value')
-    plt.ylim([0, 1])
     plt.legend()
     plt.savefig('{}/training.svg'.format(savedmodelpath))
 
-class TensorboardWriter:
 
-    def __init__(self, outdir):
-        assert (os.path.isdir(outdir))
-        self.outdir = outdir
-        self.writer = tf.summary.create_file_writer(self.outdir, flush_millis=10000)
 
-    def save_image(self, tag, image, global_step=None):
-        image_tensor = make_image_tensor(image)
-        with self.writer.as_default():
-            tf.Summary(value=[tf.Summary.Value(tag=tag, image=image_tensor)])
-
-    def close(self):
-        """
-        To be called in the end
-        """
-        self.writer.close()
 
 def main(args):
 
@@ -225,7 +213,7 @@ def main(args):
         'channel_order': args.channel_order,
         'clean': args.clean,
         's3_address':s3def['address'],
-        'mllibsets':s3def['sets'],
+        's3_sets':s3def['sets'],
         'initialmodel':args.initialmodel,
         'training_dir': args.training_dir,
     }
@@ -256,10 +244,6 @@ def main(args):
         os.makedirs(savedmodelpath)
     if not os.path.exists(config['training_dir']):
         os.makedirs(config['training_dir'])
-
-    # ## Train the model
-    # Now, all that is left to do is to compile and train the model. The loss being used here is `losses.SparseCategoricalCrossentropy(from_logits=True)`. The reason to use this loss function is because the network is trying to assign each pixel a label, just like multi-class prediction. In the true segmentation mask, each pixel has either a {0,1,2}. The network here is outputting three channels. Essentially, each channel is trying to learn to predict a class, and `losses.SparseCategoricalCrossentropy(from_logits=True)` is the recommended loss for 
-    # such a scenario. Using the output of the network, the label assigned to the pixel is the channel with the highest value. This is what the create_mask function is doing.
 
     with strategy.scope(): # Apply training strategy 
         model =  LoadModel(config, s3) 
@@ -323,42 +307,9 @@ def main(args):
             model_description = {'config':config,
                                 'results': history
                                 }
-            epochs = range(config['epochs'])
 
-            graph_history(epochs,loss,val_loss,savedmodelpath)
+            graph_history(loss,val_loss,savedmodelpath)
 
-            '''if args.prune_epochs > 0:
-                end_step = int(math.ceil(train_images / args.batch_size)) * args.prune_epochs
-                pruning_schedule = tfmot.sparsity.keras.PolynomialDecay(
-                                    initial_sparsity=0.0, final_sparsity=0.5,
-                                    begin_step=0, end_step=end_step)
-
-                def pruning_layers(layer):
-                    layers_to_prune=['sequential_3','concatenate_3']
-                    if layer.name in layers_to_prune:
-                        return tfmot.sparsity.keras.prune_low_magnitude(layer, pruning_schedule=pruning_schedule)
-                    return layer
-
-                # Use `tf.keras.models.clone_model` to apply `apply_pruning_to_dense` 
-                # to the layers of the model.
-                pruning_model = tf.keras.models.clone_model(
-                    model,
-                    clone_function=pruning_layers,
-                )
-
-                #pruning_model = tfmot.sparsity.keras.prune_low_magnitude(
-                #    model, pruning_schedule=pruning_schedule)
-
-                #pruning_model = unet_compile(pruning_model, learning_rate=config['learning_rate'])
-                pruning_model.summary()
-
-                callbacks.append(tfmot.sparsity.keras.UpdatePruningStep())
-                #callbacks.append(tfmot.sparsity.keras.PruningSummaries(log_dir=config['training_dir']))
-                prune_history = pruning_model.fit(train_dataset, epochs=args.prune_epochs,
-                                        steps_per_epoch=int(train_images/config['batch_size']),
-                                        validation_steps=VALIDATION_STEPS,
-                                        validation_data=val_dataset,
-                                        callbacks=callbacks)'''
 
         else:
             model_description = {'config':config,

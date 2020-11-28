@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import shutil
+import tempfile
 import tensorflow as tf
 from tensorflow import keras
 import tensorflow_datasets as tfds
@@ -22,14 +23,21 @@ if(tf.test.is_gpu_available()):
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debugger attach')
 parser.add_argument('-clean', action='store_true', help='If set, delete model directory at startup.')
+parser.add_argument('-min', action='store_true', help='If set, minimum training to generate output.')
+parser.add_argument('-min_steps', type=int, default=3, help='Minimum steps')
+
+parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 parser.add_argument('-batch_size', type=int, default=32, help='Number of examples per batch.')
 parser.add_argument('-size_x', type=int, default=224, help='Training image size_x')
 parser.add_argument('-size_y', type=int, default=224, help='Training image size_y')
 parser.add_argument('-depth', type=int, default=3, help='Training image depth')
 parser.add_argument('-epochs', type=int, default=30, help='Training epochs')
-parser.add_argument('-model_dir', type=str, default='./trainings/unetcoco',help='Directory to store training model')
+parser.add_argument('-model_dir', type=str, default='./trainings/resnet-classify',help='Directory to store training model')
 parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to savedmodel.')
-parser.add_argument('-loadsavedmodel', type=str, default=None, help='Saved model to load if no checkpoint')
+parser.add_argument('-training_dir', type=str, default='./trainings/classify',help='Training directory.  Empty string for auto-generated tempory directory')
+
+parser.add_argument('--initialmodel', type=str, default='2020-11-28-06-42-37-cfy', help='Initial model.  Empty string if no initial model')
+
 parser.add_argument('-learning_rate', type=float, default=1e-3, help='Adam optimizer learning rate.')
 parser.add_argument('-dataset', type=str, default='tf_flowers', choices=['tf_flowers'], help='Model Optimization Precision.')
 
@@ -48,32 +56,44 @@ def WriteDictJson(outdict, path):
        
     return True
 
-def LoadModel(config, model_dir=None, loadsavedmodel=None):
+def LoadModel(config, s3, model_dir=None):
     model = None 
-
-    if loadsavedmodel is not None and len(loadsavedmodel)>0:
+    print('LoadModel initial model: {}, training directory: {}, '.format(config['initialmodel'], config['training_dir']))
+    if config['initialmodel'] is not None:
+        tempinitmodel = tempfile.TemporaryDirectory(prefix='initmodel', dir='.')
+        modelpath = tempinitmodel.name+'/'+config['initialmodel']
+        os.makedirs(modelpath)
         try:
-
-            model = tf.keras.models.load_model(loadsavedmodel) # Load from checkpoint
+            s3model=config['s3_sets']['model']['prefix']+'/'+config['initialmodel']
+            success = s3.GetDir(config['s3_sets']['model']['bucket'], s3model, modelpath)
+            model = tf.keras.models.load_model(modelpath) # Load from checkpoint
 
         except:
-            print('Unable to load weghts from {}'.format(loadsavedmodel))
+            print('Unable to load weghts from http://{}/minio/{}/{}'.format(
+                config['s3_address'],
+                config['s3_sets']['model']['prefix'],
+                modelpath)
+            )
             model = None 
+        shutil.rmtree(tempinitmodel, ignore_errors=True)
 
     if model is None:
-        if not config['clean'] and model_dir is not None:
+        if not config['clean'] and config['training_dir'] is not None:
             try:
-                model = tf.keras.models.load_model(model_dir)
+                model = tf.keras.models.load_model(config['training_dir'])
             except:
-                print('Unable to load weghts from {}'.format(model_dir))
+                print('Unable to load weghts from {}'.format(config['training_dir']))
 
     if model is None:
 
         model = keras.applications.ResNet50V2(include_top=True, weights=config['init_weights'], 
             input_shape=config['shape'], classes=config['classes'])
 
-        if model_dir is not None and not config['clean']:
-            model.load_weights(model_dir)
+        if not config['clean'] and config['training_dir'] is not None:
+            try:
+                model.load_weights(config['training_dir'])
+            except:
+                print('Unable to load weghts from {}'.format(config['training_dir']))
 
     if model:
         model.compile(optimizer='adam',
@@ -91,16 +111,22 @@ def input_fn(config, split):
     dataset = dataset.map(lambda features, label: prepare_image(features, label, config) , num_parallel_calls = 10)
     dataset = dataset.batch(config['batch_size'])
     dataset = dataset.prefetch(config['batch_size'])
-    #dataset = dataset.cache().prefetch(buffer_size=tf.data.experimental.AUTOTUNE) # Test new autotune prefetch 
+
+    dataset = dataset.shuffle(buffer_size=10*config['batch_size'])
+    dataset = dataset.repeat(config['epochs'])
+
     dataset = dataset.cache().prefetch(buffer_size=tf.data.experimental.AUTOTUNE) # Test new autotune prefetch 
     return dataset, metadata
 
-def graph_history(epochs,loss,val_loss,savedmodelpath):
+def graph_history(loss,val_loss,savedmodelpath):
+    
     plt.figure()
     if loss:
-        plt.plot(loss, 'r', label='Training loss')
+        i_loss = range(1,len(loss)+1,1)
+        plt.plot(i_loss, loss, 'r', label='Training loss')
     if val_loss:
-        plt.plot(val_loss, 'bo', label='Validation loss')
+        i_val_loss = range(1,len(val_loss)+1,1)
+        plt.plot(i_val_loss, val_loss, 'bo', label='Validation loss')
     plt.title('Training and Validation Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss Value')
@@ -140,7 +166,18 @@ def CreatePredictions(dataset, model, config, outpath, imgname, num=1):
     print ("Average time {}".format(dtSum/i) )
 
 def main(args):
-    tf.config.experimental_run_functions_eagerly(False)
+    #tf.config.experimental_run_functions_eagerly(False)
+    print('Start training')
+
+    creds = {}
+    with open(args.credentails) as json_file:
+        creds = json.load(json_file)
+    if not creds:
+        print('Failed to load credentials file {}. Exiting'.format(args.credentails))
+
+    s3def = creds['s3'][0]
+    s3 = s3store(s3def['address'], s3def['access key'], s3def['secret key'])
+
     training_percent = 0.8
     config = {
         'dataset':args.dataset,
@@ -157,7 +194,20 @@ def main(args):
         'validation':'train[{}%:]'.format(int(100*training_percent)),
         #'training':'train[:80%]',
         #'validation':'train[80%:]',
+        's3_address':s3def['address'],
+        's3_sets':s3def['sets'],
+        'initialmodel':args.initialmodel,
+        'training_dir': args.training_dir,
     }
+
+    if len(args.initialmodel) == 0:
+        config['initialmodel'] = None
+    if args.training_dir is None or len(args.training_dir) == 0:
+        config['training_dir'] = tempfile.TemporaryDirectory(prefix='train', dir='.')
+
+    if args.clean:
+        shutil.rmtree(config['training_dir'], ignore_errors=True)
+
 
     strategy = None
     if(args.strategy == 'mirrored'):
@@ -172,14 +222,11 @@ def main(args):
 
     print('{} distribute with {} GPUs'.format(args.strategy,strategy.num_replicas_in_sync))
 
-    if args.clean:
-        shutil.rmtree(args.model_dir, ignore_errors=True)
-
     savedmodelpath = '{}/{}'.format(args.savedmodel, args.savedmodelname)
     if not os.path.exists(savedmodelpath):
         os.makedirs(savedmodelpath)
-    if not os.path.exists(args.model_dir):
-        os.makedirs(args.model_dir)
+    if not os.path.exists(config['training_dir']):
+        os.makedirs(config['training_dir'])
 
     with strategy.scope():
         save_callback = tf.keras.callbacks.ModelCheckpoint(filepath=args.model_dir, monitor='loss',verbose=0,save_weights_only=False,save_freq='epoch')
@@ -193,22 +240,28 @@ def main(args):
         val_dataset, _ = input_fn(config, split=config['validation'])
         config['classes'] = datasetdata.features['label'].num_classes
         train_images = int(datasetdata.splits.total_num_examples*config['training_percent'])
+        val_images = int(datasetdata.splits.total_num_examples*(1.0-config['training_percent']))
 
         steps_per_epoch=int(train_images/config['batch_size'])
-        validation_steps = int(datasetdata.splits.total_num_examples*(1.0-config['training_percent']/config['batch_size']))
+        validation_steps = int(val_images/config['batch_size'])
 
-        model =  LoadModel(config, args.model_dir)
+        if(args.min):
+            steps_per_epoch= min(args.min_steps, steps_per_epoch)
+            validation_steps=min(args.min_steps, validation_steps)
+            config['epochs'] = 1        
+        
+        model =  LoadModel(config, s3, args.model_dir)
 
         # Display model
         model.summary()
 
+        print("Fit model to data")
         model_history = model.fit(train_dataset, 
                                   validation_data=val_dataset,
-                                  epochs=args.epochs,
-                                  #steps_per_epoch=steps_per_epoch,
-                                  #validation_steps=validation_steps,
+                                  epochs=config['epochs'],
+                                  steps_per_epoch=steps_per_epoch,
+                                  validation_steps=validation_steps,
                                   callbacks=callbacks)
-        history = model_history.history
 
         history = model_history.history
         if 'loss' in history:
@@ -223,10 +276,11 @@ def main(args):
         model_description = {'config':config,
                              'results': history
                              }
-        epochs = range(config['epochs'])
+        #epochs = config['epochs']
 
-        graph_history(epochs,loss,val_loss,savedmodelpath)
+        graph_history(loss,val_loss,savedmodelpath)
 
+    print("Create saved model")
     model.save(savedmodelpath, save_format='tf')
     
     PrepareInference(dataset=train_dataset, model=model)
@@ -239,8 +293,16 @@ def main(args):
     WriteDictJson(model_description, '{}/description.json'.format(savedmodelpath))
 
     # Save confusion matrix: https://www.kaggle.com/grfiv4/plot-a-confusion-matrix
+    saved_name = '{}/{}'.format(s3def['sets']['model']['prefix'] , args.savedmodelname)
+    print('Save model to {}/{}'.format(s3def['sets']['model']['bucket'],saved_name))
+    if s3.PutDir(s3def['sets']['model']['bucket'], savedmodelpath, saved_name):
+        shutil.rmtree(savedmodelpath, ignore_errors=True)
 
-    print("Training complete. Results saved to {}".format(savedmodelpath))
+    if args.clean or args.training_dir is None or len(args.training_dir) == 0:
+        shutil.rmtree(config['training_dir'], ignore_errors=True)
+
+    print("Classification training complete. Results saved to http://{}/minio/{}/{}".format(s3def['address'], s3def['sets']['model']['bucket'],saved_name))
+
 
 if __name__ == '__main__':
   args, unparsed = parser.parse_known_args()

@@ -1,1 +1,2 @@
-docker run -it --volume "$(pwd):/app" --volume "/store:/store" -p 8888:8888/tcp -p 6006:6006 --gpus '"device=0"' mj:latest
+# docker run -it --volume "$(pwd):/app" --volume "/store:/store" -p 8888:8888/tcp -p 6006:6006 --gpus '"device=0"' mj:latest
+docker run -it --volume "$(pwd):/app" --volume "/store:/store" -p 8888:8888/tcp mj:latest

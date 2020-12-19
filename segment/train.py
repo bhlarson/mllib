@@ -5,7 +5,6 @@ import json
 import os
 import sys
 import shutil
-import cv2
 import tempfile
 import tensorflow as tf
 from datetime import datetime
@@ -18,9 +17,9 @@ from tensorflow.keras.utils import GeneratorEnqueuer, Sequence, OrderedEnqueuer
 sys.path.insert(0, os.path.abspath(''))
 from segment.display import DrawFeatures, WritePredictions
 from segment.data import input_fn
-from networks.unet import unet_model, unet_compile
 from utils.s3 import s3store
-from utils.jsonutils import WriteDictJson
+from utils.jsonutil import WriteDictJson
+from loadmodel import LoadModel
 
 DEBUG = False
 
@@ -33,10 +32,10 @@ parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
 
 parser.add_argument('-clean', action='store_true', help='If set, delete model directory at startup.')
 parser.add_argument('-min', action='store_true', help='If set, minimum training to generate output.')
+parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps.')
 
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 parser.add_argument('-model_precision', type=str, default='FP16', choices=['FP32', 'FP16', 'INT8'], help='Model Optimization Precision.')
-parser.add_argument('-channel_order', type=str, default='channels_last', choices=['channels_first', 'channels_last'], help='Channels_last = NHWC, Tensorflow default, channels_first=NCHW')
 
 parser.add_argument('-trainingset_dir', type=str, default='/store/training/coco', help='Path training set tfrecord')
 parser.add_argument('-training_dir', type=str, default='./trainings/unetcoco',help='Training directory.  Empty string for auto-generated tempory directory')
@@ -65,56 +64,13 @@ parser.add_argument("-strategy", type=str, default='mirrored', help="Replication
 parser.add_argument("-devices", type=json.loads, default=None,  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
 
 parser.add_argument('-training_crop', type=json.loads, default='[480, 512]', help='Training crop size [height, width]')
-parser.add_argument('-train_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB') 
+parser.add_argument('-train_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB')
+parser.add_argument('-channel_order', type=str, default='channels_last', choices=['channels_first', 'channels_last'], help='Channels_last = NHWC, Tensorflow default, channels_first=NCHW')
 
 parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to savedmodel.')
 defaultsavemodeldir = '{}'.format(datetime.now().strftime('%Y-%m-%d-%H-%M-%S-cocoseg'))
 parser.add_argument('-savedmodelname', type=str, default=defaultsavemodeldir, help='Final model')
 parser.add_argument('-weights', type=str, default='imagenet', help='Model initiation weights. None prevens loading weights from pre-trained networks')
-
-def LoadModel(config, s3):
-    model = None 
-    print('LoadModel initial model: {}, training directory: {}, '.format(config['initialmodel'], config['training_dir']))
-    if config['initialmodel'] is not None:
-        tempinitmodel = tempfile.TemporaryDirectory(prefix='initmodel', dir='.')
-        modelpath = tempinitmodel.name+'/'+config['initialmodel']
-        os.makedirs(modelpath)
-        try:
-            s3model=config['s3_sets']['model']['prefix']+'/'+config['initialmodel']
-            success = s3.GetDir(config['s3_sets']['model']['bucket'], s3model, modelpath)
-            model = tf.keras.models.load_model(modelpath) # Load from checkpoint
-
-        except:
-            print('Unable to load weghts from http://{}/minio/{}/{}'.format(
-                config['s3_address'],
-                config['s3_sets']['model']['prefix'],
-                modelpath)
-            )
-            model = None 
-        shutil.rmtree(tempinitmodel, ignore_errors=True)
-
-    if model is None:
-        if not config['clean'] and config['training_dir'] is not None:
-            try:
-                model = tf.keras.models.load_model(config['training_dir'])
-            except:
-                print('Unable to load weghts from {}'.format(config['training_dir']))
-
-    if model is None:
-        model = unet_model(classes=config['classes'], 
-                           input_shape=config['input_shape'], 
-                           weights=config['weights'], 
-                           channel_order=config['channel_order'])
-
-        if not config['clean'] and config['training_dir'] is not None:
-            model.load_weights(config['training_dir'])
-
-    if model:
-        model = unet_compile(model, learning_rate=config['learning_rate'])
-    
-
-    return model
-
 
 def make_image_tensor(tensor):
     """
@@ -169,9 +125,6 @@ def main(args):
 
     s3def = creds['s3'][0]
     s3 = s3store(s3def['address'], s3def['access key'], s3def['secret key'])
-
-    if args.clean:
-        shutil.rmtree(config['training_dir'], ignore_errors=True)
     
     trainingset = '{}/{}/'.format(s3def['sets']['trainingset']['prefix'] , args.trainingset)
     print('Load training set {}/{} to {}'.format(s3def['sets']['trainingset']['bucket'],trainingset,args.trainingset_dir ))
@@ -210,6 +163,7 @@ def main(args):
         's3_sets':s3def['sets'],
         'initialmodel':args.initialmodel,
         'training_dir': args.training_dir,
+        'min':args.min,
     }
 
     if args.trainingset is None or len(args.trainingset) == 0:
@@ -219,13 +173,16 @@ def main(args):
     if args.training_dir is None or len(args.training_dir) == 0:
         config['training_dir'] = tempfile.TemporaryDirectory(prefix='train', dir='.')
 
+    if args.clean:
+        shutil.rmtree(config['training_dir'], ignore_errors=True)
+
     strategy = None
     if(args.strategy == 'mirrored'):
         strategy = tf.distribute.MirroredStrategy(devices=args.devices)
 
     else:
         device = "/gpu:0"
-        if args.devices is not None and len(args.devices > 0):
+        if args.devices is not None and len(args.devices) > 0:
             device = args.devices[0]
 
         strategy = tf.distribute.OneDeviceStrategy(device=device)
@@ -272,8 +229,8 @@ def main(args):
         validation_steps=int(val_images/config['batch_size'])
               
         if(args.min):
-            steps_per_epoch= min(5, steps_per_epoch)
-            validation_steps=min(5, validation_steps)
+            steps_per_epoch= min(args.min_steps, steps_per_epoch)
+            validation_steps=min(args.min_steps, validation_steps)
             config['epochs'] = 1
 
 

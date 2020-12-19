@@ -1,6 +1,8 @@
 import os
 import io
 import glob
+import json
+from datetime import datetime, timedelta
 from pathlib import PurePath
 from tqdm import tqdm
 import natsort as ns
@@ -12,10 +14,17 @@ def remove_prefix(text, prefix):
 class s3store:
 
     def __init__(self, address, access_key, secret_key, secure = False):
+        self.addresss = address
+        self.secure = secure
         self.s3 = Minio(address,
              access_key=access_key,
              secret_key=secret_key,
              secure=secure)
+
+    def GetUrl(self, bucket, path,  expires=timedelta(hours=2)):
+
+        url = self.s3.presigned_get_object(bucket, path, expires=expires)
+        return url
         
     def ListBuckets(self):
         return self.s3.list_buckets()
@@ -152,7 +161,8 @@ class s3store:
             data = response.data
         except ResponseError as err:
                 print(err)
-                raise err
+        except:
+                print('error reading {}/{}'.format(bucket, object_name))
         finally:
             if response:
                 response.close()
@@ -160,18 +170,60 @@ class s3store:
 
         return data
 
-    def PutObject(self, object_name, obj):
+    def PutObject(self, bucket, object_name, obj):
         success = True
 
         # List all object paths in bucket that begin with my-prefixname.
         try:
             objStream = io.BytesIO(obj)
-            self.s3.put_object(bucket, object_name, objStream, file_size=len(objStream))
+            self.s3.put_object(bucket, object_name, objStream, length=len(objStream))
         except ResponseError as err:
             print(err)
-            raise err
+            success = False
+        except:
+                success = False
 
-        return response
+        return success
+
+    def GetDict(self, bucket, object_name):
+        success = True
+        response = None
+        data_dict = None
+        # List all object paths in bucket that begin with my-prefixname.
+        try:
+            response = self.s3.get_object(bucket, object_name)
+
+            if response.data:
+                data_dict = json.loads(response.data)
+
+        except ResponseError as err:
+            print('s3 Response error {}'.format(err))
+        except json.JSONDecodeError as err:
+            print('JSONDecodeError {}'.format(err))
+        except:
+            print('error reading {}/{}'.format(bucket, object_name))
+        finally:
+            if response:
+                response.close()
+                response.release_conn()
+
+        return data_dict
+
+    def PutDict(self, bucket, object_name, dict_data):
+        success = True
+
+        # List all object paths in bucket that begin with my-prefixname.
+        try:
+            obj = json.dumps(dict_data, sort_keys=False, indent=4).encode()
+
+            objStream = io.BytesIO(obj)
+            self.s3.put_object(bucket, object_name, objStream, length=len(obj))
+        except ResponseError as err:
+            print(err)
+            success = False
+        except:
+                success = False
+        return success
 
     def ListModels(self, bucket='savedmodel', model_type='lit' ):
         models = []

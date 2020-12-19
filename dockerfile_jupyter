@@ -3,33 +3,43 @@ FROM tensorflow/tensorflow:2.3.1-gpu-jupyter
 LABEL maintainer="Brad Larson"
 
 RUN echo 'alias py=python' >> ~/.bashrc
+
 RUN apt-get update
-RUN apt-get -y install curl gnupg
+RUN apt-get install -y apt-utils
+
 RUN apt-get -y install curl dirmngr apt-transport-https lsb-release ca-certificates
 RUN curl -sL https://deb.nodesource.com/setup_12.x | bash -
-RUN apt-get -y install nodejs
-RUN apt-get -y install wget
 
-RUN apt-get install -y libsm6 libxext6 libxrender-dev nodejs
+RUN apt-get install -y nodejs
+
+# required by opencv-python==4.4.0.42
+RUN apt-get install -y libsm6
+RUN apt-get install -y libxext6
+RUN apt-get install -y libxrender-dev
+RUN apt-get install -y ffmpeg
+
 RUN pip3 install --upgrade pip
-RUN pip3 --no-cache-dir install \
-        opencv-python==4.2.0.34 \
-        minio==5.0.10 \
-        matplotlib==3.1.2\
-        tifffile==2020.5.5 \
-        pandas==1.1.3 \
-        kfp==0.5.1 \
-        jupyterlab==2.1.5 \
-        tensorflow-addons==0.10.0
 
-RUN pip3 --no-cache-dir --disable-pip-version-check install plotly==4.11.0
-RUN pip3 --no-cache-dir --disable-pip-version-check install jupyterlab==2.2.8
-RUN pip3 --no-cache-dir --disable-pip-version-check install xeus-python==0.8.3
+RUN pip3 --no-cache-dir install opencv-python==4.4.0.42 
+RUN pip3 --no-cache-dir install minio==6.0.0
+RUN pip3 --no-cache-dir install natsort==7.0.1
+RUN pip3 --no-cache-dir install tifffile==2020.5.5
+RUN pip3 --no-cache-dir install xmltodict==0.12.0
+RUN pip3 --no-cache-dir install tqdm==4.48.2
+RUN pip3 --no-cache-dir install scandir==1.10.0
+RUN pip3 --no-cache-dir install pandas==1.1.4 
+RUN pip3 --no-cache-dir install glob2==0.7
+RUN pip3 --no-cache-dir install ptvsd==4.3.2
+RUN pip3 --no-cache-dir install plotly==4.13.0
+RUN pip3 --no-cache-dir install jupyterlab==2.2.9
+RUN pip3 --no-cache-dir install ipywidgets==7.5.1
+RUN pip3 --no-cache-dir install xeus-python==0.9.1
 
+# Install debugger JupyterLab extension
 RUN jupyter labextension install @jupyterlab/debugger
 RUN jupyter labextension install @jupyter-widgets/jupyterlab-manager@2
-RUN jupyter labextension install jupyterlab-plotly@4.11.0
-RUN jupyter labextension install @jupyter-widgets/jupyterlab-manager plotlywidget@4.11.0
+RUN jupyter labextension install jupyterlab-plotly@4.13.0
+RUN jupyter labextension install @jupyter-widgets/jupyterlab-manager plotlywidget@7.5.1
 
 
 WORKDIR /app

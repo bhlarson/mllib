@@ -43,6 +43,15 @@ git https://github.com/bhlarson/mllib.git
 [Example remote C++ Debugging](https://github.com/tttapa/VSCode-Docker-Cpp)
 [Debugging C++ Programs Remotely With SSH Access Using Visual Studio Code](https://medium.com/@shyabithdickwella/debugging-c-programs-remotely-with-ssh-access-using-visual-studio-code-6fe4582b1bf9)
 
+## Set-up secure minio repository
+- Let's Encrypt wildcard certificae
+- Kubernetes secret: [Generate TLS Secret for kubernetes](https://software.danielwatrous.com/generate-tls-secret-for-kubernetes/)
+- Base 64 encode certificate
+```console
+cat cert.pem | base64 | awk 'BEGIN{ORS="";} {print}' > tls.crt
+cat privkey.pem | base64 | awk 'BEGIN{ORS="";} {print}' > tls.key
+```
+
 ## To Do:
 - Document at all levels
 - Import Embedded Classification to classify

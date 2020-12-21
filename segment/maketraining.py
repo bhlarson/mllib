@@ -1,3 +1,4 @@
+# Convert dataset to training set 
 import os
 import sys
 import argparse
@@ -65,7 +66,7 @@ def parse_arguments():
         default='tif',
         help='Image format.')
 
-    parser.add_argument('-minio_address', type=str, default='192.168.1.66:19002', help='Minio archive IP address')
+    parser.add_argument('-minio_address', type=str, default='ipc.larson.myds.me:32000', help='Minio archive IP address')
     parser.add_argument('-minio_access_key', type=str, default='access', help='Minio access key')
     parser.add_argument('-minio_secret_key', type=str, default='secretkey', help='Minio secret key')
 

@@ -2,7 +2,7 @@ import json
 
 def WriteDictJson(outdict, path):
 
-    jsonStr = json.dumps(outdict, sort_keys=False)
+    jsonStr = json.dumps(outdict, indent=2, sort_keys=False)
     f = open(path,"w")
     f.write(jsonStr)
     f.close()

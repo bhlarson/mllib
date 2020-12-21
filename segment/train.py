@@ -46,10 +46,10 @@ parser.add_argument('--trainingsetprefix', type=str, default='trainingset', help
 parser.add_argument('--modelprefix', type=str, default='model', help='Model prefix')
 
 parser.add_argument('--trainingset', type=str, default='coco', help='training set')
-parser.add_argument('--initialmodel', type=str, default='2020-11-26-11-56-17-cocoseg', help='Initial model.  Empty string if no initial model')
+parser.add_argument('--initialmodel', type=str, default='2020-12-19-14-56-02-cocoseg', help='Initial model.  Empty string if no initial model')
 parser.add_argument('--temp_savedmodel', type=str, default='./saved_model', help='Temporary path to savedmodel.')
 
-parser.add_argument('-epochs', type=int, default=10, help='Number of training epochs')
+parser.add_argument('-epochs', type=int, default=20, help='Number of training epochs')
 
 parser.add_argument('-prune_epochs', type=int, default=0, help='Number of pruning epochs')
 
@@ -71,6 +71,7 @@ parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path
 defaultsavemodeldir = '{}'.format(datetime.now().strftime('%Y-%m-%d-%H-%M-%S-cocoseg'))
 parser.add_argument('-savedmodelname', type=str, default=defaultsavemodeldir, help='Final model')
 parser.add_argument('-weights', type=str, default='imagenet', help='Model initiation weights. None prevens loading weights from pre-trained networks')
+parser.add_argument('-description', type=str, default='train UNET segmentation network', help='Describe training experament')
 
 def make_image_tensor(tensor):
     """
@@ -137,6 +138,7 @@ def main(args):
     trainingsetDescription = json.load(open(trainingsetDescriptionFile))
 
     config = {
+        'descripiton': args.description
         'batch_size': args.batch_size,
         'traningset': trainingset,
         'trainingset description': trainingsetDescription,
@@ -164,6 +166,8 @@ def main(args):
         'initialmodel':args.initialmodel,
         'training_dir': args.training_dir,
         'min':args.min,
+        'strategy': args.strategy,
+        'devices':args.devices,
     }
 
     if args.trainingset is None or len(args.trainingset) == 0:

@@ -34,7 +34,7 @@ parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps
 
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 
-parser.add_argument('-initialmodel', type=str, default='2020-12-03-05-52-45-cocoseg', help='Initial model.  Empty string if no initial model')
+parser.add_argument('-initialmodel', type=str, default='2020-12-19-14-56-02-cocoseg', help='Initial model.  Empty string if no initial model')
 parser.add_argument('-tests_json', type=str, default='tests.json', help='Test Archive')
 parser.add_argument('-run_json', type=str, default='run.json', help='Test Archive')
 

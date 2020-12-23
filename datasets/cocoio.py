@@ -5,10 +5,10 @@ import json
 from collections import defaultdict
 
 class CocoIO:
-    def __init__(self, objDict, cocoJson, imagePaths, name_deccoration = None):
+    def __init__(self, objDict, dataset, imagePaths, name_deccoration = None):
         self.objDict = objDict
         self.imagePaths = imagePaths
-        self.dataset = json.load(open(cocoJson))
+        self.dataset = dataset
         self.createIndex()
         self.i = 0
         self.name_deccoration = name_deccoration

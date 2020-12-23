@@ -7,17 +7,26 @@ import random
 import math
 import glob
 import io
+import shutil
+import numpy as np
 import tensorflow as tf
 import cv2
 from cocoio import CocoIO
 from datetime import datetime
 from tqdm import tqdm
 
+sys.path.insert(0, os.path.abspath(''))
+from utils.s3 import s3store
+from utils.jsonutil import WriteDictJson
+
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
 
-    parser.add_argument('-dataset_path', type=str, default='/store/Datasets/coco', help='Path coco dataset direcotry')
-    parser.add_argument('-record_dir', type=str, default='/store/Datasets/coco/record', help='Path record work directory')
+    parser.add_argument('-dataset_path', type=str, default='./dataset', help='Path to dataset direcotry')
+    parser.add_argument('-record_dir', type=str, default='./record', help='Path record work directory')
+
+    defaultname = '{}'.format(datetime.now().strftime('%Y-%m-%d-%H-%M-%S-cocoseg'))
+    parser.add_argument('-trainingset_name', type=str, default=defaultname, help='Training set name')
 
     parser.add_argument('-datasets', type=json.loads,
         default='[ \
@@ -43,9 +52,13 @@ def parse_arguments():
     parser.add_argument('-classes_file', type=str, default='datasets/coco.json', help='Class dictionary JSON file')
 
     parser.add_argument('-author', type=str, default='Brad Larson')
-    parser.add_argument('-description', type=str, default='coco training set')
+    parser.add_argument('-description', type=str, default='coco 2017 set for training image segmentation')
 
     parser.add_argument('-debug', action='store_true',help='Wait for debugge attach')
+    parser.add_argument('-min', action='store_true', help='If set, minimum training to generate output.')
+    parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps.')
+    parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
+    parser.add_argument('-dataset', type=str, default='coco', help='Dataset.')
 
     args = parser.parse_args()
     return args
@@ -115,13 +128,14 @@ def Shuffle(sets):
     for key in sets:
         random.Random(seed).shuffle(sets[key])
 
-def WriteRecords(args):
+def WriteRecords(s3def, s3, args):
 
     setDescriptions = []
     for dataset in args.datasets:
-        jsonpath = '{}/{}'.format(args.dataset_path, dataset["jsonpath"])
-        imagepath = '{}/{}'.format(args.dataset_path, dataset["imagepath"])
-        coco = CocoIO(args.classes, jsonpath, imagepath, name_deccoration = dataset["name_decoration"])
+        jsonpath = '{}/{}/{}'.format(s3def['sets']['dataset']['prefix'],args.dataset, dataset["jsonpath"])
+        annotations = s3.GetDict(s3def['sets']['dataset']['bucket'], jsonpath)
+        imagepath = '{}/{}/{}'.format(s3def['sets']['dataset']['prefix'], args.dataset, dataset["imagepath"])
+        coco = CocoIO(args.classes, annotations, imagepath, name_deccoration = dataset["name_decoration"])
         setDescriptions.append({'name':dataset['set'], 'length': coco.len()})
         shard_id = 0
         shardImages = 0
@@ -132,7 +146,9 @@ def WriteRecords(args):
             if shardImages == 0:
                 output_filename = os.path.join(args.record_dir, '{}-{:05d}-of-{:05d}.tfrecord'.format(dataset["set"], shard_id, shards))
                 tfrecord_writer = tf.io.TFRecordWriter(output_filename)
-            img = cv2.imread(iman['img'])        
+            imgbuff = s3.GetObject(s3def['sets']['dataset']['bucket'], iman['img'])
+            imgbuff = np.fromstring(imgbuff, dtype='uint8')
+            img = cv2.imdecode(imgbuff, cv2.IMREAD_COLOR)        
             example = Example(args, img, iman['ann'])
             tfrecord_writer.write(example.SerializeToString())
 
@@ -141,17 +157,34 @@ def WriteRecords(args):
                 shardImages = 0
                 shard_id += 1
 
+            if args.min and i >= args.min_steps:
+                break
+
 
     description = {'creation date':datetime.now().strftime("%d/%m/%Y %H:%M:%S"),'author':args.author,'description':args.description, 'sets': setDescriptions, 'classes':args.classes}
     with open(args.record_dir+'/description.json', 'w') as fp:
         json.dump(description, fp, indent=4, separators=(',', ': '))
 
-def main(args):  
+    saved_name = '{}/{}'.format(s3def['sets']['trainingset']['prefix'] , args.trainingset_name)
+    print('Save model to {}/{}'.format(s3def['sets']['trainingset']['bucket'],saved_name))
+    if s3.PutDir(s3def['sets']['trainingset']['bucket'], args.record_dir, saved_name):
+        shutil.rmtree(args.record_dir, ignore_errors=True)
+
+def main(args):
+
+    creds = {}
+    with open(args.credentails) as json_file:
+        creds = json.load(json_file)
+    if not creds:
+        print('Failed to load credentials file {}. Exiting'.format(args.credentails))
+
+    s3def = creds['s3'][0]
+    s3 = s3store(s3def['address'], s3def['access key'], s3def['secret key'])
 
     if not os.path.exists(args.record_dir):
         os.makedirs(args.record_dir)
 
-    WriteRecords(args)
+    WriteRecords(s3def, s3, args)
     
 if __name__ == '__main__':
     args = parse_arguments()

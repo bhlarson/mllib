@@ -157,7 +157,6 @@ class s3store:
         # List all object paths in bucket that begin with my-prefixname.
         try:
             response = self.s3.get_object(bucket, object_name)
-            print(response)
             data = response.data
         except ResponseError as err:
                 print(err)

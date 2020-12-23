@@ -5,6 +5,8 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
 parser.add_argument('path', help='coco dataset path')
+parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
+parser.add_argument('-dataset', type=str, default='coco', help='Dataset.')
 
 
 cocourl=["http://images.cocodataset.org/zips/train2017.zip",
@@ -16,9 +18,19 @@ cocourl=["http://images.cocodataset.org/zips/train2017.zip",
                 "http://images.cocodataset.org/annotations/image_info_test2017.zip",
                 "http://images.cocodataset.org/annotations/image_info_unlabeled2017.zip",
 ]
-def main(unparsed):
+def main(args):
+
+    creds = {}
+    with open(args.credentails) as json_file:
+        creds = json.load(json_file)
+    if not creds:
+        print('Failed to load credentials file {}. Exiting'.format(args.credentails))
+
+    s3def = creds['s3'][0]
+    s3 = s3store(s3def['address'], s3def['access key'], s3def['secret key'])
+
     for url in cocourl:
-        outpath = '{}/{}'.format(FLAGS.path,os.path.basename(url))
+        outpath = '{}/{}'.format(args.path,os.path.basename(url))
         if os.path.isfile(outpath):
             print('{} exists.  Skipping'.format(outpath))
         else:
@@ -26,16 +38,22 @@ def main(unparsed):
             print(sysmsg)
             os.system(sysmsg)
 
-        sysmsg = 'unzip {} -d {}'.format(outpath, FLAGS.path)
+        sysmsg = 'unzip {} -d {}'.format(outpath, args.path)
         print(sysmsg)
         os.system(sysmsg)
 
-    print("Complete. Results saved to {}".format(FLAGS.path))
+    saved_name = '{}/{}'.format(s3def['sets']['dataset']['prefix'] , args.dataset)
+    print('Save model to {}/{}'.format(s3def['sets']['dataset']['bucket'],saved_name))
+    if s3.PutDir(s3def['sets']['dataset']['bucket'], args.path, saved_name):
+        shutil.rmtree(args.path, ignore_errors=True)
+
+    url = s3.GetUrl(s3def['sets']['dataset']['bucket'], saved_name)
+    print("Complete. Results saved to {}".format(url))
 
 if __name__ == '__main__':
-  FLAGS, unparsed = parser.parse_known_args()
+  args, unparsed = parser.parse_known_args()
   
-  if FLAGS.debug:
+  if args.debug:
       print("Wait for debugger attach")
       import ptvsd
       # https://code.visualstudio.com/docs/python/debugging#_remote-debugging
@@ -49,4 +67,4 @@ if __name__ == '__main__':
 
       print("Debugger attached")
 
-  main(unparsed)
+  main(args)

@@ -81,13 +81,25 @@ class CocoIO:
         self.i = 0
         return self
 
+    def classes(self, anns):
+        class_vector = np.zeros(self.objDict['classes'], dtype=np.float32)
+
+        for ann in anns:
+            obj = self.catToObj[ann['category_id']]
+            if obj['trainId'] < self.objDict["classes"]:
+                class_vector[obj['trainId']] = 1.0
+
+        return class_vector
+
+
     def __next__(self):
         if self.i < self.len():
             img = self.dataset['images'][self.i]
             imgFile = '{}/{}{}'.format(self.imagePaths,self.name_deccoration,img['file_name'])
             ann = self.imgToAnns[img['id']]
             annImg = self.drawann(img, ann)
-            result = {'img':imgFile, 'ann':annImg}
+            classes = self.classes(ann)
+            result = {'img':imgFile, 'ann':annImg, 'classes':classes}
 
             self.i += 1
             return result

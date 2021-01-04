@@ -4,7 +4,6 @@ Move classifier.py to reusable_custom_tf_estimator.py template
 
 
 import tensorflow as tf
-import tflite
 import numpy as np
 
 import os, sys, json, argparse, glob

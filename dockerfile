@@ -5,7 +5,7 @@ LABEL maintainer="Brad Larson"
 RUN echo 'alias py=python' >> ~/.bashrc
 
 RUN apt-get update
-RUN apt-get install -y libsm6 libxext6 ffmpeg # required by opencv-python==4.4.0.42
+RUN apt-get install -y wget libsm6 libxext6 ffmpeg # required by opencv-python==4.4.0.42
 RUN apt-get install unzip
 
 # numpy==1.18.5 tensorflow-gpu 2.3.0 requires numpy<1.19.0,>=1.16.0 https://github.com/tensorflow/models/issues/9200

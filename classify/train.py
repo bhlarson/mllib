@@ -13,7 +13,8 @@ from datetime import datetime
 
 sys.path.append('utils')
 from s3 import s3store
-from jsonutils import WriteDictJson
+from jsonutil import WriteDictJson
+from data import input_fn
 
 print('Python Version {}'.format(sys.version))
 print('Tensorflow version {}'.format(tf.__version__))
@@ -29,16 +30,19 @@ parser.add_argument('-min', action='store_true', help='If set, minimum training 
 parser.add_argument('-min_steps', type=int, default=3, help='Minimum steps')
 
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
-parser.add_argument('-batch_size', type=int, default=32, help='Number of examples per batch.')
+parser.add_argument('-batch_size', type=int, default=65, help='Number of examples per batch.')
 parser.add_argument('-size_x', type=int, default=224, help='Training image size_x')
 parser.add_argument('-size_y', type=int, default=224, help='Training image size_y')
 parser.add_argument('-depth', type=int, default=3, help='Training image depth')
+parser.add_argument('-channel_order', type=str, default='channels_last', choices=['channels_first', 'channels_last'], help='Channels_last = NHWC, Tensorflow default, channels_first=NCHW')
 parser.add_argument('-epochs', type=int, default=30, help='Training epochs')
 parser.add_argument('-model_dir', type=str, default='./trainings/resnet-classify',help='Directory to store training model')
 parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to savedmodel.')
 parser.add_argument('-training_dir', type=str, default='./trainings/classify',help='Training directory.  Empty string for auto-generated tempory directory')
+parser.add_argument('--trainingset', type=str, default='2020-12-26-10-05-13-cocoseg', help='training set')
+parser.add_argument('-trainingset_dir', type=str, default='/store/training/2020-12-26-10-05-13-cocoseg', help='Path training set tfrecord')
 
-parser.add_argument('--initialmodel', type=str, default='2020-11-28-06-42-37-cfy', help='Initial model.  Empty string if no initial model')
+parser.add_argument('--initialmodel', type=str, default='', help='Initial model.  Empty string if no initial model')
 
 parser.add_argument('-learning_rate', type=float, default=1e-3, help='Adam optimizer learning rate.')
 parser.add_argument('-dataset', type=str, default='tf_flowers', choices=['tf_flowers'], help='Model Optimization Precision.')
@@ -48,6 +52,7 @@ parser.add_argument("-devices", type=json.loads, default=None,  help='GPUs to in
 defaultsavemodeldir = '{}'.format(datetime.now().strftime('%Y-%m-%d-%H-%M-%S-cfy'))
 parser.add_argument('-savedmodelname', type=str, default=defaultsavemodeldir, help='Final model')
 parser.add_argument('-weights', type=str, default='imagenet', help='Model initiation weights. None prevens loading weights from pre-trained networks')
+parser.add_argument('-description', type=str, default='train UNET segmentation network', help='Describe training experament')
 
 def LoadModel(config, s3, model_dir=None):
     model = None 
@@ -80,7 +85,7 @@ def LoadModel(config, s3, model_dir=None):
     if model is None:
 
         model = keras.applications.ResNet50V2(include_top=True, weights=config['init_weights'], 
-            input_shape=config['shape'], classes=config['classes'])
+            input_shape=config['shape'], classes=config['classes'], classifier_activation=None)
 
         if not config['clean'] and config['training_dir'] is not None:
             try:
@@ -90,7 +95,7 @@ def LoadModel(config, s3, model_dir=None):
 
     if model:
         model.compile(optimizer='adam',
-                    loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+                    loss='categorical_crossentropy',
                     metrics=['accuracy'])
 
     return model
@@ -99,7 +104,7 @@ def prepare_image(image, label, config):
     image = tf.image.resize_with_crop_or_pad(image, config['shape'][0], config['shape'][1])
     return image, label
 
-def input_fn(config, split):
+'''def input_fn(config, split):
     dataset, metadata = tfds.load('tf_flowers', with_info=True, split=split, shuffle_files=True, as_supervised=True)
     dataset = dataset.map(lambda features, label: prepare_image(features, label, config) , num_parallel_calls = 10)
     dataset = dataset.batch(config['batch_size'])
@@ -109,7 +114,7 @@ def input_fn(config, split):
     dataset = dataset.repeat(config['epochs'])
 
     dataset = dataset.cache().prefetch(buffer_size=tf.data.experimental.AUTOTUNE) # Test new autotune prefetch 
-    return dataset, metadata
+    return dataset, metadata'''
 
 def graph_history(loss,val_loss,savedmodelpath):
     
@@ -171,13 +176,34 @@ def main(args):
     s3def = creds['s3'][0]
     s3 = s3store(s3def['address'], s3def['access key'], s3def['secret key'])
 
+    trainingset = '{}/{}/'.format(s3def['sets']['trainingset']['prefix'] , args.trainingset)
+    print('Load training set {}/{} to {}'.format(s3def['sets']['trainingset']['bucket'],trainingset,args.trainingset_dir ))
+    s3.Mirror(s3def['sets']['trainingset']['bucket'], trainingset, args.trainingset_dir)
+
+    trainingsetDescriptionFile = '{}/description.json'.format(args.trainingset_dir)
+    trainingsetDescription = json.load(open(trainingsetDescriptionFile))
+
     training_percent = 0.8
     config = {
+        'descripiton': args.description,
+        'traningset': trainingset,
+        'trainingset description': trainingsetDescription,
         'dataset':args.dataset,
         'batch_size': args.batch_size,
+        'classScale': 0.001, # scale value for each product class
+        'augment_rotation' : 15., # Rotation in degrees
+        'augment_flip_x': False,
+        'augment_flip_y': True,
+        'augment_brightness':0.,
+        'augment_contrast': 0.,
+        'augment_shift_x': 0.1, # in fraction of image
+        'augment_shift_y': 0.1, # in fraction of image
+        'scale_min': 0.5, # in fraction of image
+        'scale_max': 2.0, # in fraction of image
+        'input_shape': [args.size_y, args.size_x, args.depth],
         'shape': (args.size_y, args.size_x, args.depth),
         'split': tfds.Split.TRAIN,
-        'classes': 0, # load classes from dataset
+        'classes': trainingsetDescription['classes']['classes'],
         'learning_rate': args.learning_rate,
         'init_weights':None,
         'clean': args.clean,
@@ -185,6 +211,7 @@ def main(args):
         'training_percent':training_percent,
         'training':'train[:{}%]'.format(int(100*training_percent)),
         'validation':'train[{}%:]'.format(int(100*training_percent)),
+        'channel_order': args.channel_order,
         #'training':'train[:80%]',
         #'validation':'train[80%:]',
         's3_address':s3def['address'],
@@ -229,11 +256,22 @@ def main(args):
             #tensorboard_callback
         ]
 
-        train_dataset, datasetdata = input_fn(config, split=config['training'])
-        val_dataset, _ = input_fn(config, split=config['validation'])
-        config['classes'] = datasetdata.features['label'].num_classes
-        train_images = int(datasetdata.splits.total_num_examples*config['training_percent'])
-        val_images = int(datasetdata.splits.total_num_examples*(1.0-config['training_percent']))
+        #train_dataset, datasetdata = input_fn(config, split=config['training'])
+        #val_dataset, _ = input_fn(config, split=config['validation'])
+
+        train_dataset = input_fn('train', args.trainingset_dir, config)
+        val_dataset = input_fn('val', args.trainingset_dir, config)
+
+        #for images, labels in train_dataset.take(1):
+        #    for i in range(images.shape[0]):
+        #        print(labels[i].numpy())
+
+        # config['classes'] = datasetdata.features['label'].num_classes
+        #train_images = int(datasetdata.splits.total_num_examples*config['training_percent'])
+        #val_images = int(datasetdata.splits.total_num_examples*(1.0-config['training_percent']))
+
+        train_images = config['batch_size'] # Guess training set if not provided
+        val_images = config['batch_size']
 
         steps_per_epoch=int(train_images/config['batch_size'])
         validation_steps = int(val_images/config['batch_size'])

@@ -91,7 +91,7 @@ def _int_feature(value):
 def _float_feature(value):
     return tf.train.Feature(float_list=tf.train.FloatList(value=value))
 
-def Example(args, image, label):
+def Example(args, image, label, classes):
 
     if image is None:
         raise ValueError('{} annotation failed to load '.format(iman['im']))
@@ -119,6 +119,7 @@ def Example(args, image, label):
         'image/format': _str_feature('png'),
         'label/encoded': _bytes_feature(encoded_label),
         'label/format': _str_feature('png'),
+        'label/classes': _float_feature(classes),
     }
 
     return tf.train.Example(features=tf.train.Features(feature=feature))
@@ -149,7 +150,7 @@ def WriteRecords(s3def, s3, args):
             imgbuff = s3.GetObject(s3def['sets']['dataset']['bucket'], iman['img'])
             imgbuff = np.fromstring(imgbuff, dtype='uint8')
             img = cv2.imdecode(imgbuff, cv2.IMREAD_COLOR)        
-            example = Example(args, img, iman['ann'])
+            example = Example(args, img, iman['ann'], iman['classes'])
             tfrecord_writer.write(example.SerializeToString())
 
             shardImages += 1

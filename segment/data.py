@@ -28,7 +28,7 @@ def get_filenames(data_dir, dataset='train'):
     files =  glob.glob(os.path.join(data_dir, '{}-?????-of-?????.tfrecord'.format(dataset)))
   return files
 
-def parse_record(raw_record, input_shape, channel_order):
+def parse_record(raw_record, input_shape, channel_order, classes):
   """Parse PASCAL image and label from a tf record."""
   keys_to_features = {
       'image/height': tf.io.FixedLenFeature((), tf.int64),
@@ -37,6 +37,7 @@ def parse_record(raw_record, input_shape, channel_order):
       'image/format': tf.io.FixedLenFeature((), tf.string, default_value='png'),
       'label/encoded': tf.io.FixedLenFeature((), tf.string, default_value=''),
       'label/format': tf.io.FixedLenFeature((), tf.string, default_value='png'),
+      'label/classes': tf.io.FixedLenFeature([classes], tf.float32),
   }
 
   parsed = tf.io.parse_single_example(serialized=raw_record, features=keys_to_features)
@@ -213,7 +214,7 @@ def input_fn(datasetname, data_dir, config, num_epochs=1, shuffle_buffer=1, num_
         dataset = dataset.shuffle(buffer_size=shuffle_buffer)
         dataset = dataset.repeat(config['epochs'])
 
-    dataset = dataset.map(lambda raw_record: parse_record(raw_record, config['input_shape'], config['channel_order']), num_parallel_calls = num_parallel_calls)
+    dataset = dataset.map(lambda raw_record: parse_record(raw_record, config['input_shape'], config['channel_order'], config['classes']), num_parallel_calls = num_parallel_calls)
 
     if datasetname=='train':
         dataset = dataset.map(lambda image, label: augment_image_config(image, label, config) , num_parallel_calls = num_parallel_calls)

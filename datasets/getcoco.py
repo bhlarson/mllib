@@ -1,10 +1,14 @@
+import sys
 import argparse
 import json
 import os
+import shutil
+sys.path.insert(0, os.path.abspath(''))
+from utils.s3 import s3store
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
-parser.add_argument('path', help='coco dataset path')
+parser.add_argument('-path', type=str, default='./temp', help='coco dataset path')
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 parser.add_argument('-dataset', type=str, default='coco', help='Dataset.')
 
@@ -28,6 +32,9 @@ def main(args):
 
     s3def = creds['s3'][0]
     s3 = s3store(s3def['address'], s3def['access key'], s3def['secret key'])
+
+    if not os.path.exists(args.path):
+        os.makedirs(args.path)
 
     for url in cocourl:
         outpath = '{}/{}'.format(args.path,os.path.basename(url))

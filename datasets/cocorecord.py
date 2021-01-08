@@ -130,7 +130,6 @@ def Shuffle(sets):
         random.Random(seed).shuffle(sets[key])
 
 def WriteRecords(s3def, s3, args):
-
     setDescriptions = []
     for dataset in args.datasets:
         jsonpath = '{}/{}/{}'.format(s3def['sets']['dataset']['prefix'],args.dataset, dataset["jsonpath"])
@@ -154,7 +153,8 @@ def WriteRecords(s3def, s3, args):
             tfrecord_writer.write(example.SerializeToString())
 
             shardImages += 1
-            if shardImages > args.shard_images:
+            if shardImages >= args.shard_images:
+                print('{} {}'.format(output_filename, shardImages))
                 shardImages = 0
                 shard_id += 1
 
@@ -180,7 +180,13 @@ def main(args):
         print('Failed to load credentials file {}. Exiting'.format(args.credentails))
 
     s3def = creds['s3'][0]
-    s3 = s3store(s3def['address'], s3def['access key'], s3def['secret key'])
+    s3 = s3store(s3def['address'], 
+                 s3def['access key'], 
+                 s3def['secret key'], 
+                 tls=s3def['tls'], 
+                 cert_verify=s3def['cert_verify'], 
+                 cert_path=s3def['cert_path']
+                 )
 
     if not os.path.exists(args.record_dir):
         os.makedirs(args.record_dir)

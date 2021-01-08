@@ -30,12 +30,12 @@ parser.add_argument('-min', action='store_true', help='If set, minimum training 
 parser.add_argument('-min_steps', type=int, default=3, help='Minimum steps')
 
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
-parser.add_argument('-batch_size', type=int, default=65, help='Number of examples per batch.')
+parser.add_argument('-batch_size', type=int, default=32, help='Number of examples per batch.')
 parser.add_argument('-size_x', type=int, default=224, help='Training image size_x')
 parser.add_argument('-size_y', type=int, default=224, help='Training image size_y')
 parser.add_argument('-depth', type=int, default=3, help='Training image depth')
 parser.add_argument('-channel_order', type=str, default='channels_last', choices=['channels_first', 'channels_last'], help='Channels_last = NHWC, Tensorflow default, channels_first=NCHW')
-parser.add_argument('-epochs', type=int, default=30, help='Training epochs')
+parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
 parser.add_argument('-model_dir', type=str, default='./trainings/resnet-classify',help='Directory to store training model')
 parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to savedmodel.')
 parser.add_argument('-training_dir', type=str, default='./trainings/classify',help='Training directory.  Empty string for auto-generated tempory directory')
@@ -174,7 +174,13 @@ def main(args):
         print('Failed to load credentials file {}. Exiting'.format(args.credentails))
 
     s3def = creds['s3'][0]
-    s3 = s3store(s3def['address'], s3def['access key'], s3def['secret key'])
+    s3 = s3store(s3def['address'], 
+                 s3def['access key'], 
+                 s3def['secret key'], 
+                 tls=s3def['tls'], 
+                 cert_verify=s3def['cert_verify'], 
+                 cert_path=s3def['cert_path']
+                 )
 
     trainingset = '{}/{}/'.format(s3def['sets']['trainingset']['prefix'] , args.trainingset)
     print('Load training set {}/{} to {}'.format(s3def['sets']['trainingset']['bucket'],trainingset,args.trainingset_dir ))
@@ -273,8 +279,13 @@ def main(args):
         train_images = config['batch_size'] # Guess training set if not provided
         val_images = config['batch_size']
 
+        for dataset in trainingsetDescription['sets']:
+            if(dataset['name']=="train"):
+                train_images = dataset["length"]
+            if(dataset['name']=="val"):
+                val_images = dataset["length"]
         steps_per_epoch=int(train_images/config['batch_size'])
-        validation_steps = int(val_images/config['batch_size'])
+        validation_steps=int(val_images/config['batch_size'])
 
         if(args.min):
             steps_per_epoch= min(args.min_steps, steps_per_epoch)
@@ -326,13 +337,13 @@ def main(args):
     # Save confusion matrix: https://www.kaggle.com/grfiv4/plot-a-confusion-matrix
     saved_name = '{}/{}'.format(s3def['sets']['model']['prefix'] , args.savedmodelname)
     print('Save model to {}/{}'.format(s3def['sets']['model']['bucket'],saved_name))
-    if s3.PutDir(s3def['sets']['model']['bucket'], savedmodelpath, saved_name):
-        shutil.rmtree(savedmodelpath, ignore_errors=True)
+    #if s3.PutDir(s3def['sets']['model']['bucket'], savedmodelpath, saved_name):
+    #    shutil.rmtree(savedmodelpath, ignore_errors=True)
 
     if args.clean or args.training_dir is None or len(args.training_dir) == 0:
         shutil.rmtree(config['training_dir'], ignore_errors=True)
 
-    print("Classification training complete. Results saved to http://{}/minio/{}/{}".format(s3def['address'], s3def['sets']['model']['bucket'],saved_name))
+    #print("Classification training complete. Results saved to http://{}/minio/{}/{}".format(s3def['address'], s3def['sets']['model']['bucket'],saved_name))
 
 
 if __name__ == '__main__':

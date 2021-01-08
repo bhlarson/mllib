@@ -63,7 +63,13 @@ def main(args):
         return False
 
     s3def = creds['s3'][0]
-    s3 = s3store(s3def['address'], s3def['access key'], s3def['secret key'])
+    s3 = s3store(s3def['address'], 
+                 s3def['access key'], 
+                 s3def['secret key'], 
+                 tls=s3def['tls'], 
+                 cert_verify=s3def['cert_verify'], 
+                 cert_path=s3def['cert_path']
+                 )
 
     trainingset = '{}/{}/'.format(s3def['sets']['trainingset']['prefix'] , args.trainingset)
     print('Load training set {}/{} to {}'.format(s3def['sets']['trainingset']['bucket'],trainingset,args.trainingset_dir ))

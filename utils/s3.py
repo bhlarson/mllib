@@ -8,18 +8,31 @@ from tqdm import tqdm
 import natsort as ns
 from minio import Minio
 from minio.error import (ResponseError, BucketAlreadyOwnedByYou, BucketAlreadyExists)
+import urllib3
+import certifi
 
 def remove_prefix(text, prefix):
     return text[text.startswith(prefix) and len(prefix):]
 class s3store:
 
-    def __init__(self, address, access_key, secret_key, secure = False):
+    def __init__(self, address, access_key, secret_key, tls = True, cert_verify=True, cert_path = None):
         self.addresss = address
-        self.secure = secure
+        self.tls = tls
+        urllib3.disable_warnings()
+        if(cert_verify):
+            if(cert_path):
+                cert_location = cert_path
+            else:
+                cert_location = certifi.where()
+            http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', ca_certs=cert_location)
+        else:
+            http = urllib3.PoolManager(cert_reqs='CERT_NONE')
+
         self.s3 = Minio(address,
              access_key=access_key,
              secret_key=secret_key,
-             secure=secure)
+             secure=tls,
+             http_client = http)
 
     def GetUrl(self, bucket, path,  expires=timedelta(hours=2)):
 
@@ -109,7 +122,6 @@ class s3store:
                                 os.mkdir(destination)
                         else:
                             if not os.path.isfile(destination):
-                                print('Copy {}/{} to {}'.format(bucket, obj.object_name, destination))                
                                 self.s3.fget_object(bucket, obj.object_name, destination)
                     except:
                         print('Failed to copy {}/{} to {}'.format(bucket, obj.object_name, destination))

@@ -31,7 +31,13 @@ def main(args):
         print('Failed to load credentials file {}. Exiting'.format(args.credentails))
 
     s3def = creds['s3'][0]
-    s3 = s3store(s3def['address'], s3def['access key'], s3def['secret key'])
+    s3 = s3store(s3def['address'], 
+                 s3def['access key'], 
+                 s3def['secret key'], 
+                 tls=s3def['tls'], 
+                 cert_verify=s3def['cert_verify'], 
+                 cert_path=s3def['cert_path']
+                 )
 
     if not os.path.exists(args.path):
         os.makedirs(args.path)

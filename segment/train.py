@@ -37,7 +37,7 @@ parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 parser.add_argument('-model_precision', type=str, default='FP16', choices=['FP32', 'FP16', 'INT8'], help='Model Optimization Precision.')
 
-parser.add_argument('-trainingset_dir', type=str, default='/store/training/2020-12-26-10-05-13-cocoseg', help='Path training set tfrecord')
+parser.add_argument('-trainingset_dir', type=str, default='/store/training/2021-01-07-05-48-46-cocoseg', help='Path training set tfrecord')
 parser.add_argument('-training_dir', type=str, default='./trainings/unetcoco',help='Training directory.  Empty string for auto-generated tempory directory')
 parser.add_argument('-checkpoint', type=str, default='train.ckpt',help='Directory to store training model')
 
@@ -45,8 +45,8 @@ parser.add_argument('--datasetprefix', type=str, default='dataset', help='Datase
 parser.add_argument('--trainingsetprefix', type=str, default='trainingset', help='Trainingset prefix')
 parser.add_argument('--modelprefix', type=str, default='model', help='Model prefix')
 
-parser.add_argument('--trainingset', type=str, default='2020-12-26-10-05-13-cocoseg', help='training set')
-parser.add_argument('--initialmodel', type=str, default='2020-12-19-14-56-02-cocoseg', help='Initial model.  Empty string if no initial model')
+parser.add_argument('--trainingset', type=str, default='2021-01-07-05-48-46-cocoseg', help='training set')
+parser.add_argument('--initialmodel', type=str, default='', help='Initial model.  Empty string if no initial model')
 parser.add_argument('--temp_savedmodel', type=str, default='./saved_model', help='Temporary path to savedmodel.')
 
 parser.add_argument('-epochs', type=int, default=20, help='Number of training epochs')
@@ -125,7 +125,13 @@ def main(args):
         print('Failed to load credentials file {}. Exiting'.format(args.credentails))
 
     s3def = creds['s3'][0]
-    s3 = s3store(s3def['address'], s3def['access key'], s3def['secret key'])
+    s3 = s3store(s3def['address'], 
+                 s3def['access key'], 
+                 s3def['secret key'], 
+                 tls=s3def['tls'], 
+                 cert_verify=s3def['cert_verify'], 
+                 cert_path=s3def['cert_path']
+                 )
     
     trainingset = '{}/{}/'.format(s3def['sets']['trainingset']['prefix'] , args.trainingset)
     print('Load training set {}/{} to {}'.format(s3def['sets']['trainingset']['bucket'],trainingset,args.trainingset_dir ))

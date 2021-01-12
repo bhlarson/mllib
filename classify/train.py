@@ -35,12 +35,12 @@ parser.add_argument('-size_x', type=int, default=224, help='Training image size_
 parser.add_argument('-size_y', type=int, default=224, help='Training image size_y')
 parser.add_argument('-depth', type=int, default=3, help='Training image depth')
 parser.add_argument('-channel_order', type=str, default='channels_last', choices=['channels_first', 'channels_last'], help='Channels_last = NHWC, Tensorflow default, channels_first=NCHW')
-parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
+parser.add_argument('-epochs', type=int, default=20, help='Training epochs')
 parser.add_argument('-model_dir', type=str, default='./trainings/resnet-classify',help='Directory to store training model')
 parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to savedmodel.')
 parser.add_argument('-training_dir', type=str, default='./trainings/classify',help='Training directory.  Empty string for auto-generated tempory directory')
-parser.add_argument('--trainingset', type=str, default='2020-12-26-10-05-13-cocoseg', help='training set')
-parser.add_argument('-trainingset_dir', type=str, default='/store/training/2020-12-26-10-05-13-cocoseg', help='Path training set tfrecord')
+parser.add_argument('--trainingset', type=str, default='2021-01-12-08-26-56-cocoseg', help='training set')
+parser.add_argument('-trainingset_dir', type=str, default='/store/training/2021-01-12-08-26-56-cocoseg', help='Path training set tfrecord')
 
 parser.add_argument('--initialmodel', type=str, default='', help='Initial model.  Empty string if no initial model')
 

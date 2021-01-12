@@ -56,7 +56,7 @@ def parse_arguments():
 
     parser.add_argument('-debug', action='store_true',help='Wait for debugge attach')
     parser.add_argument('-min', action='store_true', help='If set, minimum training to generate output.')
-    parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps.')
+    parser.add_argument('-min_steps', type=int, default=20, help='Number of min steps.')
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
     parser.add_argument('-dataset', type=str, default='coco', help='Dataset.')
 
@@ -136,14 +136,21 @@ def WriteRecords(s3def, s3, args):
         annotations = s3.GetDict(s3def['sets']['dataset']['bucket'], jsonpath)
         imagepath = '{}/{}/{}'.format(s3def['sets']['dataset']['prefix'], args.dataset, dataset["imagepath"])
         coco = CocoIO(args.classes, annotations, imagepath, name_deccoration = dataset["name_decoration"])
-        setDescriptions.append({'name':dataset['set'], 'length': coco.len()})
         shard_id = 0
         shardImages = 0
-        shards =  math.ceil(float(coco.len())/float(args.shard_images))
-        print('Processing {} dataset with {} images from {}'.format(dataset["set"], coco.len(), jsonpath))
-        for i, iman in enumerate(tqdm(coco, total=coco.len())):
+        set_len = 0
+        set_images = coco.len()
+        if args.min and set_images >= args.min_steps:
+            set_images = args.min_steps
 
+        shards =  math.ceil(float(set_images)/float(args.shard_images))
+        print('Processing {} dataset with {} images from {}'.format(dataset["set"], set_images, jsonpath))
+        tfrecord_writer = None
+        for i, iman in enumerate(tqdm(coco, total=set_images)):
             if shardImages == 0:
+                if tfrecord_writer is not None:
+                    tfrecord_writer.flush()
+                    tfrecord_writer.close()
                 output_filename = os.path.join(args.record_dir, '{}-{:05d}-of-{:05d}.tfrecord'.format(dataset["set"], shard_id, shards))
                 tfrecord_writer = tf.io.TFRecordWriter(output_filename)
             imgbuff = s3.GetObject(s3def['sets']['dataset']['bucket'], iman['img'])
@@ -153,13 +160,19 @@ def WriteRecords(s3def, s3, args):
             tfrecord_writer.write(example.SerializeToString())
 
             shardImages += 1
+            set_len += 1
+
             if shardImages >= args.shard_images:
-                print('{} {}'.format(output_filename, shardImages))
                 shardImages = 0
                 shard_id += 1
 
-            if args.min and i >= args.min_steps:
+            if set_len >= set_images: # if set_images < len(coco), we need to exit the loop
                 break
+
+        if tfrecord_writer is not None:
+            tfrecord_writer.flush()
+            tfrecord_writer.close()
+        setDescriptions.append({'name':dataset['set'], 'length': set_len})
 
 
     description = {'creation date':datetime.now().strftime("%d/%m/%Y %H:%M:%S"),'author':args.author,'description':args.description, 'sets': setDescriptions, 'classes':args.classes}

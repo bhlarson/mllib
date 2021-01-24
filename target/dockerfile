@@ -14,11 +14,14 @@ RUN pip3 --no-cache-dir install \
         opencv-python==4.4.0.42 \
         minio==6.0.0 \
         tqdm==4.48.2 \
+        natsort==7.0.1 \
         ptvsd==4.3.2 \
         shutils==0.1.0 \
         tf2onnx==1.6.3 \
         onnx==1.7.0 \
-        pycuda==2019.1.2
+        pycuda==2019.1.2 \
+        shutils==0.1.0 \
+        keras2onnx==1.7.0
 
 WORKDIR /app
 ENV LANG C.UTF-8

@@ -240,8 +240,8 @@ def input_fn(datasetname, data_dir, config, num_epochs=1, shuffle_buffer=1, num_
         # randomness, while smaller sizes have better performance.
         # is a relatively small dataset, we choose to shuffle the full epoch.
         dataset = dataset.shuffle(buffer_size=shuffle_buffer)
-        dataset = dataset.repeat(config['epochs'])
 
+    dataset = dataset.repeat(config['epochs'])
     dataset = dataset.map(lambda raw_record: parse_record(raw_record, config['input_shape'], config['channel_order'], config['classes']), num_parallel_calls = num_parallel_calls)
 
     if datasetname=='train':

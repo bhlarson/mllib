@@ -13,6 +13,7 @@ import certifi
 
 def remove_prefix(text, prefix):
     return text[text.startswith(prefix) and len(prefix):]
+
 class s3store:
 
     def __init__(self, address, access_key, secret_key, tls = True, cert_verify=True, cert_path = None):
@@ -42,9 +43,29 @@ class s3store:
     def ListBuckets(self):
         return self.s3.list_buckets()
 
+    def PutFile(self, bucket, file, setname):
+        success = True
+        try:
+            self.s3.make_bucket(bucket)
+        except BucketAlreadyOwnedByYou as err:
+            pass
+        except BucketAlreadyExists as err:
+            pass
+        except ResponseError as err:
+            print(err)
+            raise err
+
+        try:
+            filename = setname+'/'+ os.path.basename(file)
+            self.s3.fput_object(bucket, filename, file)
+        except ResponseError as err:
+            print(err)
+
+        return success
+
     def PutDir(self, bucket, path, setname):
         success = True
-        files = glob.glob(glob.escape(path)+'/**/*.*', recursive=True)
+        files = list(Path(path).rglob('**/*.*'))
         try:
             self.s3.make_bucket(bucket)
         except BucketAlreadyOwnedByYou as err:
@@ -59,7 +80,7 @@ class s3store:
             if path[len(path)-1] != '/':
                 path = path +'/'
             for file in tqdm(files, total=len(files)):
-                #objstr = remove_prefix(file, setname+'/')
+                objstr = remove_prefix(file, setname+'/')
                 filename = setname+'/'+ remove_prefix(file, path)
                 self.s3.fput_object(bucket, filename, file)
         except ResponseError as err:
@@ -89,12 +110,6 @@ class s3store:
                         print('Failed to copy {}/{} to {}'.format(bucket, obj.object_name, destination))
                         success = False
 
-            #fileCount = len(tuple(objects)) 
-            #if(fileCount > 0):
-            #    for obj in tqdm(objects):                       
-            #        self.s3.fget_object(bucket, obj.object_name, '{}/{}'.format(destdir,obj.object_name.lstrip(setname)))
-            #else:
-            #    print('{}/{} contains {} objects'.format(bucket, setname, fileCount))
 
         except ResponseError as err:
             print(err)
@@ -270,12 +285,12 @@ class s3store:
             print('Failed to read objects')
         return models, sized_models
 
-    def ListModelsWithResults(self, bucket='savedmodel', model_type='lit', result_name='results.json'):
+    def ListModelsWithResults(self, bucket, model_type='', result_name='results.json'):
         models_results = []
         models = self.ListModels(bucket=bucket, model_type=model_type)
         try:
             for model in models:
-                objects = self.s3.list_objects('savedmodel', prefix=model, recursive=False)
+                objects = self.s3.list_objects(bucket, prefix=model, recursive=False)
                 for obj in objects:
                     if obj.object_name == model+result_name:
                         models_results.append(model)
@@ -377,5 +392,21 @@ class s3store:
         except ResponseError as err:
             print(err)
             raise err
+
+        return success
+
+    def RemoveObjects(self, bucket, setname=None, pattern='**', recursive=False):
+        success = True
+
+        # List all object paths in bucket that begin with my-prefixname.
+        # remove_objects minio API not working
+        try:
+            objects = self.s3.list_objects(bucket, prefix=setname, recursive=recursive)
+            for obj in objects:
+                self.s3.remove_object(bucket, obj.object_name)
+
+        except ResponseError as err:
+            print(err)
+            success = False
 
         return success

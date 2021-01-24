@@ -154,20 +154,21 @@ def WriteRecords(s3def, s3, args):
                 output_filename = os.path.join(args.record_dir, '{}-{:05d}-of-{:05d}.tfrecord'.format(dataset["set"], shard_id, shards))
                 tfrecord_writer = tf.io.TFRecordWriter(output_filename)
             imgbuff = s3.GetObject(s3def['sets']['dataset']['bucket'], iman['img'])
-            imgbuff = np.fromstring(imgbuff, dtype='uint8')
-            img = cv2.imdecode(imgbuff, cv2.IMREAD_COLOR)        
-            example = Example(args, img, iman['ann'], iman['classes'])
-            tfrecord_writer.write(example.SerializeToString())
+            if imgbuff:
+                imgbuff = np.fromstring(imgbuff, dtype='uint8')
+                img = cv2.imdecode(imgbuff, cv2.IMREAD_COLOR)      
+                example = Example(args, img, iman['ann'], iman['classes'])
+                tfrecord_writer.write(example.SerializeToString())
 
-            shardImages += 1
-            set_len += 1
+                shardImages += 1
+                set_len += 1
 
-            if shardImages >= args.shard_images:
-                shardImages = 0
-                shard_id += 1
+                if shardImages >= args.shard_images:
+                    shardImages = 0
+                    shard_id += 1
 
-            if set_len >= set_images: # if set_images < len(coco), we need to exit the loop
-                break
+                if set_len >= set_images: # if set_images < len(coco), we need to exit the loop
+                    break
 
         if tfrecord_writer is not None:
             tfrecord_writer.flush()

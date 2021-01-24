@@ -15,6 +15,7 @@ sys.path.append('utils')
 from s3 import s3store
 from jsonutil import WriteDictJson
 from data import input_fn
+from loadmodel import LoadModel
 
 print('Python Version {}'.format(sys.version))
 print('Tensorflow version {}'.format(tf.__version__))
@@ -30,22 +31,22 @@ parser.add_argument('-min', action='store_true', help='If set, minimum training 
 parser.add_argument('-min_steps', type=int, default=3, help='Minimum steps')
 
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
-parser.add_argument('-batch_size', type=int, default=32, help='Number of examples per batch.')
+parser.add_argument('-batch_size', type=int, default=64, help='Number of examples per batch.')
 parser.add_argument('-size_x', type=int, default=224, help='Training image size_x')
 parser.add_argument('-size_y', type=int, default=224, help='Training image size_y')
 parser.add_argument('-depth', type=int, default=3, help='Training image depth')
 parser.add_argument('-channel_order', type=str, default='channels_last', choices=['channels_first', 'channels_last'], help='Channels_last = NHWC, Tensorflow default, channels_first=NCHW')
-parser.add_argument('-epochs', type=int, default=20, help='Training epochs')
+parser.add_argument('-epochs', type=int, default=15, help='Training epochs')
 parser.add_argument('-model_dir', type=str, default='./trainings/resnet-classify',help='Directory to store training model')
 parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to savedmodel.')
 parser.add_argument('-training_dir', type=str, default='./trainings/classify',help='Training directory.  Empty string for auto-generated tempory directory')
-parser.add_argument('--trainingset', type=str, default='2021-01-12-08-26-56-cocoseg', help='training set')
-parser.add_argument('-trainingset_dir', type=str, default='/store/training/2021-01-12-08-26-56-cocoseg', help='Path training set tfrecord')
+parser.add_argument('--trainingset', type=str, default='2021-01-12-19-36-49-cocoseg', help='training set')
+parser.add_argument('-trainingset_dir', type=str, default='/store/training/2021-01-12-19-36-49-cocoseg', help='Path training set tfrecord')
 
-parser.add_argument('--initialmodel', type=str, default='', help='Initial model.  Empty string if no initial model')
+parser.add_argument('--initialmodel', type=str, default='2021-01-13-18-16-49-cfy', help='Initial model.  Empty string if no initial model')
 
-parser.add_argument('-learning_rate', type=float, default=1e-3, help='Adam optimizer learning rate.')
-parser.add_argument('-dataset', type=str, default='tf_flowers', choices=['tf_flowers'], help='Model Optimization Precision.')
+parser.add_argument('-learning_rate', type=float, default=5e-3, help='Adam optimizer learning rate.')
+# parser.add_argument('-dataset', type=str, default='tf_flowers', choices=['tf_flowers'], help='Model Optimization Precision.')
 
 parser.add_argument("-strategy", type=str, default='mirrored', help="Replication strategy. 'mirrored', 'onedevice' now supported ")
 parser.add_argument("-devices", type=json.loads, default=None,  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
@@ -54,67 +55,11 @@ parser.add_argument('-savedmodelname', type=str, default=defaultsavemodeldir, he
 parser.add_argument('-weights', type=str, default='imagenet', help='Model initiation weights. None prevens loading weights from pre-trained networks')
 parser.add_argument('-description', type=str, default='train UNET segmentation network', help='Describe training experament')
 
-def LoadModel(config, s3, model_dir=None):
-    model = None 
-    print('LoadModel initial model: {}, training directory: {}, '.format(config['initialmodel'], config['training_dir']))
-    if config['initialmodel'] is not None:
-        tempinitmodel = tempfile.TemporaryDirectory(prefix='initmodel', dir='.')
-        modelpath = tempinitmodel.name+'/'+config['initialmodel']
-        os.makedirs(modelpath)
-        try:
-            s3model=config['s3_sets']['model']['prefix']+'/'+config['initialmodel']
-            success = s3.GetDir(config['s3_sets']['model']['bucket'], s3model, modelpath)
-            model = tf.keras.models.load_model(modelpath) # Load from checkpoint
 
-        except:
-            print('Unable to load weghts from http://{}/minio/{}/{}'.format(
-                config['s3_address'],
-                config['s3_sets']['model']['prefix'],
-                modelpath)
-            )
-            model = None 
-        shutil.rmtree(tempinitmodel, ignore_errors=True)
 
-    if model is None:
-        if not config['clean'] and config['training_dir'] is not None:
-            try:
-                model = tf.keras.models.load_model(config['training_dir'])
-            except:
-                print('Unable to load weghts from {}'.format(config['training_dir']))
-
-    if model is None:
-
-        model = keras.applications.ResNet50V2(include_top=True, weights=config['init_weights'], 
-            input_shape=config['shape'], classes=config['classes'], classifier_activation=None)
-
-        if not config['clean'] and config['training_dir'] is not None:
-            try:
-                model.load_weights(config['training_dir'])
-            except:
-                print('Unable to load weghts from {}'.format(config['training_dir']))
-
-    if model:
-        model.compile(optimizer='adam',
-                    loss='categorical_crossentropy',
-                    metrics=['accuracy'])
-
-    return model
-
-def prepare_image(image, label, config):
+'''def prepare_image(image, label, config):
     image = tf.image.resize_with_crop_or_pad(image, config['shape'][0], config['shape'][1])
-    return image, label
-
-'''def input_fn(config, split):
-    dataset, metadata = tfds.load('tf_flowers', with_info=True, split=split, shuffle_files=True, as_supervised=True)
-    dataset = dataset.map(lambda features, label: prepare_image(features, label, config) , num_parallel_calls = 10)
-    dataset = dataset.batch(config['batch_size'])
-    dataset = dataset.prefetch(config['batch_size'])
-
-    dataset = dataset.shuffle(buffer_size=10*config['batch_size'])
-    dataset = dataset.repeat(config['epochs'])
-
-    dataset = dataset.cache().prefetch(buffer_size=tf.data.experimental.AUTOTUNE) # Test new autotune prefetch 
-    return dataset, metadata'''
+    return image, label'''
 
 def graph_history(loss,val_loss,savedmodelpath):
     
@@ -141,7 +86,7 @@ def CreatePredictions(dataset, model, config, outpath, imgname, num=1):
     for image, label in dataset.take(num):
       initial = datetime.now()
       logits = model.predict(image)
-      classification = tf.math.argmax(logits, axis=-1, output_type=tf.int32)
+      #classification = tf.math.argmax(logits, axis=-1, output_type=tf.int32)
       dt = (datetime.now()-initial).total_seconds()
       dtSum += dt
       for j in range(config['batch_size']):
@@ -151,10 +96,9 @@ def CreatePredictions(dataset, model, config, outpath, imgname, num=1):
         plt.axis('off')
         plt.gca().get_legend().set_visible(False)
         plt.tight_layout()
-        datastr = 'label:{}, pred:{} conf:{:.4f}, dt:{:.4f}'.format(
+        datastr = 'label:{} pred:{} dt:{:.4f}'.format(
             label[j].numpy(),
-            classification[j].numpy(),
-            logits[j][classification[j].numpy()],
+            logits[j],
             dt/config['batch_size'])
         plt.title(datastr)
         plt.savefig(filename)
@@ -194,7 +138,7 @@ def main(args):
         'descripiton': args.description,
         'traningset': trainingset,
         'trainingset description': trainingsetDescription,
-        'dataset':args.dataset,
+        # 'dataset':args.dataset,
         'batch_size': args.batch_size,
         'classScale': 0.001, # scale value for each product class
         'augment_rotation' : 15., # Rotation in degrees
@@ -337,8 +281,8 @@ def main(args):
     # Save confusion matrix: https://www.kaggle.com/grfiv4/plot-a-confusion-matrix
     saved_name = '{}/{}'.format(s3def['sets']['model']['prefix'] , args.savedmodelname)
     print('Save model to {}/{}'.format(s3def['sets']['model']['bucket'],saved_name))
-    #if s3.PutDir(s3def['sets']['model']['bucket'], savedmodelpath, saved_name):
-    #    shutil.rmtree(savedmodelpath, ignore_errors=True)
+    if s3.PutDir(s3def['sets']['model']['bucket'], savedmodelpath, saved_name):
+        shutil.rmtree(savedmodelpath, ignore_errors=True)
 
     if args.clean or args.training_dir is None or len(args.training_dir) == 0:
         shutil.rmtree(config['training_dir'], ignore_errors=True)

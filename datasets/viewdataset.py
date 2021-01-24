@@ -123,7 +123,7 @@ def main(args):
                 for k in range(image.shape[0]):
                     img = tf.squeeze(image[k]).numpy().astype(np.uint8)
                     ann = tf.squeeze(mask[k]).numpy().astype(np.uint8)
-
+                    img = cv.cvtColor(img, cv2.COLOR_RGB2BGR)
                     iman = DrawFeatures(img, ann, config)
                     inxstr = '{:02d}_{:04d}'.format(i, config['batch_size']*j+k)
                     cv2.imwrite('{}/train_iman{}.png'.format(outpath, inxstr), iman)

@@ -69,7 +69,6 @@ def ExtractFeatures(seg, objTypes, config):
 
 def ApplyColors(img, seg, objTypes, configm, alpha = 0.50):
     [height, width] = seg.shape
-    img = img.astype(np.float32)
     imgout = copy.deepcopy(img)
     for segobj in objTypes:
       if segobj['display']:

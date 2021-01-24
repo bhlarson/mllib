@@ -21,6 +21,7 @@ from tensorflow.keras.utils import GeneratorEnqueuer, Sequence, OrderedEnqueuer
 #from segment.display import DrawFeatures, WritePredictions
 #from segment.data import input_fn
 #from networks.unet import unet_model, unet_compile
+import onnx
 import keras2onnx
 
 DEBUG = False
@@ -47,37 +48,37 @@ parser.add_argument('-tbport', type=int, default=6006, help='Tensorboard network
 parser.add_argument('-weights', type=str, default='imagenet', help='Model initiation weights. None prevens loading weights from pre-trained networks')
 
 
-def main(unparsed):
+def main(args):
 
-    if FLAGS.tflite: # convert to Tensorflow Lite
-        converter = tf.lite.TFLiteConverter.from_saved_model(FLAGS.savedmodel)
+    if args.tflite: # convert to Tensorflow Lite
+        converter = tf.lite.TFLiteConverter.from_saved_model(args.savedmodel)
         converter.optimizations = [tf.lite.Optimize.OPTIMIZE_FOR_LATENCY]
-        #samplefiles = get_samples(FLAGS.sample_dir, FLAGS.match)
+        #samplefiles = get_samples(args.sample_dir, args.match)
         #converter.representative_dataset = lambda:representative_dataset_gen(samplefiles)
         #converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
         #converter.inference_input_type = tf.uint8  # or tf.uint8
         #converter.inference_output_type = tf.uint8  # or tf.uint8
         tflite_model = converter.convert()
-        outflite = '{}/{}-{}.tflite'.format(FALGS.savedmodel,FLAGS.savedmodel, FLAGS.model_precision)
+        outflite = '{}/{}-{}.tflite'.format(FALGS.savedmodel,args.savedmodel, args.model_precision)
         open(outflite, "wb").write(tflite_model)
 
-    if FLAGS.onnx:
+    if args.onnx:
         import keras2onnx
 
-        onnx_name = '{}/{}.onnx'.format(FLAGS.savedmodel, os.path.basename(FLAGS.savedmodel))
-        model = tf.keras.models.load_model(FLAGS.savedmodel)
+        onnx_name = '{}/{}.onnx'.format(args.savedmodel, os.path.basename(args.savedmodel))
+        model = tf.keras.models.load_model(args.savedmodel)
         onnx_model = keras2onnx.convert_keras(model, model.name, debug_mode=True)
         content = onnx_model.SerializeToString()
         keras2onnx.save_model(onnx_model, onnx_name)
 
-    if FLAGS.trt: # Use TF-TRT to convert savedmodel to TensorRT
-        trtpath = '{}/{}-{}/'.format(FLAGS.trtmodel, os.path.basename(FLAGS.savedmodel), FLAGS.model_precision)
+    if args.trt: # Use TF-TRT to convert savedmodel to TensorRT
+        trtpath = '{}/{}-{}/'.format(args.trtmodel, os.path.basename(args.savedmodel), args.model_precision)
         from tensorflow.python.compiler.tensorrt import trt_convert as trt
 
         conversion_params = trt.DEFAULT_TRT_CONVERSION_PARAMS
-        conversion_params = conversion_params._replace(precision_mode=FLAGS.model_precision)
+        conversion_params = conversion_params._replace(precision_mode=args.model_precision)
 
-        converter = trt.TrtGraphConverterV2(input_saved_model_dir=FLAGS.savedmodel, conversion_params=conversion_params)
+        converter = trt.TrtGraphConverterV2(input_saved_model_dir=args.savedmodel, conversion_params=conversion_params)
         converter.convert()
         converter.save(trtpath)
 
@@ -86,7 +87,7 @@ def main(unparsed):
         # create_inference_graph has been removed from Tensorflow 2
         '''def input_fn():
             for _ in range(num_runs):
-                inputTensor = np.random.normal(size=(1, FLAGS.training_crop[0], FLAGS.training_crop[1], FLAGS.train_depth)).astype(np.float32)
+                inputTensor = np.random.normal(size=(1, args.training_crop[0], args.training_crop[1], args.train_depth)).astype(np.float32)
                 yield inputTensor
         converter.build(input_fn=input_fn)
 
@@ -102,9 +103,9 @@ def main(unparsed):
 
 
 if __name__ == '__main__':
-  FLAGS, unparsed = parser.parse_known_args()
+  args, unparsed = parser.parse_known_args()
   
-  if FLAGS.debug:
+  if args.debug:
       print("Wait for debugger attach")
       import ptvsd
       # https://code.visualstudio.com/docs/python/debugging#_remote-debugging
@@ -118,4 +119,4 @@ if __name__ == '__main__':
 
       print("Debugger attached")
 
-  main(unparsed)
+  main(args)

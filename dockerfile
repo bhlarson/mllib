@@ -16,7 +16,7 @@ RUN pip3 --no-cache-dir install \
         #numpy==1.18.5 \ 
         #scipy==1.4.1 \ 
         matplotlib==3.3.1\
-        minio==6.0.0 \
+        minio==6.0.2 \
         tqdm==4.48.2 \
         natsort==7.0.1 \
         ptvsd==4.3.2 \

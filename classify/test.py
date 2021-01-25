@@ -13,9 +13,7 @@ import matplotlib.pyplot as plt
 
 #sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath('')), '..')))
 sys.path.insert(0, os.path.abspath(''))
-from segment.data import input_fn
-from segment.display import WritePredictions
-from networks.unet import unet_model
+from classify.data import input_fn
 
 sys.path.append('utils')
 from s3 import s3store

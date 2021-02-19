@@ -3,7 +3,7 @@ import io
 import glob
 import json
 from datetime import datetime, timedelta
-from pathlib import PurePath
+from pathlib import Path
 from tqdm import tqdm
 import natsort as ns
 from minio import Minio
@@ -80,9 +80,8 @@ class s3store:
             if path[len(path)-1] != '/':
                 path = path +'/'
             for file in tqdm(files, total=len(files)):
-                objstr = remove_prefix(file, setname+'/')
-                filename = setname+'/'+ remove_prefix(file, path)
-                self.s3.fput_object(bucket, filename, file)
+                object_name = setname+'/'+ file.name
+                self.s3.fput_object(bucket, object_name, file)
         except ResponseError as err:
             print(err)
 
@@ -116,6 +115,20 @@ class s3store:
             raise err
         except:
             print('Failed to read {}/{}'.format(bucket, setname))
+            success = False
+
+        return success
+
+    def GetFile(self, bucket, object_name, destination):
+        success = True
+
+        try:                     
+            self.s3.fget_object(bucket, object_name, destination)
+        except ResponseError as err:
+            print(err)
+            success = False
+        except:
+            print('Failed to copy {}/{} to {}'.format(bucket, obj.object_name, destination))
             success = False
 
         return success

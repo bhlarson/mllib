@@ -5,17 +5,10 @@ import json
 import os
 import sys
 import math
-import shutil
-import cv2
 import tensorflow as tf
 #from tensorflow.python.framework.ops import disable_eager_execution
 #import tensorflow_model_optimization as tfmot
 from datetime import datetime
-import matplotlib.pyplot as plt
-from PIL import Image
-from tensorflow.keras.callbacks import Callback
-# Depending on your keras version:-
-from tensorflow.keras.utils import GeneratorEnqueuer, Sequence, OrderedEnqueuer
 
 #sys.path.insert(0, os.path.abspath(''))
 #from segment.display import DrawFeatures, WritePredictions

@@ -37,7 +37,7 @@ parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 parser.add_argument('-model_precision', type=str, default='FP16', choices=['FP32', 'FP16', 'INT8'], help='Model Optimization Precision.')
 
-parser.add_argument('-trainingset_dir', type=str, default='/store/training/2021-01-12-08-26-56-cocoseg', help='Path training set tfrecord')
+parser.add_argument('-trainingset_dir', type=str, default='/store/training/2021-01-12-19-36-49-cocoseg', help='Path training set tfrecord')
 parser.add_argument('-training_dir', type=str, default='./trainings/unetcoco',help='Training directory.  Empty string for auto-generated tempory directory')
 parser.add_argument('-checkpoint', type=str, default='train.ckpt',help='Directory to store training model')
 
@@ -45,8 +45,8 @@ parser.add_argument('--datasetprefix', type=str, default='dataset', help='Datase
 parser.add_argument('--trainingsetprefix', type=str, default='trainingset', help='Trainingset prefix')
 parser.add_argument('--modelprefix', type=str, default='model', help='Model prefix')
 
-parser.add_argument('--trainingset', type=str, default='2021-01-12-08-26-56-cocoseg', help='training set')
-parser.add_argument('--initialmodel', type=str, default='', help='Initial model.  Empty string if no initial model')
+parser.add_argument('--trainingset', type=str, default='2021-01-12-19-36-49-cocoseg', help='training set')
+parser.add_argument('--initialmodel', type=str, default=None, help='Initial model.  Empty string if no initial model')
 parser.add_argument('--temp_savedmodel', type=str, default='./saved_model', help='Temporary path to savedmodel.')
 
 parser.add_argument('-epochs', type=int, default=20, help='Number of training epochs')
@@ -72,6 +72,8 @@ defaultsavemodeldir = '{}'.format(datetime.now().strftime('%Y-%m-%d-%H-%M-%S-coc
 parser.add_argument('-savedmodelname', type=str, default=defaultsavemodeldir, help='Final model')
 parser.add_argument('-weights', type=str, default='imagenet', help='Model initiation weights. None prevens loading weights from pre-trained networks')
 parser.add_argument('-description', type=str, default='train UNET segmentation network', help='Describe training experament')
+
+parser.add_argument('-saveonnx', type=bool, default=True, help='Save onnx output')
 
 def make_image_tensor(tensor):
     """
@@ -178,7 +180,7 @@ def main(args):
 
     if args.trainingset is None or len(args.trainingset) == 0:
         config['trainingset'] = None
-    if len(args.initialmodel) == 0:
+    if args.initialmodel is None or len(args.initialmodel) == 0:
         config['initialmodel'] = None
     if args.training_dir is None or len(args.training_dir) == 0:
         config['training_dir'] = tempfile.TemporaryDirectory(prefix='train', dir='.')
@@ -278,6 +280,20 @@ def main(args):
     print("Create saved model")
     model.save(savedmodelpath, save_format='tf')
     WriteDictJson(model_description, '{}/description.json'.format(savedmodelpath))
+
+    if args.saveonnx:
+        import keras2onnx
+        import onnx
+        onnx_model = keras2onnx.convert_keras(model, model.name)
+
+        inputs = onnx_model.graph.input
+        for input in inputs:
+            dim1 = input.type.tensor_type.shape.dim[0]
+            dim1.dim_value = 1
+
+        onnx_filename = '{}/segment_unet.onnx'.format(savedmodelpath)
+        onnx.save_model(onnx_model, onnx_filename)
+
 
     # Make some predictions. In the interest of saving time, the number of epochs was kept small, but you may set this higher to achieve more accurate results.
     WritePredictions(train_dataset, model, config, outpath=savedmodelpath, imgname='train_img')

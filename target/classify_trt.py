@@ -125,10 +125,17 @@ def main(args):
             objTypes[objType['trainId']]['name'] = objType['category']
             objTypes[objType['trainId']]['id'] = objType['trainId']
 
-    modelpath = '{}/{}/{}.plan'.format(s3def['sets']['model']['prefix'], config['savedmodel'], config['savedmodel'])
-    plan = s3.GetObject(s3def['sets']['model']['bucket'], modelpath)
+    modelname = '{}.trt'.format(config['savedmodel'])
+    modelpath = '{}/{}/{}'.format(s3def['sets']['model']['prefix'], config['savedmodel'], modelname)
+    #plan = s3.GetObject(s3def['sets']['model']['bucket'], modelpath)
+    if not s3.GetFile(s3def['sets']['model']['bucket'], modelpath, modelname):
+        print('Failed to load {}/{}'.format(s3def['sets']['model']['bucket'], modelpath))
+
+    f = open(modelname, "rb")
+
     runtime = trt.Runtime(trt.Logger(trt.Logger.WARNING)) 
-    engine = runtime.deserialize_cuda_engine(plan)
+    engine = runtime.deserialize_cuda_engine(f.read())
+    #engine = runtime.deserialize_cuda_engine(plan)
     context = engine.create_execution_context()
 
     output = np.empty(trainingsetDescription['config']['classes'], dtype = np.float32)
@@ -184,15 +191,16 @@ def main(args):
         image, annotation  = iterator.get_next()
 
         initial = datetime.now()
-        predict_batch(image, output) # Check TRT performance
+        predict_batch(image.numpy(), output) # Check TRT performance
         dt = (datetime.now()-initial).total_seconds()
         dtSum += dt
         imageTime = dt/config['batch_size']
 
         for j in range(config['batch_size']):
-            err = ((annotation.numpy() - output)**2).mean(axis=None) # axis=None returns scalar error value
+            annotation = annotation.numpy()
+            err = ((annotation - output)**2).mean(axis=None) # axis=None returns scalar error value
             errSum += err                   
-            results['image'].append({'dt':imageTime,'err':err}) 
+            results['image'].append({'dt':imageTime,'err':err, 'predict':output, 'annotation':annotation}) 
 
     num_images = numsteps*config['batch_size']
     average_time = dtSum/num_images

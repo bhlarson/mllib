@@ -13,7 +13,6 @@ import cv2
 from datetime import datetime
 import matplotlib.pyplot as plt
 import tifffile
-import xmltodict
 from minio import Minio
 sys.path.insert(0, os.path.abspath(''))
 from utils.s3 import s3store

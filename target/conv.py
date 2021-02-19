@@ -128,7 +128,7 @@ def main(args):
     modelpath = '{}/{}'.format(s3def['sets']['model']['prefix'], config['savedmodel'])
     savedmodelpath = '{}/{}'.format(args.work_path, config['savedmodel'])
     onnxname = '{}/{}.onnx'.format(savedmodelpath, config['savedmodel'])
-    trtenginename = '{}/{}.plan'.format(savedmodelpath, config['savedmodel'])
+    trtenginename = '{}/{}.trt'.format(savedmodelpath, config['savedmodel'])
 
     if using_tensorflow:
         import tensorflow
@@ -153,7 +153,7 @@ def main(args):
 
 
     '''
-    trtenginename = '{}/{}.plan'.format(savedmodelpath, config['savedmodel'])
+    trtenginename = '{}/{}.trt'.format(savedmodelpath, config['savedmodel'])
 
     graph_def, inputs, outputs = tf_loader.from_saved_model(savedmodelpath, input_names=args.model_input_names, output_names=args.model_output_names)
 

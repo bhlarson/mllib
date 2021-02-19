@@ -4,42 +4,49 @@ LABEL maintainer="Brad Larson"
 
 RUN echo 'alias py=python' >> ~/.bashrc
 
-RUN apt-get update
 RUN apt-get install -y apt-utils
+RUN apt-get update
 
+# Node install for jupyter lab
 RUN apt-get -y install curl dirmngr apt-transport-https lsb-release ca-certificates
 RUN curl -sL https://deb.nodesource.com/setup_12.x | bash -
-
 RUN apt-get install -y nodejs
 
-# required by opencv-python==4.4.0.42
-RUN apt-get install -y libsm6
-RUN apt-get install -y libxext6
-RUN apt-get install -y libxrender-dev
-RUN apt-get install -y ffmpeg
+RUN apt-get install -y libgl1-mesa-glx # for opencv-python
 
 RUN pip3 install --upgrade pip
-
-RUN pip3 --no-cache-dir install opencv-python==4.4.0.42 
-RUN pip3 --no-cache-dir install minio==6.0.0
-RUN pip3 --no-cache-dir install natsort==7.0.1
-RUN pip3 --no-cache-dir install tifffile==2020.5.5
-RUN pip3 --no-cache-dir install xmltodict==0.12.0
-RUN pip3 --no-cache-dir install tqdm==4.48.2
-RUN pip3 --no-cache-dir install scandir==1.10.0
-RUN pip3 --no-cache-dir install pandas==1.1.4 
-RUN pip3 --no-cache-dir install glob2==0.7
-RUN pip3 --no-cache-dir install ptvsd==4.3.2
-RUN pip3 --no-cache-dir install plotly==4.13.0
-RUN pip3 --no-cache-dir install jupyterlab==2.2.9
-RUN pip3 --no-cache-dir install ipywidgets==7.5.1
-RUN pip3 --no-cache-dir install xeus-python==0.9.1
+RUN pip3 --no-cache-dir install \
+        opencv-python==4.4.0.42 \
+        matplotlib==3.3.1\
+        minio==6.0.2 \
+        tqdm==4.56.0 \
+        natsort==7.0.1 \
+        ptvsd==4.3.2 \
+        tensorflow-model-optimization==0.4.1 \
+        tfds-nightly \
+        #onnxruntime==1.5.2\
+        keras2onnx==1.7.0 \
+        tensorflow-addons==0.11.2 \
+        flask==1.1.2 \
+        pycocotools==2.0.1 \
+        shutils==0.1.0 \
+        tf2onnx==1.8.2 \
+        onnx==1.8.1 \
+        scandir==1.10.0 \
+        glob2==0.7 \
+        plotly==4.14.3 \
+        jupyterlab==3.0.7 \
+        ipywidgets==7.6.3 \
+        jupyterlab_widgets==1.0.0 \
+        xeus-python==0.9.1
+        
 
 # Install debugger JupyterLab extension
-RUN jupyter labextension install @jupyterlab/debugger
-RUN jupyter labextension install @jupyter-widgets/jupyterlab-manager@2
-RUN jupyter labextension install jupyterlab-plotly@4.13.0
-RUN jupyter labextension install @jupyter-widgets/jupyterlab-manager plotlywidget@7.5.1
+# RUN jupyter labextension install @jupyterlab/debugger
+# RUN jupyter labextension install @jupyter-widgets/jupyterlab-manager@2
+RUN jupyter labextension install jupyterlab-plotly4.14.3
+RUN jupyter labextension install @jupyter-widgets/jupyterlab-manager plotlywidget@4.14.3
+
 
 
 WORKDIR /app

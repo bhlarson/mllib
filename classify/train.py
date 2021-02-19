@@ -11,6 +11,7 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 from datetime import datetime
 
+sys.path.insert(0, os.path.abspath(''))
 sys.path.append('utils')
 from s3 import s3store
 from jsonutil import WriteDictJson
@@ -43,7 +44,8 @@ parser.add_argument('-training_dir', type=str, default='./trainings/classify',he
 parser.add_argument('--trainingset', type=str, default='2021-01-12-19-36-49-cocoseg', help='training set')
 parser.add_argument('-trainingset_dir', type=str, default='/store/training/2021-01-12-19-36-49-cocoseg', help='Path training set tfrecord')
 
-parser.add_argument('--initialmodel', type=str, default='2021-01-13-18-16-49-cfy', help='Initial model.  Empty string if no initial model')
+#parser.add_argument('--initialmodel', type=str, default='2021-01-13-18-16-49-cfy', help='Initial model.  Empty string if no initial model')
+parser.add_argument('--initialmodel', type=str, default=None, help='Initial model.  Empty string if no initial model')
 
 parser.add_argument('-learning_rate', type=float, default=5e-3, help='Adam optimizer learning rate.')
 # parser.add_argument('-dataset', type=str, default='tf_flowers', choices=['tf_flowers'], help='Model Optimization Precision.')
@@ -54,7 +56,7 @@ defaultsavemodeldir = '{}'.format(datetime.now().strftime('%Y-%m-%d-%H-%M-%S-cfy
 parser.add_argument('-savedmodelname', type=str, default=defaultsavemodeldir, help='Final model')
 parser.add_argument('-weights', type=str, default='imagenet', help='Model initiation weights. None prevens loading weights from pre-trained networks')
 parser.add_argument('-description', type=str, default='train UNET segmentation network', help='Describe training experament')
-
+parser.add_argument('-saveonnx', type=bool, default=True, help='Save onnx output')
 
 
 '''def prepare_image(image, label, config):
@@ -170,7 +172,7 @@ def main(args):
         'training_dir': args.training_dir,
     }
 
-    if len(args.initialmodel) == 0:
+    if args.initialmodel is None or len(args.initialmodel) == 0:
         config['initialmodel'] = None
     if args.training_dir is None or len(args.training_dir) == 0:
         config['training_dir'] = tempfile.TemporaryDirectory(prefix='train', dir='.')
@@ -268,6 +270,19 @@ def main(args):
 
     print("Create saved model")
     model.save(savedmodelpath, save_format='tf')
+    
+    if args.saveonnx:
+        import keras2onnx
+        import onnx
+        onnx_model = keras2onnx.convert_keras(model, model.name)
+
+        inputs = onnx_model.graph.input
+        for input in inputs:
+            dim1 = input.type.tensor_type.shape.dim[0]
+            dim1.dim_value = 1
+
+        onnx_filename = '{}/classify_resnet.onnx'.format(savedmodelpath)
+        onnx.save_model(onnx_model, onnx_filename)
     
     PrepareInference(dataset=train_dataset, model=model)
     CreatePredictions(dataset=train_dataset, model=model, config=config, outpath=savedmodelpath, imgname='train')

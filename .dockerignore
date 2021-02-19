@@ -10,6 +10,8 @@ model*
 saved_model
 TrainingSet
 
+creds.json
+
 
 # ignore all *.crt files in all folders, including build root
 **/*.crt

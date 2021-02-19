@@ -1,27 +1,27 @@
 # https://ngc.nvidia.com/catalog/containers/nvidia:tensorflow/tags
-FROM nvcr.io/nvidia/tensorflow:20.10-tf2-py3
+FROM nvcr.io/nvidia/tensorflow:20.12-tf2-py3
 LABEL maintainer="Brad Larson"
 
 RUN echo 'alias py=python' >> ~/.bashrc
 
 RUN apt-get update
-RUN apt-get install -y libsm6 libxext6 ffmpeg # required by opencv-python==4.4.0.42
+RUN apt-get install -y libgl1-mesa-glx # for opencv-python
 
 # numpy==1.18.5 tensorflow-gpu 2.3.0 requires numpy<1.19.0,>=1.16.0 https://github.com/tensorflow/models/issues/9200
 # scipy==1.4.1 tensorflow-gpu 2.3.0 requires scipy==1.4.1
 RUN pip3 install --upgrade pip
 RUN pip3 --no-cache-dir install \
         opencv-python==4.4.0.42 \
-        minio==6.0.0 \
-        tqdm==4.48.2 \
+        minio==6.0.2 \
+        tqdm==4.56.0 \
         natsort==7.0.1 \
         ptvsd==4.3.2 \
+        onnxruntime==1.5.2\
+        onnx==1.8.1\
+        keras2onnx==1.7.0 \
         shutils==0.1.0 \
-        tf2onnx==1.6.3 \
-        onnx==1.7.0 \
-        pycuda==2019.1.2 \
-        shutils==0.1.0 \
-        keras2onnx==1.7.0
+        onnx==1.8.1 \
+        pycuda==2020.1
 
 WORKDIR /app
 ENV LANG C.UTF-8
@@ -36,4 +36,8 @@ EXPOSE 3000
 EXPOSE 5000 
 
 # Launch shell script
-RUN ["/bin/bash"]
+# RUN ["/bin/bash"]
+# Launch Jupyter
+CMD ["bash","-c", "jupyter lab --notebook-dir=/app --ip=0.0.0.0 --no-browser --allow-root --port=8888 --NotebookApp.token='' --NotebookApp.password='' --NotebookApp.allow_origin='*' --NotebookApp.base_url=${NB_PREFIX}"]
+
+

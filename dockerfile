@@ -10,7 +10,7 @@ RUN apt-get install unzip
 
 RUN pip3 install --upgrade pip
 RUN pip3 --no-cache-dir install \
-        opencv-python==4.4.0.42 \
+g        opencv-python==4.4.0.42 \
         matplotlib==3.3.1\
         minio==6.0.2 \
         tqdm==4.56.0 \
@@ -21,8 +21,7 @@ RUN pip3 --no-cache-dir install \
         flask==1.1.2 \
         pycocotools==2.0.1 \
         shutils==0.1.0 \
-        onnx==1.8.1\
-        keras2onnx==1.7.0 
+        tf2onnx==1.8.3
 
 RUN pip3 install https://dl.google.com/coral/python/tflite_runtime-2.1.0.post1-cp36-cp36m-linux_x86_64.whl
 

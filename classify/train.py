@@ -272,22 +272,15 @@ def main(args):
     model.save(savedmodelpath, save_format='tf')
     
     if args.saveonnx:
-        import keras2onnx
-        import onnx
-        onnx_model = keras2onnx.convert_keras(model, model.name)
+        onnx_req = "python -m tf2onnx.convert --saved-model {0} --opset 10 --output {0}/model.onnx".format(savedmodelpath)
+        os.system(onnx_req)
 
-        inputs = onnx_model.graph.input
-        for input in inputs:
-            dim1 = input.type.tensor_type.shape.dim[0]
-            dim1.dim_value = 1
-
-        onnx_filename = '{}/classify_resnet.onnx'.format(savedmodelpath)
-        onnx.save_model(onnx_model, onnx_filename)
-    
+    print("Compute results")
     PrepareInference(dataset=train_dataset, model=model)
     CreatePredictions(dataset=train_dataset, model=model, config=config, outpath=savedmodelpath, imgname='train')
     CreatePredictions(dataset=val_dataset, model=model, config=config, outpath=savedmodelpath, imgname='val')
 
+    print("Save results")
     model_description = {'config':config,
                          'results': history
                         }

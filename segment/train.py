@@ -282,18 +282,8 @@ def main(args):
     WriteDictJson(model_description, '{}/description.json'.format(savedmodelpath))
 
     if args.saveonnx:
-        import keras2onnx
-        import onnx
-        onnx_model = keras2onnx.convert_keras(model, model.name)
-
-        inputs = onnx_model.graph.input
-        for input in inputs:
-            dim1 = input.type.tensor_type.shape.dim[0]
-            dim1.dim_value = 1
-
-        onnx_filename = '{}/segment_unet.onnx'.format(savedmodelpath)
-        onnx.save_model(onnx_model, onnx_filename)
-
+        onnx_req = "python -m tf2onnx.convert --saved-model {0} --opset 10 --output {0}/model.onnx".format(savedmodelpath)
+        os.system(onnx_req)
 
     # Make some predictions. In the interest of saving time, the number of epochs was kept small, but you may set this higher to achieve more accurate results.
     WritePredictions(train_dataset, model, config, outpath=savedmodelpath, imgname='train_img')
@@ -311,7 +301,7 @@ def main(args):
     if args.clean or args.training_dir is None or len(args.training_dir) == 0:
         shutil.rmtree(config['training_dir'], ignore_errors=True)
 
-    print("Segmentation training complete. Results saved to http://{}/minio/{}/{}".format(s3def['address'], s3def['sets']['model']['bucket'],saved_name))
+    print("Segmentation training complete. Results saved to https://{}/minio/{}/{}".format(s3def['address'], s3def['sets']['model']['bucket'],saved_name))
 
 
 if __name__ == '__main__':

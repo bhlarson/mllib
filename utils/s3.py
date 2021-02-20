@@ -128,7 +128,7 @@ class s3store:
             print(err)
             success = False
         except:
-            print('Failed to copy {}/{} to {}'.format(bucket, obj.object_name, destination))
+            print('Failed to copy {}/{} to {}'.format(bucket, object_name, destination))
             success = False
 
         return success

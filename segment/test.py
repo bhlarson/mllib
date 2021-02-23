@@ -34,14 +34,14 @@ parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps
 
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 
-parser.add_argument('-initialmodel', type=str, default='2020-12-19-14-56-02-cocoseg', help='Initial model.  Empty string if no initial model')
+parser.add_argument('-initialmodel', type=str, default='2020-11-26-11-56-17-cocoseg', help='Initial model.  Empty string if no initial model')
 parser.add_argument('-tests_json', type=str, default='tests.json', help='Test Archive')
 parser.add_argument('-run_json', type=str, default='run.json', help='Test Archive')
 
 parser.add_argument('-trainingset_dir', type=str, default='/store/training/coco', help='Path training set tfrecord')
 parser.add_argument('-test_dir', type=str, default='./test/unet',help='Directory to store training model')
 
-parser.add_argument('--trainingset', type=str, default='coco', help='training set')
+parser.add_argument('--trainingset', type=str, default='2021-01-12-19-36-49-cocoseg', help='training set')
 
 parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.')              
 
@@ -164,33 +164,40 @@ def main(args):
         if(config['min']):
             numsteps=min(args.min_steps, numsteps)
 
-        for i in tqdm(range(numsteps)):
-            image, annotation  = iterator.get_next()
-            initial = datetime.now()
-            logits = model.predict(image, batch_size=config['batch_size'], steps=1)
-            segmentation = tf.argmax(logits, axis=-1)
-            dt = (datetime.now()-initial).total_seconds()
-            dtSum += dt
-            imageTime = dt/config['batch_size']
-            for j in range(config['batch_size']):
-                img = tf.squeeze(image[j]).numpy().astype(np.uint8)
-                ann = tf.squeeze(annotation[j]).numpy().astype(np.uint8)
-                seg = tf.squeeze(segmentation[j]).numpy().astype(np.uint8)
+        try:
+            for i in tqdm(range(numsteps)):
+                image, annotation  = iterator.get_next()
+                initial = datetime.now()
+                logits = model.predict(image, batch_size=config['batch_size'], steps=1)
+                segmentation = tf.argmax(logits, axis=-1)
+                dt = (datetime.now()-initial).total_seconds()
+                dtSum += dt
+                imageTime = dt/config['batch_size']
+                for j in range(config['batch_size']):
+                    img = tf.squeeze(image[j]).numpy().astype(np.uint8)
+                    ann = tf.squeeze(annotation[j]).numpy().astype(np.uint8)
+                    seg = tf.squeeze(segmentation[j]).numpy().astype(np.uint8)
 
-                accuracy.update_state(ann,seg)
-                seg_accuracy = accuracy.result().numpy()
+                    accuracy.update_state(ann,seg)
+                    seg_accuracy = accuracy.result().numpy()
 
-                accuracySum += seg_accuracy
-                imagesimilarity, results['class similarity'], unique = jaccard(ann, seg, objTypes, results['class similarity'])
+                    accuracySum += seg_accuracy
+                    imagesimilarity, results['class similarity'], unique = jaccard(ann, seg, objTypes, results['class similarity'])
 
-                confusion = tf.math.confusion_matrix(ann.flatten(),seg.flatten(), config['classes']).numpy().astype(np.int64)
-                if total_confusion is None:
-                    total_confusion = confusion
-                else:
-                    total_confusion += confusion
-                    
+                    confusion = tf.math.confusion_matrix(ann.flatten(),seg.flatten(), config['classes']).numpy().astype(np.int64)
+                    if total_confusion is None:
+                        total_confusion = confusion
+                    else:
+                        total_confusion += confusion
+                        
 
-                results['image'].append({'dt':imageTime,'similarity':imagesimilarity, 'accuracy':seg_accuracy, 'confusion':confusion})
+                    results['image'].append({'dt':imageTime,'similarity':imagesimilarity, 'accuracy':seg_accuracy, 'confusion':confusion})
+        except Exception as e:
+            print("Error: test exception {} step {}".format(e, i))
+            numsteps = i
+        except:
+            print("Error: test exception step {}".format(i))
+            numsteps = i
 
     num_images = numsteps*config['batch_size']
     average_time = dtSum/num_images

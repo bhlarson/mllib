@@ -45,7 +45,7 @@ def parse_arguments():
    
     parser.add_argument('-shard_images', 
         type=int,
-        default= 500,
+        default= 1000,
         help='Number images per shard')
 
     parser.add_argument('-classes', type=json.loads, default='{}', help='Class dictionary JSON.  Leave empty if classes_file points to a JSON file.')
@@ -147,17 +147,16 @@ def WriteRecords(s3def, s3, args):
         print('Processing {} dataset with {} images from {}'.format(dataset["set"], set_images, jsonpath))
         tfrecord_writer = None
         for i, iman in enumerate(tqdm(coco, total=set_images)):
-            if shardImages == 0:
-                if tfrecord_writer is not None:
-                    tfrecord_writer.flush()
-                    tfrecord_writer.close()
-                output_filename = os.path.join(args.record_dir, '{}-{:05d}-of-{:05d}.tfrecord'.format(dataset["set"], shard_id, shards))
-                tfrecord_writer = tf.io.TFRecordWriter(output_filename)
             imgbuff = s3.GetObject(s3def['sets']['dataset']['bucket'], iman['img'])
             if imgbuff:
                 imgbuff = np.fromstring(imgbuff, dtype='uint8')
                 img = cv2.imdecode(imgbuff, cv2.IMREAD_COLOR)      
                 example = Example(args, img, iman['ann'], iman['classes'])
+                
+                if tfrecord_writer is None:
+                    output_filename = os.path.join(args.record_dir, '{}-{:05d}-of-{:05d}.tfrecord'.format(dataset["set"], shard_id+1, shards))
+                    tfrecord_writer = tf.io.TFRecordWriter(output_filename)
+
                 tfrecord_writer.write(example.SerializeToString())
 
                 shardImages += 1
@@ -166,6 +165,10 @@ def WriteRecords(s3def, s3, args):
                 if shardImages >= args.shard_images:
                     shardImages = 0
                     shard_id += 1
+
+                    tfrecord_writer.flush()
+                    tfrecord_writer.close()
+                    tfrecord_writer = None
 
                 if set_len >= set_images: # if set_images < len(coco), we need to exit the loop
                     break
@@ -176,7 +179,13 @@ def WriteRecords(s3def, s3, args):
         setDescriptions.append({'name':dataset['set'], 'length': set_len})
 
 
-    description = {'creation date':datetime.now().strftime("%d/%m/%Y %H:%M:%S"),'author':args.author,'description':args.description, 'sets': setDescriptions, 'classes':args.classes}
+    description = {
+        'creation date':datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        'author':args.author,
+        'description':args.description, 
+        'sets': setDescriptions, 
+        'classes':args.classes
+        }
     with open(args.record_dir+'/description.json', 'w') as fp:
         json.dump(description, fp, indent=4, separators=(',', ': '))
 

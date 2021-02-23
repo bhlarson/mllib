@@ -34,14 +34,13 @@ parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps
 
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 
-parser.add_argument('-initialmodel', type=str, default='2020-11-26-11-56-17-cocoseg', help='Initial model.  Empty string if no initial model')
+parser.add_argument('-initialmodel', type=str, default='2021-02-22-16-54-32-cocoseg', help='Initial model.  Empty string if no initial model')
 parser.add_argument('-tests_json', type=str, default='tests.json', help='Test Archive')
-parser.add_argument('-run_json', type=str, default='run.json', help='Test Archive')
 
 parser.add_argument('-trainingset_dir', type=str, default='/store/training/coco', help='Path training set tfrecord')
 parser.add_argument('-test_dir', type=str, default='./test/unet',help='Directory to store training model')
 
-parser.add_argument('--trainingset', type=str, default='2021-01-12-19-36-49-cocoseg', help='training set')
+parser.add_argument('--trainingset', type=str, default='2021-02-22-14-17-19-cocoseg', help='training set')
 
 parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.')              
 
@@ -219,7 +218,6 @@ def main(args):
     results['class similarity'] = dataset_similarity
     total_similarity = similarity(sumIntersection, sumUnion)
     results['similarity'] = similarity
-    s3.PutDict(s3def['sets']['trainingset']['bucket'], config['run_archive']+args.run_json, results)
 
     now = datetime.now()
     date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
@@ -233,7 +231,7 @@ def main(args):
     test_summary['batch size']=config['batch_size']
     test_summary['test store'] =s3def['address']
     test_summary['test bucket'] = s3def['sets']['trainingset']['bucket']
-    test_summary['test object'] = config['run_archive']+args.run_json
+    test_summary['results'] = results
     
     print ("Average time {}".format(average_time))
     print ('Similarity: {}'.format(dataset_similarity))
@@ -246,7 +244,6 @@ def main(args):
     s3.PutDict(s3def['sets']['trainingset']['bucket'], config['test_archive']+args.tests_json, training_data)
 
     test_url = s3.GetUrl(s3def['sets']['trainingset']['bucket'], config['test_archive']+args.tests_json)
-    run_url = s3.GetUrl(s3def['sets']['trainingset']['bucket'], config['run_archive']+args.run_json)
 
     print("Test complete {}".format(test_summary))
     print(test_url)

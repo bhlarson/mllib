@@ -1,0 +1,2 @@
+docker build --pull -f "dockerfile" -t localhost:32000/mllib-jupyter:latest "."
+docker push localhost:32000/mllib-jupyter:latest

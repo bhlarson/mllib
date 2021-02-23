@@ -1,0 +1,36 @@
+FROM tensorflow/tensorflow:2.3.1-gpu
+LABEL maintainer="Brad Larson"
+
+ RUN echo 'alias py=python' >> ~/.bashrc
+
+ RUN apt-get update
+ # RUN apt-get install -y libsm6 libxext6 ffmpeg # required by opencv-python==4.4.0.42
+RUN apt-get install -y libgl1-mesa-glx # for opencv-python
+
+
+RUN pip3 install --upgrade pip
+RUN pip3 --no-cache-dir install \
+        minio==7.0.2 \
+        matplotlib==3.3.1\
+        tqdm==4.56.0 \
+        natsort==7.0.1 \
+        ptvsd==4.3.2 \
+        flask==1.1.2 \
+        pycocotools==2.0.1 \
+        shutils==0.1.0 \
+        tf2onnx==1.8.3
+
+RUN echo 'alias py=python' >> ~/.bashrc
+
+COPY segment /app/segment/
+COPY utils /app/utils/
+
+WORKDIR /app
+ENV LANG C.UTF-8
+# port 6006 exposes tensorboard
+EXPOSE 6006 
+# port 3000 exposes debugger
+EXPOSE 3000
+
+# Launch training
+ENTRYPOINT ["python", "segment/train.py"]

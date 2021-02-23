@@ -47,7 +47,7 @@ parser.add_argument('--trainingsetprefix', type=str, default='trainingset', help
 parser.add_argument('--modelprefix', type=str, default='model', help='Model prefix')
 
 parser.add_argument('--trainingset', type=str, default='2021-01-12-19-36-49-cocoseg', help='training set')
-parser.add_argument('--initialmodel', type=str, default=None, help='Initial model.  Empty string if no initial model')
+parser.add_argument('--initialmodel', type=str, default='2021-02-22-16-54-32-cocoseg', help='Initial model.  Empty string if no initial model')
 parser.add_argument('--temp_savedmodel', type=str, default='./saved_model', help='Temporary path to savedmodel.')
 
 parser.add_argument('-epochs', type=int, default=20, help='Number of training epochs')

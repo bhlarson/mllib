@@ -10,7 +10,7 @@ RUN apt-get install unzip
 
 RUN pip3 install --upgrade pip
 RUN pip3 --no-cache-dir install \
-g        opencv-python==4.4.0.42 \
+        opencv-python==4.4.0.42 \
         matplotlib==3.3.1\
         minio==6.0.2 \
         tqdm==4.56.0 \

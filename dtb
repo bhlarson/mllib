@@ -1,0 +1,10 @@
+if [ "$1" != "" ]; then
+    version_tag="$1"
+else
+    version_tag="latest"
+fi
+
+image_name=localhost:32000/mllib_segment_train:$version_tag
+docker build --pull -f "segment/dockerfile" -t $image_name "."
+docker push $image_name
+curl http://localhost:32000/v2/_catalog

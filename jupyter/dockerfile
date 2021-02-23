@@ -1,0 +1,32 @@
+FROM tensorflow/tensorflow:2.3.1-gpu-jupyter
+LABEL maintainer="Brad Larson"
+
+RUN echo 'alias py=python' >> ~/.bashrc
+
+USER root
+
+RUN apt-get update
+#RUN apt-get install -y libsm6 libxext6 ffmpeg # required by opencv-python==4.4.0.42
+RUN apt-get install -y libgl1-mesa-glx # for opencv-python
+
+USER $NB_UID
+
+RUN pip3 install --upgrade pip
+RUN pip3 --no-cache-dir install \
+        opencv-python==4.5.1.48 \
+        matplotlib==3.1.2\
+        minio==6.0.2 \
+        natsort==7.0.1 \
+        tqdm==4.49.0 \
+        ptvsd==4.3.2 \
+        xmltodict==0.12.0 \
+        scandir==1.10.0 \
+        plotly==4.11.0 \
+        keras2onnx \
+        pycuda \
+        onnx
+
+RUN jupyter labextension install @jupyterlab/debugger
+RUN jupyter labextension install @jupyter-widgets/jupyterlab-manager@2
+RUN jupyter labextension install jupyterlab-plotly@4.11.0
+RUN jupyter labextension install @jupyter-widgets/jupyterlab-manager plotlywidget@4.11.0

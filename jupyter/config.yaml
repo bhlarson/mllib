@@ -1,0 +1,12 @@
+proxy: 
+  secretToken: "254c458ae30e1659afcd54170d55f08ae1bc56cf19d57da191cea87d606e0cce"
+
+singleuser:
+  defaultUrl: "/lab"
+  image:
+    # Get the latest image tag at:
+    # https://hub.docker.com/r/jupyter/datascience-notebook/tags/
+    # Inspect the Dockerfile at:
+    # https://github.com/jupyter/docker-stacks/tree/master/datascience-notebook/Dockerfile
+    name: localhost:32000/mllib-jupyter
+    tag: latest

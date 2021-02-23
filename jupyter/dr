@@ -1,0 +1,1 @@
+docker run --rm -it --volume "$(pwd):/app" --volume "/store:/store" -p 8889:8888/tcp -p 6007:6006 localhost:32000/cl-jupyter:latest

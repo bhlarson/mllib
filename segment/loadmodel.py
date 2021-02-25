@@ -13,17 +13,19 @@ def LoadModel(config, s3):
         tempinitmodel = tempfile.TemporaryDirectory(prefix='initmodel', dir='.')
         modelpath = tempinitmodel.name+'/'+config['initialmodel']
         os.makedirs(modelpath)
+        file_count = 0
         try:
             s3model=config['s3_sets']['model']['prefix']+'/'+config['initialmodel']
-            success = s3.GetDir(config['s3_sets']['model']['bucket'], s3model, modelpath)
+            file_count = s3.GetDir(config['s3_sets']['model']['bucket'], s3model, modelpath)
             model = tf.keras.models.load_model(modelpath) # Load from checkpoint
 
+        except Exception as e:
+            url = s3.GetUrl(config['s3_sets']['model']['bucket'], s3model)
+            print('Error {} inable to load weghts from {} file count {}'.format(e, url, file_count))
+            model = None 
         except:
-            print('Unable to load weghts from http://{}/minio/{}/{}/'.format(
-                config['s3_address'],
-                config['s3_sets']['model']['bucket'],
-                s3model
-            ))
+            url = s3.GetUrl(config['s3_sets']['model']['bucket'], s3model)
+            print('Unable to load weghts from {} file count {}'.format(url, file_count))
             model = None 
 
         shutil.rmtree(tempinitmodel, ignore_errors=True)

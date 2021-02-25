@@ -80,7 +80,8 @@ class s3store:
             if path[len(path)-1] != '/':
                 path = path +'/'
             for file in tqdm(files, total=len(files)):
-                object_name = setname+'/'+ file.name
+                # Create object directory structure
+                object_name = setname+ remove_prefix(str(file), str(Path(path)))
                 self.s3.fput_object(bucket, object_name, file)
         except ResponseError as err:
             print(err)
@@ -88,7 +89,7 @@ class s3store:
         return success
 
     def GetDir(self, bucket, setname, destdir):
-        success = True
+        fileCount = 0
 
         # List all object paths in bucket that begin with my-prefixname.
         try:
@@ -107,17 +108,16 @@ class s3store:
                             self.s3.fget_object(bucket, obj.object_name, destination)
                     except:
                         print('Failed to copy {}/{} to {}'.format(bucket, obj.object_name, destination))
-                        success = False
 
 
         except ResponseError as err:
             print(err)
-            raise err
+            fileCount = 0
         except:
             print('Failed to read {}/{}'.format(bucket, setname))
-            success = False
+            fileCount = 0
 
-        return success
+        return fileCount
 
     def GetFile(self, bucket, object_name, destination):
         success = True

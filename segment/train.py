@@ -47,7 +47,7 @@ parser.add_argument('--trainingsetprefix', type=str, default='trainingset', help
 parser.add_argument('--modelprefix', type=str, default='model', help='Model prefix')
 
 parser.add_argument('--trainingset', type=str, default='2021-01-12-19-36-49-cocoseg', help='training set')
-parser.add_argument('--initialmodel', type=str, default='2021-02-22-16-54-32-cocoseg', help='Initial model.  Empty string if no initial model')
+parser.add_argument('--initialmodel', type=str, default='2021-02-24-10-28-35-cocoseg', help='Initial model.  Empty string if no initial model')
 parser.add_argument('--temp_savedmodel', type=str, default='./saved_model', help='Temporary path to savedmodel.')
 
 parser.add_argument('-epochs', type=int, default=20, help='Number of training epochs')
@@ -239,7 +239,7 @@ def main(args):
             if(dataset['name']=="val"):
                 val_images = dataset["length"]
         steps_per_epoch=int(train_images/config['batch_size'])        
-        validation_steps=int(val_images/config['batch_size'])
+        validation_steps=int(val_images/config['batch_size']/config['epochs'])
               
         if(args.min):
             steps_per_epoch= min(args.min_steps, steps_per_epoch)

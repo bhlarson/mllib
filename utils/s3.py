@@ -7,7 +7,6 @@ from pathlib import Path
 from tqdm import tqdm
 import natsort as ns
 from minio import Minio
-from minio.error import (ResponseError, BucketAlreadyOwnedByYou, BucketAlreadyExists)
 import urllib3
 import certifi
 
@@ -43,22 +42,21 @@ class s3store:
     def ListBuckets(self):
         return self.s3.list_buckets()
 
+    def MakeBucket(self, bucket, location='us-east-1', object_lock=False):
+        buckets = self.s3.list_buckets()
+        if bucket not in buckets:
+            self.s3.make_bucket(bucket, location, object_lock)
+        return self.s3.list_buckets()    
+
     def PutFile(self, bucket, file, setname):
+
         success = True
-        try:
-            self.s3.make_bucket(bucket)
-        except BucketAlreadyOwnedByYou as err:
-            pass
-        except BucketAlreadyExists as err:
-            pass
-        except ResponseError as err:
-            print(err)
-            raise err
 
         try:
+            self.MakeBucket(bucket)
             filename = setname+'/'+ os.path.basename(file)
             self.s3.fput_object(bucket, filename, file)
-        except ResponseError as err:
+        except Exception as err:
             print(err)
 
         return success
@@ -66,29 +64,22 @@ class s3store:
     def PutDir(self, bucket, path, setname):
         success = True
         files = list(Path(path).rglob('**/*.*'))
-        try:
-            self.s3.make_bucket(bucket)
-        except BucketAlreadyOwnedByYou as err:
-            pass
-        except BucketAlreadyExists as err:
-            pass
-        except ResponseError as err:
-            print(err)
-            raise err
 
         try:
+            self.MakeBucket(bucket)
             if path[len(path)-1] != '/':
                 path = path +'/'
             for file in tqdm(files, total=len(files)):
-                object_name = setname+'/'+ file.name
+                # Create object directory structure
+                object_name = setname+ remove_prefix(str(file), str(Path(path)))
                 self.s3.fput_object(bucket, object_name, file)
-        except ResponseError as err:
+        except Exception as err:
             print(err)
 
         return success
 
     def GetDir(self, bucket, setname, destdir):
-        success = True
+        fileCount = 0
 
         # List all object paths in bucket that begin with my-prefixname.
         try:
@@ -107,24 +98,23 @@ class s3store:
                             self.s3.fget_object(bucket, obj.object_name, destination)
                     except:
                         print('Failed to copy {}/{} to {}'.format(bucket, obj.object_name, destination))
-                        success = False
 
 
-        except ResponseError as err:
+        except Exception as err:
             print(err)
-            raise err
+            fileCount = 0
         except:
             print('Failed to read {}/{}'.format(bucket, setname))
-            success = False
+            fileCount = 0
 
-        return success
+        return fileCount
 
     def GetFile(self, bucket, object_name, destination):
         success = True
 
         try:                     
             self.s3.fget_object(bucket, object_name, destination)
-        except ResponseError as err:
+        except Exception as err:
             print(err)
             success = False
         except:
@@ -155,7 +145,7 @@ class s3store:
                         print('Failed to copy {}/{} to {}'.format(bucket, obj.object_name, destination))
                         success = False
 
-        except ResponseError as err:
+        except Exception as err:
             print(err)
             raise err
         except:
@@ -173,7 +163,7 @@ class s3store:
             for obj in objects:
                 if PurePath(obj.object_name).match(pattern):
                     files.append(obj.object_name)
-        except ResponseError as err:
+        except Exception as err:
             print(err)
             raise err
 
@@ -198,7 +188,7 @@ class s3store:
         try:
             response = self.s3.get_object(bucket, object_name)
             data = response.data
-        except ResponseError as err:
+        except Exception as err:
                 print(err)
         except:
                 print('error reading {}/{}'.format(bucket, object_name))
@@ -214,9 +204,10 @@ class s3store:
 
         # List all object paths in bucket that begin with my-prefixname.
         try:
+            self.MakeBucket(bucket)
             objStream = io.BytesIO(obj)
             self.s3.put_object(bucket, object_name, objStream, length=len(objStream))
-        except ResponseError as err:
+        except Exception as err:
             print(err)
             success = False
         except:
@@ -235,7 +226,7 @@ class s3store:
             if response.data:
                 data_dict = json.loads(response.data)
 
-        except ResponseError as err:
+        except Exception as err:
             print('s3 Response error {}'.format(err))
         except json.JSONDecodeError as err:
             print('JSONDecodeError {}'.format(err))
@@ -253,11 +244,12 @@ class s3store:
 
         # List all object paths in bucket that begin with my-prefixname.
         try:
+            self.MakeBucket(bucket)
             obj = json.dumps(dict_data, sort_keys=False, indent=4).encode()
 
             objStream = io.BytesIO(obj)
             self.s3.put_object(bucket, object_name, objStream, length=len(obj))
-        except ResponseError as err:
+        except Exception as err:
             print(err)
             success = False
         except:
@@ -327,16 +319,7 @@ class s3store:
         success = True
 
         try:
-            self.s3.make_bucket(bucket)
-        except BucketAlreadyOwnedByYou as err:
-            pass
-        except BucketAlreadyExists as err:
-            pass
-        except ResponseError as err:
-            print(err)
-            raise err
-
-        try:
+            self.MakeBucket(bucket)
             ckpt = tf.train.latest_checkpoint(checkpoint_path)
             ckptfiles = glob.glob(ckpt+'.*')
             eventfiles = glob.glob(checkpoint_path+'/events.out.tfevents.*.*')
@@ -350,7 +333,7 @@ class s3store:
                 obj = '{}/{}'.format(checkpoint_name,os.path.basename(ckfile))
                 print('Write {} to {}/{}'.format(ckfile, bucket,obj))
                 self.s3.fput_object(bucket, obj, ckfile)
-        except ResponseError as err:
+        except Exception as err:
             print(err)
             raise err
 
@@ -369,7 +352,7 @@ class s3store:
                         
                 self.s3.fget_object(bucket, obj.object_name, '{}/{}'.format(checkpoint_path,os.path.basename(obj.object_name)))
 
-        except ResponseError as err:
+        except Exception as err:
             print(err)
             raise err
 
@@ -402,7 +385,7 @@ class s3store:
             else:
                 print('{}/{} contains {} objects'.format(srcbucket, setname, fileCount))
 
-        except ResponseError as err:
+        except Exception as err:
             print(err)
             raise err
 
@@ -418,7 +401,7 @@ class s3store:
             for obj in objects:
                 self.s3.remove_object(bucket, obj.object_name)
 
-        except ResponseError as err:
+        except Exception as err:
             print(err)
             success = False
 

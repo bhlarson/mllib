@@ -34,7 +34,7 @@ parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps
 
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 
-parser.add_argument('-initialmodel', type=str, default='2021-02-24-08-54-55-cocoseg', help='Initial model.  Empty string if no initial model')
+parser.add_argument('-initialmodel', type=str, default='2021-02-24-10-28-35-cocoseg', help='Initial model.  Empty string if no initial model')
 parser.add_argument('-tests_json', type=str, default='tests.json', help='Test Archive')
 
 parser.add_argument('-trainingset_dir', type=str, default='/store/training/coco', help='Path training set tfrecord')
@@ -50,7 +50,6 @@ parser.add_argument("-devices", type=json.loads, default=["/gpu:0"],  help='GPUs
 parser.add_argument('-training_crop', type=json.loads, default='[480, 512]', help='Training crop size [height, width]')
 parser.add_argument('-train_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB')
 parser.add_argument('-channel_order', type=str, default='channels_last', choices=['channels_first', 'channels_last'], help='Channels_last = NHWC, Tensorflow default, channels_first=NCHW')
-parser.add_argument('-weights', type=str, default='imagenet', help='Model initiation weights. None prevens loading weights from pre-trained networks')
 
 parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to fcn savedmodel.')
 
@@ -75,9 +74,6 @@ def main(args):
     print('Load training set {}/{} to {}'.format(s3def['sets']['trainingset']['bucket'],trainingset,args.trainingset_dir ))
     s3.Mirror(s3def['sets']['trainingset']['bucket'], trainingset, args.trainingset_dir)
 
-    if args.weights is not None and args.weights.lower() == 'none' or args.weights == '':
-        args.weights = None
-
     trainingsetDescriptionFile = '{}/description.json'.format(args.trainingset_dir)
     trainingsetDescription = json.load(open(trainingsetDescriptionFile))
     
@@ -99,7 +95,7 @@ def main(args):
         'classes': trainingsetDescription['classes']['classes'],
         'epochs': 1,
         'area_filter_min': 25,
-        'weights': args.weights,
+        'weights': None,
         'channel_order': args.channel_order,
         's3_address':s3def['address'],
         's3_sets':s3def['sets'],

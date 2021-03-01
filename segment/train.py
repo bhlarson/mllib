@@ -20,7 +20,7 @@ from segment.display import DrawFeatures, WritePredictions
 from segment.data import input_fn
 from utils.s3 import s3store
 from utils.jsonutil import WriteDictJson
-from loadmodel import LoadModel
+from segment.loadmodel import LoadModel
 
 DEBUG = False
 

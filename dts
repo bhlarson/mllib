@@ -1,4 +1,4 @@
-docker run --rm -it --gpus '"device=0"' -p 6006:6006/tcp localhost:32000/fcntrain:latest \
+docker run --rm -it --gpus all -p 6006:6006/tcp localhost:32000/fcntrain:latest \
    --train_epochs 1 \
    --trainingset 20210216-041925-lit-full \
    --minio_address 192.168.1.174:31994

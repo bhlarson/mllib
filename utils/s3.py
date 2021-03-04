@@ -43,19 +43,18 @@ class s3store:
         return self.s3.list_buckets()
 
     def MakeBucket(self, bucket, location='us-east-1', object_lock=False):
-        buckets = self.s3.list_buckets()
-        if bucket not in buckets:
+        if not self.s3.bucket_exists(bucket):
             self.s3.make_bucket(bucket, location, object_lock)
-        return self.s3.list_buckets()    
 
     def PutFile(self, bucket, file, setname):
 
         success = True
+        results = None
 
         try:
             self.MakeBucket(bucket)
             filename = setname+'/'+ os.path.basename(file)
-            self.s3.fput_object(bucket, filename, file)
+            results = self.s3.fput_object(bucket, filename, file)
         except Exception as err:
             print(err)
 

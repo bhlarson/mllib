@@ -9,7 +9,6 @@ from tqdm import tqdm
 import numpy as np
 import tensorflow as tf
 from datetime import datetime
-import matplotlib.pyplot as plt
 
 #sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath('')), '..')))
 sys.path.insert(0, os.path.abspath(''))

@@ -11,16 +11,20 @@ RUN apt-get install -y libgl1-mesa-glx # for opencv-python
 # scipy==1.4.1 tensorflow-gpu 2.3.0 requires scipy==1.4.1
 RUN pip3 install --upgrade pip
 RUN pip3 --no-cache-dir install \
+        pillow==8.1.1 \
+        scikit-image==0.18.1 \
         opencv-python==4.4.0.42 \
-        matplotlib==3.3.1\
+        matplotlib==3.3.2\
         minio==6.0.2 \
         tqdm==4.56.0 \
         natsort==7.0.1 \
         ptvsd==4.3.2 \
+        tensorflow-addons==0.12.1 \
         shutils==0.1.0 \
         onnx==1.8.1 \
-        onnxruntime-gpu==1.7.0\
-        pycuda==2020.1
+        onnxruntime==1.7.0 \
+        pycuda==2020.1 \
+        jupyterlab
 
 WORKDIR /app
 ENV LANG C.UTF-8
@@ -30,7 +34,7 @@ EXPOSE 8888
 # tensorboard port
 EXPOSE 6006
 # debugger port
-EXPOSE 3000 
+EXPOSE 3000  
 # flask port
 EXPOSE 5000 
 
@@ -38,5 +42,3 @@ EXPOSE 5000
 RUN ["/bin/bash"]
 # Launch Jupyter
 #CMD ["bash","-c", "jupyter lab --notebook-dir=/app --ip=0.0.0.0 --no-browser --allow-root --port=8888 --NotebookApp.token='' --NotebookApp.password='' --NotebookApp.allow_origin='*' --NotebookApp.base_url=${NB_PREFIX}"]
-
-

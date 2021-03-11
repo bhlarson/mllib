@@ -157,7 +157,7 @@ def main(args):
             numsteps=min(args.min_steps, numsteps)
 
         try:
-
+            print('ONNX runtime devices {}'.format(rt.get_device()))
             onnxsess = rt.InferenceSession(onnxfilename)
 
             for i in tqdm(range(numsteps)):
@@ -167,7 +167,7 @@ def main(args):
 
                 input_name = onnxsess.get_inputs()[0].name
                 predonnx = onnxsess.run(None, {input_name: image.numpy().astype(np.float32)})
-                segmentationonnx = tf.argmax(predonnx, axis=-1)
+                segmentationonnx = tf.argmax(predonnx[0], axis=-1)
 
                 dt = (datetime.now()-initial).total_seconds()
                 dtSum += dt
@@ -246,7 +246,7 @@ def main(args):
     test_summary['batch size']=config['batch_size']
     test_summary['test store'] =s3def['address']
     test_summary['test bucket'] = s3def['sets']['trainingset']['bucket']
-    test_summary['results'] = results
+    #test_summary['results'] = results
     
     print ("Average time {}".format(average_time))
     print ('Similarity: {}'.format(dataset_similarity))

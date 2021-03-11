@@ -9,7 +9,6 @@ import cv2
 from tqdm import tqdm
 import numpy as np
 import tensorflow as tf
-import tensorrt as trt
 from datetime import datetime
 
 #sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath('')), '..')))
@@ -245,7 +244,7 @@ def main(args):
     test_summary['batch size']=config['batch_size']
     test_summary['test store'] =s3def['address']
     test_summary['test bucket'] = s3def['sets']['trainingset']['bucket']
-    test_summary['results'] = results
+    #test_summary['results'] = results
     
     print ("Average time {}".format(average_time))
     print ('Similarity: {}'.format(dataset_similarity))

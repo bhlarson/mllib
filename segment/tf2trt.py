@@ -34,12 +34,13 @@ parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 parser.add_argument('-model_precision', type=str, default='FP16', choices=['FP32', 'FP16', 'INT8'], help='Model Optimization Precision.')
 
-parser.add_argument('--datasetprefix', type=str, default='dataset', help='Dataset prefix')
-parser.add_argument('--modelprefix', type=str, default='model', help='Model prefix')
+parser.add_argument('-datasetprefix', type=str, default='dataset', help='Dataset prefix')
+parser.add_argument('-modelprefix', type=str, default='model', help='Model prefix')
 
-parser.add_argument('--trainingset', type=str, default='2021-02-22-14-17-19-cocoseg', help='training set')
-parser.add_argument('--initialmodel', type=str, default='2021-02-24-10-28-35-cocoseg', help='Initial model.  Empty string if no initial model')
-parser.add_argument('--temp_savedmodel', type=str, default='./saved_model', help='Temporary path to savedmodel.')
+parser.add_argument('-trainingset', type=str, default='2021-02-22-14-17-19-cocoseg', help='training set')
+parser.add_argument('-initialmodel', type=str, default='2021-02-24-10-28-35-cocoseg', help='Initial model.  Empty string if no initial model')
+parser.add_argument('-temp_savedmodel', type=str, default='./saved_model', help='Temporary path to savedmodel.')
+parser.add_argument('-trainingset_dir', type=str, default='/store/training/coco', help='Path training set tfrecord')
 
 parser.add_argument('-tensorboard_images_max_outputs', type=int, default=2,
                     help='Max number of batch elements to generate for Tensorboard.')
@@ -100,6 +101,8 @@ def main(args):
         config['initialmodel'] = None
 
     val_dataset = input_fn('val', args.trainingset_dir, config)
+    train_dataset = input_fn('train', args.trainingset_dir, config)
+    iterator = iter(train_dataset)
 
     tempinitmodel = tempfile.TemporaryDirectory(prefix='initmodel', dir='.')
     modelpath = tempinitmodel.name+'/'+config['initialmodel']

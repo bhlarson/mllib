@@ -36,7 +36,7 @@ parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 
 parser.add_argument('-model', type=str, default='2021-02-24-10-28-35-cocoseg', help='Tensorflow samved model.')
-parser.add_argument('-trtmodel', type=str, default='model.trt', help='TRT file name')
+parser.add_argument('-trtmodel', type=str, default='model-fp16.trt', help='TRT file name')
 parser.add_argument('-tests_json', type=str, default='tests.json', help='Test Archive')
 
 parser.add_argument('-trainingset_dir', type=str, default='/store/training/coco', help='Path training set tfrecord')
@@ -52,7 +52,7 @@ parser.add_argument("-devices", type=json.loads, default=["/gpu:0"],  help='GPUs
 parser.add_argument('-training_crop', type=json.loads, default='[480, 512]', help='Training crop size [height, width]')
 parser.add_argument('-train_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB')
 parser.add_argument('-channel_order', type=str, default='channels_last', choices=['channels_first', 'channels_last'], help='Channels_last = NHWC, Tensorflow default, channels_first=NCHW')
-parser.add_argument('-fp16', action='store_true', help='If set, Generate FP16 model.')
+parser.add_argument('-fp16', type=str, default=True, help='If set, Generate FP16 model.')
 
 parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to fcn savedmodel.')
 
@@ -115,6 +115,17 @@ def main(args):
     trainingsetDescriptionFile = '{}/description.json'.format(args.trainingset_dir)
     trainingsetDescription = json.load(open(trainingsetDescriptionFile))
 
+    strategy = None
+    if(args.strategy == 'mirrored'):
+        strategy = tf.distribute.MirroredStrategy(devices=args.devices)
+
+    else:
+        device = "/gpu:0"
+        if args.devices is not None and len(args.devices) > 0:
+            device = args.devices[0]
+
+        strategy = tf.distribute.OneDeviceStrategy(device=device)
+
     modelobjname = '{}/{}/{}'.format(s3def['sets']['model']['prefix'], config['initialmodel'], config['trtmodel'])
     modelfilename = '{}/{}/{}/{}'.format(args.test_dir, s3def['sets']['model']['prefix'], config['initialmodel'], config['trtmodel'])
     print('Load trt model {}/{} to {}'.format(s3def['sets']['model']['bucket'], modelobjname, modelfilename))
@@ -134,7 +145,7 @@ def main(args):
     for objType in objTypes:
         results['class similarity'][objType] = {'union':0, 'intersection':0} 
 
-    while True: 
+    with strategy.scope(): 
         accuracy = tf.keras.metrics.Accuracy()
         #train_dataset = input_fn('train', args.trainingset_dir, config)
         val_dataset = input_fn('val', args.trainingset_dir, config)
@@ -163,15 +174,19 @@ def main(args):
             f = open(modelfilename, "rb")
             runtime = trt.Runtime(trt.Logger(trt.Logger.WARNING)) 
 
-            USE_FP16 = args.fp16
-            BATCH_SIZE = args.batch_size
-            target_dtype = np.float16 if USE_FP16 else np.float32
-            dummy_input_batch = np.zeros((BATCH_SIZE, config['input_shape'][0], config['input_shape'][1], config['input_shape'][2]), dtype = np.float32) 
-
             engine = runtime.deserialize_cuda_engine(f.read())
             context = engine.create_execution_context()
 
-            output = np.empty([BATCH_SIZE, config['input_shape'][0], config['input_shape'][1], config['classes']], dtype = target_dtype)
+            target_dtype = np.float16 if args.fp16 else np.float32
+
+            from skimage import io
+            from skimage.transform import resize
+            url='https://images.dog.ceo/breeds/retriever-golden/n02099601_3004.jpg'
+            img = resize(io.imread(url), (480, 512))
+            img_norm = tf.image.per_image_standardization(img)
+            dummy_input_batch = np.array(np.repeat(np.expand_dims(np.array(img_norm, dtype=np.float16), axis=0), 1, axis=0), dtype=np.float32)
+
+            output = np.empty([args.batch_size, config['input_shape'][0], config['input_shape'][1], config['classes']], dtype = np.float32)
             # Allocate device memory
             d_input = cuda.mem_alloc(1 * dummy_input_batch.nbytes)
             d_output = cuda.mem_alloc(1 * output.nbytes)
@@ -192,15 +207,21 @@ def main(args):
                 
                 return output
 
-            predict(dummy_input_batch) # Run to load dependencies
+            output = predict(dummy_input_batch)  # Run to load dependencies
+            segmentationTRT = np.argmax(output, axis=-1).astype(np.uint8)
+            print(segmentationTRT.shape)
+            imseg = DrawFeatures(cv2.cvtColor((img*255).astype(np.uint8), cv2.COLOR_RGB2BGR), segmentationTRT[0], config)
+            cv2.imwrite('{}/{}.png'.format(args.test_dir, 'dummytrt'), imseg)
+
+            tf.get_logger().setLevel('ERROR') # remove tf.cast warning from algorithm time
 
             for i in tqdm(range(numsteps)):
                 step = i
                 image, annotation  = iterator.get_next()
                 initial = datetime.now()
-
-                logitstft = predict(image.numpy())
-                segmentationtrt = tf.argmax(logitstft, axis=-1)
+                image_norm = tf.image.per_image_standardization(tf.cast(image, tf.float32))
+                logitstft = predict(image_norm.numpy())
+                segmentationtrt = np.argmax(logitstft, axis=-1).astype(np.uint8)
 
                 dt = (datetime.now()-initial).total_seconds()
                 dtSum += dt
@@ -236,8 +257,6 @@ def main(args):
         except Exception as e:
             print("Error: test exception {} step {}".format(e, step))
             numsteps = step
-
-        break # Replaces with scope
 
     num_images = numsteps*config['batch_size']
 
@@ -279,7 +298,7 @@ def main(args):
     test_summary['batch size']=config['batch_size']
     test_summary['test store'] =s3def['address']
     test_summary['test bucket'] = s3def['sets']['trainingset']['bucket']
-    test_summary['results'] = results
+    #test_summary['results'] = results
     
     print ("Average time {}".format(average_time))
     print ('Similarity: {}'.format(dataset_similarity))

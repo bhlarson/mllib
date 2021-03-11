@@ -6,6 +6,7 @@ import os
 import sys
 import json
 import shutil
+import onnx
 import tensorrt as trt
 
 sys.path.insert(0, os.path.abspath(''))
@@ -21,7 +22,8 @@ parser.add_argument('-targetname', type=str, default="model", help='Final model 
 parser.add_argument('-workdir', type=str, default="trt", help='Working directory')
 parser.add_argument('-onnxname', type=str, default="model.onnx", help='Working directory')
 parser.add_argument('-workspace_memory', type=int, default=4096, help='trtexec workspace size in megabytes')
-parser.add_argument('-fp16', action='store_true', help='If set, Generate FP16 model.')
+parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.')  
+parser.add_argument('-fp16',  default=True, help='If set, Generate FP16 model.')
 
 
 def main(args):
@@ -46,33 +48,41 @@ def main(args):
     inobj = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.savedmodelname, args.onnxname)
     objpath = '{}/{}'.format(s3def['sets']['model']['prefix'],args.savedmodelname)
 
-
     infile = '{}/{}'.format(workdir, args.onnxname)
-    targetname = args.targetname
-    if args.fp16:
-        targetname += '-fp16'
-    outfile = '{}/{}.trt'.format(workdir, targetname)
-    logfile = '{}/{}-trt.log'.format(workdir, targetname)
 
     if not s3.GetFile(s3def['sets']['model']['bucket'], inobj, infile):
         print('Failed to load {}/{} to {}'.format(s3def['sets']['model']['bucket'], inobj, infile ))
         failed = True
         return failed
 
+    onnx_model = onnx.load(infile)
+    inputs = onnx_model.graph.input
+    for input in inputs:
+        dim1 = input.type.tensor_type.shape.dim[0]
+        dim1.dim_value = args.batch_size
+
+    fixedfile = '{}/fixed-{}'.format(workdir, args.onnxname)
+    onnx.save_model(onnx_model, fixedfile)
+
+
+    targetname = args.targetname
     params = ''
     if args.fp16:
+        targetname += '-fp16'
         params = '--fp16'
-    
-    USE_FP16 = True
+    outfile = '{}/{}.trt'.format(workdir, targetname)
+    logfile = '{}/{}-trt.log'.format(workdir, targetname)
 
+    
+    # USE_FP16 = True
     # May need to shut down all kernels and restart before this - otherwise you might get cuDNN initialization errors:
     #if USE_FP16:
     #    os.system("trtexec --onnx=resnet50_onnx_model.onnx --saveEngine=resnet_engine.trt  --explicitBatch --fp16")
     #else:
     #    os.system("trtexec --onnx=resnet50_onnx_model.onnx --saveEngine=resnet_engine.trt  --explicitBatch")
 
-    trtcmd = "trtexec --onnx={} --saveEngine={}  --explicitBatch --workspace={} {} --verbose  2>&1 | tee {}".format(
-        infile, outfile, args.workspace_memory, params, logfile)
+    trtcmd = "trtexec --onnx={} --saveEngine={}  --explicitBatch --workspace={} {} 2>&1 | tee {}".format(
+        fixedfile, outfile, args.workspace_memory, params, logfile)
 
     failed = os.system(trtcmd)
 

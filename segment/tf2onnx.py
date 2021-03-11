@@ -7,6 +7,7 @@ import sys
 import shutil
 import tempfile
 import tensorflow as tf
+import onnx
 
 from datetime import datetime
 import matplotlib.pyplot as plt
@@ -43,7 +44,7 @@ parser.add_argument('--temp_savedmodel', type=str, default='./saved_model', help
 parser.add_argument('-tensorboard_images_max_outputs', type=int, default=2,
                     help='Max number of batch elements to generate for Tensorboard.')
 
-parser.add_argument('-batch_size', type=int, default=16, help='Number of examples per batch.')               
+parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.')               
 
 parser.add_argument('-learning_rate', type=float, default=1e-3, help='Adam optimizer learning rate.')
 
@@ -104,6 +105,17 @@ def main(args):
     onnx_filename = "{}/{}.onnx".format(modelpath, args.modelprefix)    
     onnx_req = "python -m tf2onnx.convert --saved-model {} --opset 10 --output {}".format(modelpath, onnx_filename)
     os.system(onnx_req)
+
+    #  Fix ONNX size
+    '''
+    onnx_model = onnx.load(onnx_filename)
+    inputs = onnx_model.graph.input
+
+    for input in inputs:
+        dim1 = input.type.tensor_type.shape.dim[0]
+        dim1.dim_value = config['batch_size']
+    onnx.save_model(onnx_model, onnx_filename)
+    '''
 
     print('Store {} to {}/{}'.format(onnx_filename, s3def['sets']['model']['bucket'],s3model))
     if not s3.PutFile(s3def['sets']['model']['bucket'], onnx_filename, s3model):

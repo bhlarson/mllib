@@ -57,6 +57,7 @@ def parse_record(raw_record, input_shape, channel_order, classes):
 
 
 def prepare_image(image, label, input_shape):
+    image = tf.image.per_image_standardization(image)
     image = tf.image.resize_with_crop_or_pad(image, input_shape[0], input_shape[1])
     label = tf.image.resize_with_crop_or_pad(label, input_shape[0], input_shape[1])
 

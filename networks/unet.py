@@ -163,10 +163,6 @@ def unet_model(classes, input_shape, learning_rate=0.0001, weights='imagenet', c
     NCHW = tf.keras.layers.Permute((3, 1, 2))
     x = NCHW(x)
 
-  #x = tf.keras.applications.mobilenet_v2.preprocess_input(x)
-  standardization = ImageStandardization()
-  x = standardization(x)
-
   # Downsampling through the model
   skips = down_stack(x)
   x = skips[-1]
@@ -179,7 +175,7 @@ def unet_model(classes, input_shape, learning_rate=0.0001, weights='imagenet', c
     x = concat([x, skip])
 
   # This is the last layer of the model
-  Conv2DTranspose = tf.keras.layers.Conv2DTranspose(classes, 3, strides=2,padding='same', name='Conv2DTranspose')
+  Conv2DTranspose = tf.keras.layers.Conv2DTranspose(classes, 3, strides=2,padding='same', name='Conv2D')
   x = Conv2DTranspose(x)
 
   if channel_order == 'channels_first':

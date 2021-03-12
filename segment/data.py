@@ -3,7 +3,6 @@ import glob
 import random
 from datetime import datetime
 import tensorflow as tf
-import tensorflow_addons as tfa
 
 DEBUG = False
 
@@ -143,6 +142,8 @@ def augment_image_config(image, label, config):
       augment_flip_y = config["augment_flip_y"])
 
 def augment_image(image, label, input_shape, augment_rotation, scale_min, scale_max, augment_shift_x, augment_shift_y, augment_flip_x, augment_flip_y):
+
+    import tensorflow_addons as tfa
 
     if DEBUG:
       tf.print('augment_image image input', tf.shape(image), image.dtype, 'label', tf.shape(label), label.dtype)

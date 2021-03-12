@@ -19,7 +19,7 @@ RUN pip3 --no-cache-dir install \
         xmltodict \
         flask==1.1.2 \
         # onnxruntime==1.5.2\
-        tf2onnx==1.7.1\
+        # tf2onnx==1.7.1\
         shutils==0.1.0
 
 WORKDIR /app

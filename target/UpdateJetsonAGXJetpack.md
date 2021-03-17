@@ -1,4 +1,4 @@
-[Developer Kit](https://developer.download.nvidia.com/assets/embedded/secure/jetson/xavier/docs/jetson_agx_xavier_developer_kit_user_guide.pdf?kKWsgCKZC-0EGzvwHkq7uAGW7gqFG2fqxCMuhwI1ASEUb8JFp9JbPov4gVM2nWNRZbuFpOSOatQ3Ln8Urlufps9inIMvLQrYGow0AwwaP5DvWFKUPIzqWCfzs8raXNmQEpWnlCZb2T9y9XprGl3hbqMOQfS8B0fF3QBCv38VAqm1bPKmfKNl-DAkN6_dpcId_vxkYfFNCg)
+[Developer Kit](https://developer.nvidia.com/jetson-agx-xavier-developer-kit-user-guide)
 
 [Update Jetpack with Packet Manager](https://docs.nvidia.com/jetson/jetpack/install-jetpack/index.html#package-management-tool)
 
@@ -7,7 +7,6 @@
 [Upgrade with package manager](https://docs.nvidia.com/jetson/jetpack/install-jetpack/index.html#upgrade-jetpack)
 
 <img src="../img/AGXDevKitBottomView.png" width="400">
-
 <img src="../img/AGXUSBConnection.png" width="400">
 
 

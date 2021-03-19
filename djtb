@@ -1,0 +1,8 @@
+if [ "$1" != "" ]; then
+    version_tag="$1"
+else
+    version_tag="latest"
+fi
+
+image_name=localhost:32000/ml:$version_tag
+docker build --pull -f "dockerfile-jetson" -t $image_name "."

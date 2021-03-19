@@ -1,27 +1,32 @@
-FROM nvcr.io/nvidia/l4t-tensorflow:r32.4.4-tf2.3-py3
+FROM nvcr.io/nvidia/l4t-tensorflow:r32.5.0-tf2.3-py3
 LABEL maintainer="Brad Larson"
 
 RUN echo 'alias py=python3' >> ~/.bashrc
 
-RUN apt-get update
-RUN apt-get install -y cmake
-#RUN apt-get install -y libsm6
-RUN apt-get install -y python3-opencv
-RUN apt-get install -y protobuf-compiler 
+RUN apt-get update && apt upgrade -y && \
+    apt-get install -y \
+	cmake \
+	libopencv-dev \
+	python3-opencv \
+        protobuf-compiler \
+        libprotoc-dev
 
-RUN pip3 install --upgrade pip
-RUN pip3 --no-cache-dir install \
-        #numpy \
-        minio==6.0.0 \
-        tqdm==4.48.2 \
+RUN python3 -m pip install --upgrade setuptools pip && \
+    pip3 --no-cache-dir install \
+        numpy \
+        minio==6.0.2 \
+        tqdm==4.56.0 \
         natsort==7.0.1 \
         ptvsd==4.3.2 \
-        xmltodict \
         flask==1.1.2 \
-        # onnx==1.6.0 \
-        # onnxruntime==1.5.2\
-        # tf2onnx==1.7.1\
-        shutils==0.1.0
+        onnx \
+        #nvidia-pyindex \
+        #nvidia-tensorrt \ # available from nvcr.io/nvidia/l4t
+        # onnxruntime==1.7.0 \
+        # pycuda \ # available from nvcr.io/nvidia/l4t
+        # tensorflow-addons \ # Unavaliable on ARM64
+        shutils==0.1.0 \
+        Jetson.GPIO
 
 WORKDIR /app
 ENV LANG C.UTF-8

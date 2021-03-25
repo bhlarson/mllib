@@ -179,12 +179,7 @@ def main(args):
 
             target_dtype = np.float16 if args.fp16 else np.float32
 
-            from skimage import io
-            from skimage.transform import resize
-            url='https://images.dog.ceo/breeds/retriever-golden/n02099601_3004.jpg'
-            img = resize(io.imread(url), (480, 512))
-            img_norm = tf.image.per_image_standardization(img)
-            dummy_input_batch = np.array(np.repeat(np.expand_dims(np.array(img_norm, dtype=np.float16), axis=0), 1, axis=0), dtype=np.float32)
+            dummy_input_batch = np.array(np.repeat(np.expand_dims(np.zeros((480, 512), dtype=np.float16), axis=0), 1, axis=0), dtype=np.float32)
 
             output = np.empty([args.batch_size, config['input_shape'][0], config['input_shape'][1], config['classes']], dtype = np.float32)
             # Allocate device memory

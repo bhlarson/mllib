@@ -28,7 +28,7 @@ from utils.similarity import jaccard, similarity
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
 parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
-parser.add_argument('-dataset_dir', type=str, default='/data/segment/dataset',help='Directory to store training model')
+parser.add_argument('-dataset_dir', type=str, default='/store/segment/dataset',help='Directory to store training model')
 parser.add_argument('-saveonly', action='store_true', help='Do not train.  Only produce saved model')
 parser.add_argument('-min', action='store_true', help='If set, minimum training to generate output.')
 parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps.')
@@ -39,8 +39,8 @@ parser.add_argument('-model', type=str, default='2021-02-24-10-28-35-cocoseg', h
 parser.add_argument('-trtmodel', type=str, default='model-fp16.trt', help='TRT file name')
 parser.add_argument('-tests_json', type=str, default='tests.json', help='Test Archive')
 
-parser.add_argument('-trainingset_dir', type=str, default='/data/segment/training/coco', help='Path training set tfrecord')
-parser.add_argument('-test_dir', type=str, default='/data/segment/test/unet',help='Directory to store training model')
+parser.add_argument('-trainingset_dir', type=str, default='/store/segment/training/coco', help='Path training set tfrecord')
+parser.add_argument('-test_dir', type=str, default='/store/segment/test/unet',help='Directory to store training model')
 
 parser.add_argument('--trainingset', type=str, default='2021-02-22-14-17-19-cocoseg', help='training set')
 
@@ -54,7 +54,7 @@ parser.add_argument('-train_depth', type=int, default=3, help='Number of input c
 parser.add_argument('-channel_order', type=str, default='channels_last', choices=['channels_first', 'channels_last'], help='Channels_last = NHWC, Tensorflow default, channels_first=NCHW')
 parser.add_argument('-fp16', type=str, default=True, help='If set, Generate FP16 model.')
 
-parser.add_argument('-savedmodel', type=str, default='/data/segment/saved_model', help='Path to fcn savedmodel.')
+parser.add_argument('-savedmodel', type=str, default='/store/segment/saved_model', help='Path to fcn savedmodel.')
 
 def main(args):
     print('Start test')
@@ -206,6 +206,9 @@ def main(args):
                 stream.synchronize()
                 
                 return output
+
+            if not os.path.exists(args.test_dir):
+                os.makedirs(args.test_dir)
 
             output = predict(dummy_input_batch)  # Run to load dependencies
             segmentationTRT = np.argmax(output, axis=-1).astype(np.uint8)

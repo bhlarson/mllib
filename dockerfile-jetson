@@ -26,6 +26,7 @@ RUN python3 -m pip install --upgrade setuptools pip && \
         # pycuda \ # available from nvcr.io/nvidia/l4t
         # tensorflow-addons \ # Unavaliable on ARM64
         shutils==0.1.0 \
+        scikit-image \
         Jetson.GPIO
 
 WORKDIR /app

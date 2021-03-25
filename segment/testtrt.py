@@ -161,7 +161,7 @@ def main(args):
         print("Begin inferences")
         dtSum = 0.0
         accuracySum = 0.0
-        total_confusion = None
+        total_confusion = 0.0
         iterator = iter(val_dataset)
         numsteps = int(validationsetdec['length']/config['batch_size'])
         step = 0
@@ -245,10 +245,7 @@ def main(args):
                     imagesimilarity, results['class similarity'], unique = jaccard(ann, seg, objTypes, results['class similarity'])
 
                     confusion = tf.math.confusion_matrix(ann.flatten(),seg.flatten(), config['classes']).numpy().astype(np.int64)
-                    if total_confusion is None:
-                        total_confusion = confusion
-                    else:
-                        total_confusion += confusion
+                    total_confusion += confusion
 
 
                     results['image'].append({'dt':imageTime,'similarity':imagesimilarity, 'accuracy':seg_accuracy.astype(float), 'confusion':confusion.tolist()})
@@ -290,7 +287,7 @@ def main(args):
     test_summary['accuracy']=average_accuracy
     test_summary['class_similarity']=dataset_similarity
     test_summary['similarity']=total_similarity
-    test_summary['confusion']=total_confusion.tolist()
+    test_summary['confusion']=total_confusion
     test_summary['images']=num_images
     test_summary['image time']=average_time
     test_summary['batch size']=config['batch_size']

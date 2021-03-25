@@ -9,6 +9,7 @@ image_name=localhost:32000/ml:$version_tag
 docker run --gpus all -it --rm --cap-add=CAP_SYS_ADMIN \
     -v "$(pwd):/app" \
     -v "/data:/data" \
+    -v "/data/store:/store" \
     -v /etc/localtime:/etc/localtime:ro \
     -p 6006:6006/tcp \
     -p 5001:5000/tcp \

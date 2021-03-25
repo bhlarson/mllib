@@ -161,7 +161,7 @@ def main(args):
         print("Begin inferences")
         dtSum = 0.0
         accuracySum = 0.0
-        total_confusion = 0.0
+        total_confusion = None
         iterator = iter(val_dataset)
         numsteps = int(validationsetdec['length']/config['batch_size'])
         step = 0
@@ -179,7 +179,7 @@ def main(args):
 
             target_dtype = np.float16 if args.fp16 else np.float32
 
-            dummy_input_batch = np.array(np.repeat(np.expand_dims(np.zeros((480, 512), dtype=np.float16), axis=0), 1, axis=0), dtype=np.float32)
+            dummy_input_batch = np.zeros((1, 480, 512, 3), dtype=np.float32)
 
             output = np.empty([args.batch_size, config['input_shape'][0], config['input_shape'][1], config['classes']], dtype = np.float32)
             # Allocate device memory
@@ -206,10 +206,6 @@ def main(args):
                 os.makedirs(args.test_dir)
 
             output = predict(dummy_input_batch)  # Run to load dependencies
-            segmentationTRT = np.argmax(output, axis=-1).astype(np.uint8)
-            print(segmentationTRT.shape)
-            imseg = DrawFeatures(cv2.cvtColor((img*255).astype(np.uint8), cv2.COLOR_RGB2BGR), segmentationTRT[0], config)
-            cv2.imwrite('{}/{}.png'.format(args.test_dir, 'dummytrt'), imseg)
 
             tf.get_logger().setLevel('ERROR') # remove tf.cast warning from algorithm time
 
@@ -245,7 +241,10 @@ def main(args):
                     imagesimilarity, results['class similarity'], unique = jaccard(ann, seg, objTypes, results['class similarity'])
 
                     confusion = tf.math.confusion_matrix(ann.flatten(),seg.flatten(), config['classes']).numpy().astype(np.int64)
-                    total_confusion += confusion
+                    if total_confusion is None:
+                        total_confusion = confusion
+                    else:
+                        total_confusion += confusion
 
 
                     results['image'].append({'dt':imageTime,'similarity':imagesimilarity, 'accuracy':seg_accuracy.astype(float), 'confusion':confusion.tolist()})
@@ -287,7 +286,7 @@ def main(args):
     test_summary['accuracy']=average_accuracy
     test_summary['class_similarity']=dataset_similarity
     test_summary['similarity']=total_similarity
-    test_summary['confusion']=total_confusion
+    test_summary['confusion']=total_confusion.tolist()
     test_summary['images']=num_images
     test_summary['image time']=average_time
     test_summary['batch size']=config['batch_size']

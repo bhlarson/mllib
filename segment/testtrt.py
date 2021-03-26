@@ -290,7 +290,7 @@ def main(args):
 
     now = datetime.now()
     date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
-     test_summary = {'date':date_time}
+    test_summary = {'date':date_time}
     test_summary['name']=config['name']
     test_summary['description']=config['description']
     test_summary['model']:config['initialmodel']

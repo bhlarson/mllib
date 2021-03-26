@@ -35,11 +35,11 @@ parser.add_argument('-min', action='store_true', help='If set, minimum training 
 parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps.')
 
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
-parser.add_argument('-name', type=str, default='Test tesorflow inference', help='Test Name.')
-parser.add_argument('-description', type=str, default='Tensorflow image segmentation inference test', help='Test Description.')
+parser.add_argument('-name', type=str, default='Test TensorRT inference', help='Test Name.')
+parser.add_argument('-description', type=str, default='TensorRT image segmentation inference test', help='Test Description.')
 
 
-parser.add_argument('-model', type=str, default='2021-02-24-10-28-35-cocoseg', help='Tensorflow samved model.')
+parser.add_argument('-model', type=str, default='2021-02-24-10-28-35-cocoseg', help='Tensorflow saved model.')
 parser.add_argument('-trtmodel', type=str, default='model-fp16.trt', help='TRT file name')
 parser.add_argument('-tests_json', type=str, default='tests.json', help='Test Archive')
 

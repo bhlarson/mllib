@@ -6,6 +6,7 @@ import os
 import sys
 import copy
 import cv2
+import platform
 from tqdm import tqdm
 import numpy as np
 import tensorflow as tf
@@ -34,6 +35,9 @@ parser.add_argument('-min', action='store_true', help='If set, minimum training 
 parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps.')
 
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
+parser.add_argument('-name', type=str, default='Test tesorflow inference', help='Test Name.')
+parser.add_argument('-description', type=str, default='Tensorflow image segmentation inference test', help='Test Description.')
+
 
 parser.add_argument('-model', type=str, default='2021-02-24-10-28-35-cocoseg', help='Tensorflow samved model.')
 parser.add_argument('-trtmodel', type=str, default='model-fp16.trt', help='TRT file name')
@@ -56,6 +60,7 @@ parser.add_argument('-fp16', type=str, default=True, help='If set, Generate FP16
 
 parser.add_argument('-savedmodel', type=str, default='/store/segment/saved_model', help='Path to fcn savedmodel.')
 parser.add_argument('-saveimg', action='store_true',help='Save Images')
+parser.add_argument('-saveresults', action='store_true',help='Save detailed results')
 
 def main(args):
     print('Start test')
@@ -82,6 +87,8 @@ def main(args):
     trainingsetDescription = json.load(open(trainingsetDescriptionFile))
     
     config = {
+        'name': args.name,
+        'description': args.description,
         'initialmodel': args.model,
         'trtmodel': args.trtmodel,
         'batch_size': args.batch_size,
@@ -283,7 +290,10 @@ def main(args):
 
     now = datetime.now()
     date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
-    test_summary = {'date':date_time, 'model':modelobjname}
+     test_summary = {'date':date_time}
+    test_summary['name']=config['name']
+    test_summary['description']=config['description']
+    test_summary['model']:config['initialmodel']
     test_summary['accuracy']=average_accuracy
     test_summary['class_similarity']=dataset_similarity
     test_summary['similarity']=total_similarity
@@ -291,10 +301,11 @@ def main(args):
     test_summary['images']=num_images
     test_summary['image time']=average_time
     test_summary['batch size']=config['batch_size']
-    test_summary['test store'] =s3def['address']
+    test_summary['store address'] =s3def['address']
     test_summary['test bucket'] = s3def['sets']['trainingset']['bucket']
-    #test_summary['results'] = results
-    
+    test_summary['platform'] = platform.platform()
+    if args.saveresults:
+        test_summary['results'] = results    
     print ("Average time {}".format(average_time))
     print ('Similarity: {}'.format(dataset_similarity))
 

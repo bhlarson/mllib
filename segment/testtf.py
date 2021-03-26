@@ -25,7 +25,7 @@ from utils.similarity import jaccard, similarity
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
 parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
-parser.add_argument('-dataset_dir', type=str, default='./dataset',help='Directory to store training model')
+parser.add_argument('-dataset_dir', type=str, default='/store/segment/dataset',help='Directory to store training model')
 parser.add_argument('-saveonly', action='store_true', help='Do not train.  Only produce saved model')
 parser.add_argument('-min', action='store_true', help='If set, minimum training to generate output.')
 parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps.')
@@ -35,8 +35,8 @@ parser.add_argument('-credentails', type=str, default='creds.json', help='Creden
 parser.add_argument('-model', type=str, default='2021-02-24-10-28-35-cocoseg', help='Tensorflow samved model.')
 parser.add_argument('-tests_json', type=str, default='tests.json', help='Test Archive')
 
-parser.add_argument('-trainingset_dir', type=str, default='/store/training/coco', help='Path training set tfrecord')
-parser.add_argument('-test_dir', type=str, default='./test/unet',help='Directory to store training model')
+parser.add_argument('-trainingset_dir', type=str, default='/store/segment/training/coco', help='Path training set tfrecord')
+parser.add_argument('-test_dir', type=str, default='/store/segment/test/unet',help='Directory to store training model')
 
 parser.add_argument('--trainingset', type=str, default='2021-02-22-14-17-19-cocoseg', help='training set')
 
@@ -48,9 +48,9 @@ parser.add_argument("-devices", type=json.loads, default=["/gpu:0"],  help='GPUs
 parser.add_argument('-training_crop', type=json.loads, default='[480, 512]', help='Training crop size [height, width]')
 parser.add_argument('-train_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB')
 parser.add_argument('-channel_order', type=str, default='channels_last', choices=['channels_first', 'channels_last'], help='Channels_last = NHWC, Tensorflow default, channels_first=NCHW')
-parser.add_argument('-fp16', action='store_true', help='If set, Generate FP16 model.')
 
-parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to fcn savedmodel.')
+parser.add_argument('-savedmodel', type=str, default='/store/segment/saved_model', help='Path to fcn savedmodel.')
+parser.add_argument('-saveimg', action='store_true',help='Save Images')
 
 def main(args):
     print('Start test')
@@ -177,16 +177,6 @@ def main(args):
                     ann = tf.squeeze(annotation[j]).numpy().astype(np.uint8)
                     seg = tf.squeeze(segmentationtf[j]).numpy().astype(np.uint8)
 
-                    font = cv2.FONT_HERSHEY_SIMPLEX
-                    iman = DrawFeatures(img, ann, config)
-                    iman = cv2.putText(iman, 'Annotation',(10,25), font, 1,(255,255,255),1,cv2.LINE_AA)
-                    imseg = DrawFeatures(img, seg, config)
-                    imseg = cv2.putText(imseg, 'Tensorflow',(10,25), font, 1,(255,255,255),1,cv2.LINE_AA)
-
-                    im = cv2.hconcat([iman, imseg])
-                    im_bgr = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
-                    cv2.imwrite('{}/{}{:03d}{:03d}.png'.format(args.test_dir, 'segtf', i, j), im_bgr)
-
                     accuracy.update_state(ann,seg)
                     seg_accuracy = accuracy.result().numpy()
                     accuracySum += seg_accuracy
@@ -197,7 +187,17 @@ def main(args):
                         total_confusion = confusion
                     else:
                         total_confusion += confusion
-                
+
+                    if args.saveimg:
+                        font = cv2.FONT_HERSHEY_SIMPLEX
+                        iman = DrawFeatures(img, ann, config)
+                        iman = cv2.putText(iman, 'Annotation',(10,25), font, 1,(255,255,255),1,cv2.LINE_AA)
+                        imseg = DrawFeatures(img, seg, config)
+                        imseg = cv2.putText(imseg, 'TensorRT',(10,25), font, 1,(255,255,255),1,cv2.LINE_AA)
+
+                        im = cv2.hconcat([iman, imseg])
+                        im_bgr = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
+                        cv2.imwrite('{}/{}{:03d}{:03d}.png'.format(args.test_dir, 'segtrt', i, j), im_bgr)
 
                     results['image'].append({'dt':imageTime,'similarity':imagesimilarity, 'accuracy':seg_accuracy.astype(float), 'confusion':confusion.tolist()})
         except Exception as e:

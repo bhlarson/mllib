@@ -55,6 +55,7 @@ parser.add_argument('-channel_order', type=str, default='channels_last', choices
 parser.add_argument('-fp16', type=str, default=True, help='If set, Generate FP16 model.')
 
 parser.add_argument('-savedmodel', type=str, default='/store/segment/saved_model', help='Path to fcn savedmodel.')
+parser.add_argument('-saveimg', action='store_true',help='Save Images')
 
 def main(args):
     print('Start test')
@@ -225,16 +226,6 @@ def main(args):
                     ann = tf.squeeze(annotation[j]).numpy().astype(np.uint8)
                     seg = tf.squeeze(segmentationtrt[j]).numpy().astype(np.uint8)
 
-                    font = cv2.FONT_HERSHEY_SIMPLEX
-                    iman = DrawFeatures(img, ann, config)
-                    iman = cv2.putText(iman, 'Annotation',(10,25), font, 1,(255,255,255),1,cv2.LINE_AA)
-                    imseg = DrawFeatures(img, seg, config)
-                    imseg = cv2.putText(imseg, 'TensorRT',(10,25), font, 1,(255,255,255),1,cv2.LINE_AA)
-
-                    im = cv2.hconcat([iman, imseg])
-                    im_bgr = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
-                    cv2.imwrite('{}/{}{:03d}{:03d}.png'.format(args.test_dir, 'segtrt', i, j), im_bgr)
-
                     accuracy.update_state(ann,seg)
                     seg_accuracy = accuracy.result().numpy()
                     accuracySum += seg_accuracy
@@ -246,6 +237,16 @@ def main(args):
                     else:
                         total_confusion += confusion
 
+                    if args.saveimg:
+                        font = cv2.FONT_HERSHEY_SIMPLEX
+                        iman = DrawFeatures(img, ann, config)
+                        iman = cv2.putText(iman, 'Annotation',(10,25), font, 1,(255,255,255),1,cv2.LINE_AA)
+                        imseg = DrawFeatures(img, seg, config)
+                        imseg = cv2.putText(imseg, 'TensorRT',(10,25), font, 1,(255,255,255),1,cv2.LINE_AA)
+
+                        im = cv2.hconcat([iman, imseg])
+                        im_bgr = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
+                        cv2.imwrite('{}/{}{:03d}{:03d}.png'.format(args.test_dir, 'segtrt', i, j), im_bgr)
 
                     results['image'].append({'dt':imageTime,'similarity':imagesimilarity, 'accuracy':seg_accuracy.astype(float), 'confusion':confusion.tolist()})
         except Exception as e:

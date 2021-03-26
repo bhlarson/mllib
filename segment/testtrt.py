@@ -293,7 +293,7 @@ def main(args):
     test_summary = {'date':date_time}
     test_summary['name']=config['name']
     test_summary['description']=config['description']
-    test_summary['model']:config['initialmodel']
+    test_summary['model']=config['initialmodel']
     test_summary['accuracy']=average_accuracy
     test_summary['class_similarity']=dataset_similarity
     test_summary['similarity']=total_similarity

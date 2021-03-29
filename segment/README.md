@@ -1,37 +1,36 @@
 # Image segmentation
 
-- run python scripts from <project path>/mllib
+The mllib/segment folder contains pythion programs to train and test image segmentation in various environments.  This will describe training and testing a UNET segmenter.  [UNET](https://arxiv.org/pdf/1505.04597.pdf)  is a very common fully-convolutional image segmentation network based on a simple structure and well written paper.  
 
-# Workflow
-1. Prpare docker runtime
+Before training and test, a training set must be be prepared.  The [mllib/dataset/README.md](../dataset/README.md) outlines preparing a trainingset from the COCO dataset.  Please complete this before beginning the process of training a segmentation network.
+
+## UNET Training and Test
+1. Prpare and launch the docker runtime.  The following steps are performed witin this docker environment
 ```console
-drb # load and build runtime docker image
-djb # load and build jupyter docker image
+./db # build the training docker image
+./dr # run the training docker image
 ```
-1. Load dataset to train segmentation
+Train the unet segmentation with the COCO training set.  "-trainingset coco" parameter specifies the training will be performed on the coco training set.  "-epochs 10" specificies training will complete after 10 passess through the training set.  "-savedmodelname" specifies the saved model name as "unet"  The model training cross entropy loss is printed in the terminal and training convergence can be observed by comaring loss values over time.
+
 ```console
-dr # loads development docker image
-python3 datasets/getcoco.py
+pythons segment/train.py -trainingset coco -epochs 10 -savedmodelname unet
 ```
-1. Prepare training set: 
+
+When training is complete, "testtf.py" runs the trained network agains the valiation set and records the results in tests.json file added to the traingset.   
 ```console
-dr # loads development docker image
-python3 segment/maketrain.py
+python3 segment/testtf.py -trainingset coco -model unet
 ```
-1. Train:
+
+The jupyter notebook [mllib/segment/test.ipynb](./segment/test.ipynb) provides test visualizations.  To use this, 
+1. Exit the current docker envorinment and load the jupyter docker environment, 
 ```console
-dr # loads development docker image
-python3 segment/train.py
+exit # exit the current training docker image
+./djpb # build jupyter docker image
+./djpr # run jupyter docker image
 ```
-1. Test:
-```console
-dr # loads development docker image
-python3 segment/test.py
-```
-1. View test results:
-```console
-dj # loads jupyter docker image
-```
+2. Open Jupyter in a browser: [http://localhost:8888](http://localhost:8888)
+1. Open the test.ipynb notebook
+
 In browser URL edit box, enter: http://localhost:8888/
 1. Validate on target in environment
 1. Deploy

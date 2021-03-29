@@ -76,6 +76,7 @@ microk8s enable dns gpu helm3 storage registry
 - Install [Visual Studio Code](https://code.visualstudio.com/)
 - In Visual Studio Code, install Python Remote Development, Jupyter, Json, and Getlens extensions
 - and the [NVIDIA docker extension](https://github.com/NVIDIA/nvidia-docker )
+- Create a [minio object storage](https://docs.min.io/docs/minio-quickstart-guide.html)
 
 
 - Load the mllib project.  From the command prompt:
@@ -93,6 +94,27 @@ git https://github.com/bhlarson/mllib.git
 ```console
 cat cert.pem | base64 | awk 'BEGIN{ORS="";} {print}' > tls.crt
 cat privkey.pem | base64 | awk 'BEGIN{ORS="";} {print}' > tls.key
+```
+- create a credentials file mllib/creds.json defining S3 access crediantials.  It should have the the strucure below.  Replace the "<>" values with the values of your object storage
+```json
+{
+    "s3":[
+        {"name":"mllib-s3", 
+            "type":"trainer", "address":"<s3 url>", 
+            "access key":"<s3 access key>", 
+            "secret key":"<s3 secret key>",
+            "tls":true, 
+            "cert_verify":false,
+            "cert_path": null,
+            "sets":{
+                "dataset":{"bucket":"mllib","prefix":"data", "dataset_filter":"" },
+                "trainingset":{"bucket":"mllib","prefix":"training", "dataset_filter":"" },
+                "model":{"bucket":"mllib","prefix":"model", "dataset_filter":"dl3" },
+                "test":{"bucket":"mllib","prefix":"test", "dataset_filter":"" }
+            } 
+         }
+    ]
+}
 ```
 
 # Results

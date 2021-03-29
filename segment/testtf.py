@@ -41,7 +41,7 @@ parser.add_argument('-tests_json', type=str, default='tests.json', help='Test Ar
 parser.add_argument('-trainingset_dir', type=str, default='/store/segment/training/coco', help='Path training set tfrecord')
 parser.add_argument('-test_dir', type=str, default='/store/segment/test/unet',help='Directory to store training model')
 
-parser.add_argument('--trainingset', type=str, default='2021-02-22-14-17-19-cocoseg', help='training set')
+parser.add_argument('-trainingset', type=str, default='2021-02-22-14-17-19-cocoseg', help='training set')
 
 parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.')              
 

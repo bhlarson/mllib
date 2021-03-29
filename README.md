@@ -130,12 +130,18 @@ cat privkey.pem | base64 | awk 'BEGIN{ORS="";} {print}' > tls.key
 |Tensorflow Foat32|Jetson NX|5000.0|0.941661|0.666916|0.370289|
 |TensorRT Foat16|Jetson NX|5000.0|0.946283|0.668803|0.046575|
 <br />
+
 ### Confusion Matrix - Tensorflow Float 32 - X86-64 RTX6000
-![Confusion Tensorflow X86-64 RTX6000](img/Tensorflow-X86-RTX6000.png)
+<img src="img/Tensorflow-X86-RTX6000.png"/>
+</br>
+
 ### Confusion Matrix - TensorRT Float 16 - Jetson AGX
-![Confustion TensorRT  16 bit ](img/TensorRT-JetsonAGX.png)
+<img src="img/TensorRT-JetsonAGX.png"/>
+</br>
+
 ### Confusion Matrix - TensorRT Float 16 - Jetson NX
-![Image Segmentation](img/TensorRT-JetsonNX.png)
+<img src="img/TensorRT-JetsonNX.png"/>
+</br>
 
 
 ## To Do:

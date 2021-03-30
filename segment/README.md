@@ -13,7 +13,7 @@ Before training and test, a training set must be be prepared.  The [mllib/datase
 Train the unet segmentation with the COCO training set.  "-trainingset coco" parameter specifies the training will be performed on the coco training set.  "-epochs 10" specificies training will complete after 10 passess through the training set.  "-savedmodelname" specifies the saved model name as "unet"  The model training cross entropy loss is printed in the terminal and training convergence can be observed by comaring loss values over time.
 
 ```console
-pythons segment/train.py -trainingset coco -epochs 10 -savedmodelname unet
+python3 segment/train.py -trainingset coco -epochs 10 -savedmodelname unet
 ```
 
 When training is complete, "testtf.py" runs the trained network agains the valiation set and records the results in tests.json file added to the traingset.   

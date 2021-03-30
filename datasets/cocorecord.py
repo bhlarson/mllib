@@ -22,7 +22,7 @@ from utils.jsonutil import WriteDictJson
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
 
-    parser.add_argument('-dataset', type=str, default='./dataset', help='Path to dataset direcotry')
+    parser.add_argument('-dataset', type=str, default='coco', help='Dataset.')
     parser.add_argument('-record_dir', type=str, default='./record', help='Path record work directory')
 
     defaultname = '{}'.format(datetime.now().strftime('%Y-%m-%d-%H-%M-%S-cocoseg'))
@@ -58,7 +58,7 @@ def parse_arguments():
     parser.add_argument('-min', action='store_true', help='If set, minimum training to generate output.')
     parser.add_argument('-min_steps', type=int, default=20, help='Number of min steps.')
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
-    parser.add_argument('-dataset', type=str, default='coco', help='Dataset.')
+
 
     args = parser.parse_args()
     return args
@@ -201,6 +201,7 @@ def main(args):
         creds = json.load(json_file)
     if not creds:
         print('Failed to load credentials file {}. Exiting'.format(args.credentails))
+        return
 
     s3def = creds['s3'][0]
     s3 = s3store(s3def['address'], 

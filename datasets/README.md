@@ -5,7 +5,7 @@ To prepare the COCO for training, run getcoco.py to download and and store the c
 ```consol
 $ ./drb  # build development docker environment
 $ ./dr  # run docker development environment 
-# py datasets/getcoco.py -path /store/Datasets/coco
+# python3 datasets/getcoco.py
 ```
 Downloading this 60GB data coco dataset is time consuming.  The consol messages will provide you a time estimate based on your download and extraction speeds.
 
@@ -13,7 +13,7 @@ While COCO is downloading and extracting, examine the class file "mllib/datasets
 
 Once coco is downloaded and extracted, run cocorecord.py in the same docker envorinment to generate an optimized .tfrecord training set for segmentation training: 
 ```consol
-# py datasets/cocorecord.py -trainingset_name coco
+# python3 datasets/cocorecord.py -trainingset_name coco
 ```
 
 With a segmentation data set download and converted to a training set, training a segmentation network described in this [README.md](../segment/README.md)

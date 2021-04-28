@@ -13,6 +13,8 @@ docker run --gpus all -it --rm --cap-add=CAP_SYS_ADMIN \
     -v /etc/localtime:/etc/localtime:ro \
     -p 6006:6006/tcp \
     -p 5001:5000/tcp \
-    -p 3000:3000 ${image_name}
+    -p 3000:3000 \
+    --device /dev/video0:/dev/video0 \
+    ${image_name}
 
 # docker run -it --gpus all --rm --network host nvcr.io/nvidia/l4t-tensorflow:r32.5.0-tf2.3-py3

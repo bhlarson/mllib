@@ -16,6 +16,7 @@ RUN pip3 --no-cache-dir install \
         tqdm==4.58.0 \
         natsort==7.1.1 \
         ptvsd==4.3.2 \
+        debugpy \
         tfds-nightly \
         tensorflow-addons==0.12.1 \
         flask==1.1.2 \

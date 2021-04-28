@@ -2,6 +2,6 @@ docker run --gpus all -it --rm --cap-add=CAP_SYS_ADMIN \
     -v "$(pwd):/app" \
     -v "/store:/store" \
     -v /etc/localtime:/etc/localtime:ro \
-    -p 6006:6006/tcp \
-    -p 5001:5000/tcp \
+    -p 6007:6006/tcp \
+    -p 5007:5000/tcp \
     -p 3000:3000 ml:latest

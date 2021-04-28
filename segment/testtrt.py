@@ -38,7 +38,6 @@ parser.add_argument('-credentails', type=str, default='creds.json', help='Creden
 parser.add_argument('-name', type=str, default='Test TensorRT inference', help='Test Name.')
 parser.add_argument('-description', type=str, default='TensorRT image segmentation inference test', help='Test Description.')
 
-
 parser.add_argument('-model', type=str, default='2021-02-24-10-28-35-cocoseg', help='Tensorflow saved model.')
 parser.add_argument('-trtmodel', type=str, default='model-fp16.trt', help='TRT file name')
 parser.add_argument('-tests_json', type=str, default='tests.json', help='Test Archive')
@@ -46,7 +45,7 @@ parser.add_argument('-tests_json', type=str, default='tests.json', help='Test Ar
 parser.add_argument('-trainingset_dir', type=str, default='/store/segment/training/coco', help='Path training set tfrecord')
 parser.add_argument('-test_dir', type=str, default='/store/segment/test/unet',help='Directory to store training model')
 
-parser.add_argument('--trainingset', type=str, default='2021-02-22-14-17-19-cocoseg', help='training set')
+parser.add_argument('--trainingset', type=str, default='coco', help='training set')
 
 parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.')              
 

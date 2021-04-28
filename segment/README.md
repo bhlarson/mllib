@@ -16,24 +16,26 @@ Train the unet segmentation with the COCO training set.  "-trainingset coco" par
 python3 segment/train.py -trainingset coco -savedmodelname unet
 ```
 
-When training is complete, "testtf.py" runs the trained network agains the valiation set and records the results in tests.json file added to the traingset.   
+When training is complete, "test.py" runs the trained network agains the valiation set and records the results in tests.json file added to the traingset.   
 ```console
-python3 segment/testtf.py -trainingset coco -model unet
+python3 segment/test.py -trainingset coco -model unet
+```
+
+After creating a TensorRT model described in [target/README.md](../target/README.md)
+```console
+dbtrt
+drtrt
+python3 segment/testtrt.py
 ```
 
 The jupyter notebook [mllib/segment/test.ipynb](./segment/test.ipynb) provides test visualizations.  To use this, 
-1. Exit the current docker envorinment and load the jupyter docker environment, 
+1. load the jupyter docker environment, 
 ```console
-exit # exit the current training docker image
 ./djpb # build jupyter docker image
 ./djpr # run jupyter docker image
 ```
 2. Open Jupyter in a browser: [http://localhost:8888](http://localhost:8888)
 1. Open the test.ipynb notebook
-
-In browser URL edit box, enter: http://localhost:8888/
-1. Validate on target in environment
-1. Deploy
-1. Analyze peformance
-1. Update
+1. In Jupyter, select Run->Run All Cells
+1. "test.ipynb" loads and displays test results
 

@@ -26,8 +26,6 @@ from similarity import jaccard, similarity
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
 parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
-parser.add_argument('-dataset_dir', type=str, default='./dataset',help='Directory to store training model')
-parser.add_argument('-saveonly', action='store_true', help='Do not train.  Only produce saved model')
 parser.add_argument('-min', action='store_true', help='If set, minimum training to generate output.')
 parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps.')
 
@@ -37,9 +35,7 @@ parser.add_argument('-initialmodel', type=str, default='2021-02-24-10-28-35-coco
 parser.add_argument('-tests_json', type=str, default='tests.json', help='Test Archive')
 
 parser.add_argument('-trainingset_dir', type=str, default='/store/training/coco', help='Path training set tfrecord')
-parser.add_argument('-test_dir', type=str, default='./test/unet',help='Directory to store training model')
-
-parser.add_argument('--trainingset', type=str, default='2021-02-22-14-17-19-cocoseg', help='training set')
+parser.add_argument('-trainingset', type=str, default='coco', help='training set')
 
 parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.')              
 

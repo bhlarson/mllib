@@ -74,14 +74,7 @@ description:
 
 3. Use TF-TRT to convert savedmodel to TensorRT Model:
 ```console
-py target/trt.py -savemodel ./saved_model/2020-09-04-05-14-30-dl3
-```
-3 (alt) Convert from Tensorflow SavedModel to ONNX model to TensorRT Model.  Despite the extra step, this path is recommended in [Speeding up Deep Learning Inference Using TensorFlow, ONNX, and TensorRT](https://developer.nvidia.com/blog/speeding-up-deep-learning-inference-using-tensorflow-onnx-and-tensorrt/) and has support for many neural network structurs.
-
-4.Inference uisng the Pythion TensorRT engine:
-
-```console
-py target/inftrt.py
+python3 target/onnx-trt.py -savedmodelname 2021-02-24-10-28-35-cocoseg -targetname mymodel
 ```
 
 ### Links

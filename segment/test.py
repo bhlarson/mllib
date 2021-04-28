@@ -217,6 +217,7 @@ def main(args):
     now = datetime.now()
     date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
     test_summary = {'date':date_time, 'model':config['initialmodel']}
+    test_summary['model']=config['initialmodel']}
     test_summary['accuracy']=average_accuracy
     test_summary['class_similarity']=dataset_similarity
     test_summary['similarity']=total_similarity

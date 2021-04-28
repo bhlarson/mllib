@@ -23,6 +23,7 @@ python3 segment/test.py -trainingset coco -model unet
 
 After creating a TensorRT model described in [target/README.md](../target/README.md)
 ```console
+exit # exit tensorflow docker envirnment
 dbtrt
 drtrt
 python3 segment/testtrt.py
@@ -35,7 +36,7 @@ The jupyter notebook [mllib/segment/test.ipynb](./segment/test.ipynb) provides t
 ./djpr # run jupyter docker image
 ```
 2. Open Jupyter in a browser: [http://localhost:8888](http://localhost:8888)
-1. Open the test.ipynb notebook
+1. Open the segment/test.ipynb notebook
 1. In Jupyter, select Run->Run All Cells
 1. "test.ipynb" loads and displays test results
 

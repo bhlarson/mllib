@@ -54,6 +54,7 @@ def main(args):
         sysmsg = 'unzip {} -d {}'.format(outpath, args.path)
         print(sysmsg)
         os.system(sysmsg)
+        os.remove(outpath) # Remove zip file once extracted
 
     saved_name = '{}/{}'.format(s3def['sets']['dataset']['prefix'] , args.dataset)
     print('Save model to {}/{}'.format(s3def['sets']['dataset']['bucket'],saved_name))

@@ -38,17 +38,17 @@ parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 parser.add_argument('-model_precision', type=str, default='FP16', choices=['FP32', 'FP16', 'INT8'], help='Model Optimization Precision.')
 
-parser.add_argument('-trainingset_dir', type=str, default='/store/training/2021-01-12-19-36-49-cocoseg', help='Path training set tfrecord')
+parser.add_argument('-trainingsetdir', type=str, default='/store/training', help='Path training set tfrecord')
 parser.add_argument('-training_dir', type=str, default='./trainings/unetcoco',help='Training directory.  Empty string for auto-generated tempory directory')
 parser.add_argument('-checkpoint', type=str, default='train.ckpt',help='Directory to store training model')
 
-parser.add_argument('--datasetprefix', type=str, default='dataset', help='Dataset prefix')
-parser.add_argument('--trainingsetprefix', type=str, default='trainingset', help='Trainingset prefix')
-parser.add_argument('--modelprefix', type=str, default='model', help='Model prefix')
+parser.add_argument('-datasetprefix', type=str, default='dataset', help='Dataset prefix')
+parser.add_argument('-trainingsetprefix', type=str, default='trainingset', help='Trainingset prefix')
+parser.add_argument('-modelprefix', type=str, default='model', help='Model prefix')
 
-parser.add_argument('--trainingset', type=str, default='2021-01-12-19-36-49-cocoseg', help='training set')
-parser.add_argument('--initialmodel', type=str, default='2021-02-24-10-28-35-cocoseg', help='Initial model.  Empty string if no initial model')
-parser.add_argument('--temp_savedmodel', type=str, default='./saved_model', help='Temporary path to savedmodel.')
+parser.add_argument('-trainingset', type=str, default='coco', help='training set')
+parser.add_argument('-initialmodel', type=str, default=None, help='Initial model.  Empty string if no initial model')
+parser.add_argument('-temp_savedmodel', type=str, default='./saved_model', help='Temporary path to savedmodel.')
 
 parser.add_argument('-epochs', type=int, default=20, help='Number of training epochs')
 
@@ -137,13 +137,14 @@ def main(args):
                  )
     
     trainingset = '{}/{}/'.format(s3def['sets']['trainingset']['prefix'] , args.trainingset)
-    print('Load training set {}/{} to {}'.format(s3def['sets']['trainingset']['bucket'],trainingset,args.trainingset_dir ))
-    s3.Mirror(s3def['sets']['trainingset']['bucket'], trainingset, args.trainingset_dir)
+    trainingsetdir = '{}/{}'.format(args.trainingsetdir,args.trainingset)
+    print('Load training set {}/{} to {}'.format(s3def['sets']['trainingset']['bucket'],trainingset,trainingsetdir ))
+    s3.Mirror(s3def['sets']['trainingset']['bucket'], trainingset, trainingsetdir)
 
     if args.weights is not None and args.weights.lower() == 'none' or args.weights == '':
         args.weights = None
 
-    trainingsetDescriptionFile = '{}/description.json'.format(args.trainingset_dir)
+    trainingsetDescriptionFile = '{}/description.json'.format(trainingsetdir)
     trainingsetDescription = json.load(open(trainingsetDescriptionFile))
 
     config = {
@@ -214,8 +215,8 @@ def main(args):
         # Display model
         model.summary()
 
-        train_dataset = input_fn('train', args.trainingset_dir, config)
-        val_dataset = input_fn('val', args.trainingset_dir, config)
+        train_dataset = input_fn('train', trainingsetdir, config)
+        val_dataset = input_fn('val', trainingsetdir, config)
 
         #earlystop_callback = tf.keras.callbacks.EarlyStopping(monitor='loss', min_delta=1e-4, patience=3, verbose=0, mode='auto')
         save_callback = tf.keras.callbacks.ModelCheckpoint(filepath=config['training_dir'], monitor='loss',verbose=0,save_weights_only=False,save_freq='epoch')

@@ -22,7 +22,7 @@ def ReadDictJson(filepath):
 
 def Dict2Json(dict):
     jsonStr = json.dumps(outdict, sort_keys=False, indent=4)      
-    return True
+    return jsonStr
 
 def Json2Dict(json):
     jsondict = json.load(json_file)

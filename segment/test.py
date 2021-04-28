@@ -37,7 +37,7 @@ parser.add_argument('-initialmodel', type=str, default='2021-02-24-10-28-35-coco
 parser.add_argument('-tests_json', type=str, default='tests.json', help='Test Archive')
 
 parser.add_argument('-trainingset_dir', type=str, default='/store/training/coco', help='Path training set tfrecord')
-parser.add_argument('-test_dir', type=str, default='./test/unet',help='Directory to store training model')
+parser.add_argument('-test_dir', type=str, default='/store/segment/test/unet',help='Directory to store training model')
 
 parser.add_argument('--trainingset', type=str, default='2021-02-22-14-17-19-cocoseg', help='training set')
 
@@ -221,6 +221,7 @@ def main(args):
     now = datetime.now()
     date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
     test_summary = {'date':date_time, 'model':config['initialmodel']}
+    test_summary['model']=config['initialmodel']}
     test_summary['accuracy']=average_accuracy
     test_summary['class_similarity']=dataset_similarity
     test_summary['similarity']=total_similarity

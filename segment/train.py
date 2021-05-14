@@ -22,9 +22,6 @@ from utils.s3 import s3store
 from utils.jsonutil import WriteDictJson
 from segment.loadmodel import LoadModel
 
-DEBUG = False
-
-
 #disable_eager_execution()
 
 parser = argparse.ArgumentParser()

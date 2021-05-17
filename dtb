@@ -1,0 +1,1 @@
+docker build --pull -f "dockerfile-torch" -t torch:latest "context"

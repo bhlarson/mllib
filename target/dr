@@ -1,0 +1,1 @@
+docker run -it --volume "$(pwd):/app" --volume "/store:/store" -p 8888:8888/tcp -p 3000:3000 trt:latest

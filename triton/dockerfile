@@ -1,0 +1,15 @@
+FROM nvcr.io/nvidia/tritonserver:21.02-py3 as full
+#FROM nvcr.io/nvidia/tritonserver:21.02-py3-min
+#COPY --from=full /opt/tritonserver/bin /opt/tritonserver/bin
+#COPY --from=full /opt/tritonserver/lib /opt/tritonserver/lib
+#COPY --from=full /opt/tritonserver/lib /opt/tritonserver/lib
+#COPY --from=full /opt/tritonserver/backends/python /opt/tritonserver/backends/python
+
+COPY config /root/.aws/config
+
+WORKDIR /app 
+
+#ENV PATH="/opt/tritonserver/bin:${PATH}"
+#ENV NB_PREFIX /
+#ENTRYPOINT ["python", "fcn/train.py"]
+#CMD ["sh","-c", "jupyter lab --notebook-dir=/home/jovyan --ip=0.0.0.0 --no-browser --allow-root --port=8888 --NotebookApp.token='' --NotebookApp.password='' --NotebookApp.allow_origin='*' --NotebookApp.base_url=${NB_PREFIX}"]

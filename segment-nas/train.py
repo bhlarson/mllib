@@ -7,8 +7,22 @@ import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import torch.nn.functional as F
+from torch.utils.data import Dataset
+from torchvision import datasets
+from torch.utils.data import DataLoader
+from torchvision.transforms import ToTensor
 
 from trainargs import trainargs
+
+def make_data_loader(args):
+    training_data = Cityscapes('./data/cityscapes', split='train', mode='fine', target_type='semantic')
+    test_data = Cityscapes('./data/cityscapes', split='train', mode='fine', target_type='semantic')
+
+    train_loader = DataLoader(training_data, batch_size=64, shuffle=True)
+    test_loader = DataLoader(test_data, batch_size=64, shuffle=True)
+
+    return train_loader, test_loader
+
 
 def train(epoch):
     epoch_loss = 0
@@ -23,7 +37,7 @@ def train(epoch):
             target = target.cuda()
 
         target=torch.squeeze(target,1)
-        mask = target < opt.maxdisp
+        mask = target < args.maxdisp
         mask.detach_()
         valid = target[mask].size()[0]
         train_start_time = time()
@@ -59,7 +73,7 @@ def val():
             input2 = input2.cuda()
             target = target.cuda()
         target=torch.squeeze(target,1)
-        mask = target < opt.maxdisp
+        mask = target < args.maxdisp
         mask.detach_()
         valid=target[mask].size()[0]
         if valid>0:
@@ -73,7 +87,7 @@ def val():
                 pred_disp = disp.cpu().detach() 
                 true_disp = target.cpu().detach()
                 disp_true = true_disp
-                index = np.argwhere(true_disp<opt.maxdisp)
+                index = np.argwhere(true_disp<args.maxdisp)
                 disp_true[index[0][:], index[1][:], index[2][:]] = np.abs(true_disp[index[0][:], index[1][:], index[2][:]]-pred_disp[index[0][:], index[1][:], index[2][:]])
                 correct = (disp_true[index[0][:], index[1][:], index[2][:]] < 1)|(disp_true[index[0][:], index[1][:], index[2][:]] < true_disp[index[0][:], index[1][:], index[2][:]]*0.05)      
                 three_px_acc = 1-(float(torch.sum(correct))/float(len(index[0])))
@@ -91,90 +105,90 @@ def main(args):
 
     print('Start training')
 
-cuda = opt.cuda
+    cuda = args.cuda
 
-if cuda and not torch.cuda.is_available():
-    raise Exception("No GPU found, please run without --cuda")
+    if cuda and not torch.cuda.is_available():
+        raise Exception("No GPU found, please run without --cuda")
 
-torch.manual_seed(opt.seed)
-if cuda:
-    torch.cuda.manual_seed(opt.seed)
+    torch.manual_seed(args.seed)
+    if cuda:
+        torch.cuda.manual_seed(args.seed)
 
-print('===> Loading datasets')
-kwargs = {'num_workers': opt.threads, 'pin_memory': True, 'drop_last':True}
-training_data_loader, testing_data_loader = make_data_loader(opt, **kwargs)
+    print('===> Loading datasets')
+    kwargs = {'num_workers': args.threads, 'pin_memory': True, 'drop_last':True}
+    training_data_loader, testing_data_loader = make_data_loader(args, **kwargs)
 
-print('===> Building model')
-model = LEAStereo(opt)
+    print('===> Building model')
+    model = LEAStereo(args)
 
-## compute parameters
-#print('Total number of model parameters : {}'.format(sum([p.data.nelement() for p in model.parameters()])))
-#print('Number of Feature Net parameters: {}'.format(sum([p.data.nelement() for p in model.feature.parameters()])))
-#print('Number of Matching Net parameters: {}'.format(sum([p.data.nelement() for p in model.matching.parameters()])))
+    ## compute parameters
+    #print('Total number of model parameters : {}'.format(sum([p.data.nelement() for p in model.parameters()])))
+    #print('Number of Feature Net parameters: {}'.format(sum([p.data.nelement() for p in model.feature.parameters()])))
+    #print('Number of Matching Net parameters: {}'.format(sum([p.data.nelement() for p in model.matching.parameters()])))
 
-print('Total Params = %.2fMB' % count_parameters_in_MB(model))
-print('Feature Net Params = %.2fMB' % count_parameters_in_MB(model.feature))
-print('Matching Net Params = %.2fMB' % count_parameters_in_MB(model.matching))
-   
-#mult_adds = comp_multadds(model, input_size=(3,opt.crop_height, opt.crop_width)) #(3,192, 192))
-#print("compute_average_flops_cost = %.2fMB" % mult_adds)
+    print('Total Params = %.2fMB' % count_parameters_in_MB(model))
+    print('Feature Net Params = %.2fMB' % count_parameters_in_MB(model.feature))
+    print('Matching Net Params = %.2fMB' % count_parameters_in_MB(model.matching))
+    
+    #mult_adds = comp_multadds(model, input_size=(3,args.crop_height, args.crop_width)) #(3,192, 192))
+    #print("compute_average_flops_cost = %.2fMB" % mult_adds)
 
-if cuda:
-    model = torch.nn.DataParallel(model).cuda()
+    if cuda:
+        model = torch.nn.DataParallel(model).cuda()
 
-torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.benchmark = True
 
-if opt.solver == 'adam':
-    optimizer = optim.Adam(model.parameters(), lr=opt.lr, betas=(0.9,0.999))
-elif opt.solver == 'sgd':
-    optimizer = optim.SGD(model.parameters(), lr=opt.lr, momentum=0.9)
+    if args.solver == 'adam':
+        optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9,0.999))
+    elif args.solver == 'sgd':
+        optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
 
-scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=opt.milestones, gamma=0.5)
+    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.milestones, gamma=0.5)
 
-if opt.resume:
-    if os.path.isfile(opt.resume):
-        print("=> loading checkpoint '{}'".format(opt.resume))
-        checkpoint = torch.load(opt.resume)
-        model.load_state_dict(checkpoint['state_dict'], strict=True)
-    else:
-        print("=> no checkpoint found at '{}'".format(opt.resume))
-
-    error=100
-    for epoch in range(1, opt.nEpochs + 1):
-        train(epoch)
-        is_best = False
-        loss=val()
-        if loss < error:
-            error=loss
-            is_best = True
-        if opt.dataset == 'sceneflow':
-            if epoch>=0:
-                save_checkpoint(opt.save_path, epoch,{
-                        'epoch': epoch,
-                        'state_dict': model.state_dict(),
-                        'optimizer' : optimizer.state_dict(),
-                    }, is_best)
+    if args.resume:
+        if os.path.isfile(args.resume):
+            print("=> loading checkpoint '{}'".format(args.resume))
+            checkpoint = torch.load(args.resume)
+            model.load_state_dict(checkpoint['state_dict'], strict=True)
         else:
-            if epoch%100 == 0 and epoch >= 3000:
-                save_checkpoint(opt.save_path, epoch,{
-                        'epoch': epoch,
-                        'state_dict': model.state_dict(),
-                        'optimizer' : optimizer.state_dict(),
-                    }, is_best)
-            if is_best:
-                save_checkpoint(opt.save_path, epoch,{
-                        'epoch': epoch,
-                        'state_dict': model.state_dict(),
-                        'optimizer' : optimizer.state_dict(),
-                    }, is_best)
+            print("=> no checkpoint found at '{}'".format(args.resume))
 
-        scheduler.step()
+        error=100
+        for epoch in range(1, args.nEpochs + 1):
+            train(epoch)
+            is_best = False
+            loss=val()
+            if loss < error:
+                error=loss
+                is_best = True
+            if args.dataset == 'sceneflow':
+                if epoch>=0:
+                    save_checkpoint(args.save_path, epoch,{
+                            'epoch': epoch,
+                            'state_dict': model.state_dict(),
+                            'optimizer' : optimizer.state_dict(),
+                        }, is_best)
+            else:
+                if epoch%100 == 0 and epoch >= 3000:
+                    save_checkpoint(args.save_path, epoch,{
+                            'epoch': epoch,
+                            'state_dict': model.state_dict(),
+                            'optimizer' : optimizer.state_dict(),
+                        }, is_best)
+                if is_best:
+                    save_checkpoint(args.save_path, epoch,{
+                            'epoch': epoch,
+                            'state_dict': model.state_dict(),
+                            'optimizer' : optimizer.state_dict(),
+                        }, is_best)
 
-    save_checkpoint(opt.save_path, opt.nEpochs,{
-            'epoch': opt.nEpochs,
-            'state_dict': model.module.state_dict(),
-            'optimizer' : optimizer.state_dict(),
-        }, is_best)
+            scheduler.step()
+
+        save_checkpoint(args.save_path, args.nEpochs,{
+                'epoch': args.nEpochs,
+                'state_dict': model.module.state_dict(),
+                'optimizer' : optimizer.state_dict(),
+            }, is_best)
 
 if __name__ == '__main__':
     args = trainargs()

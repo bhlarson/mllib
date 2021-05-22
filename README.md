@@ -119,7 +119,7 @@ cat privkey.pem | base64 | awk 'BEGIN{ORS="";} {print}' > tls.key
 
 # Results
 ## Performance
-
+For 480 height, 512 width images, the following table shows the UNET accuracy, similarity, and inference time:
 |Software|Hardware|Images|Accuracy|Similarity|Inference time(s)|
 |---|---|---|---|---|---|
 |Tensorflow Foat32|X86-64 RTX 6000|5000.0|0.947432|0.668267|0.076956|

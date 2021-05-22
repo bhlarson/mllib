@@ -3,7 +3,7 @@ import io
 import glob
 import json
 from datetime import datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePath
 from tqdm import tqdm
 import natsort as ns
 from minio import Minio
@@ -405,3 +405,18 @@ class s3store:
             success = False
 
         return success
+
+def Connect(creds):
+    
+    s3 = s3store(creds['address'], 
+                 creds['access key'], 
+                 creds['secret key'],
+                 tls=creds['tls'],
+                 cert_verify=creds['cert_verify'],
+                 cert_path=creds['cert_path'],
+                )
+    buckets = s3.ListBuckets()
+    if not (len(buckets) >= 0) :
+        s3 = None
+        print('Failed connect to {}'.format(creds['address']))
+    return s3

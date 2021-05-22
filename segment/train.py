@@ -307,17 +307,34 @@ if __name__ == '__main__':
   args, unparsed = parser.parse_known_args()
   
   if args.debug:
-      print("Wait for debugger attach")
-      import ptvsd
-      # https://code.visualstudio.com/docs/python/debugging#_remote-debugging
-      # Launch applicaiton on remote computer: 
-      # > python3 -m ptvsd --host 10.150.41.30 --port 3000 --wait fcn/train.py
-      # Allow other computers to attach to ptvsd at this IP address and port.
-      ptvsd.enable_attach(address=('0.0.0.0', args.debug_port), redirect_output=True)
-      # Pause the program until a remote debugger is attached
+    print("Wait for debugger attach")
+    import debugpy
+    ''' https://code.visualstudio.com/docs/python/debugging#_remote-debugging
+    Launch application from console with -debug flag
+    $ python3 train.py -debug
+    "configurations": [
+        {
+            "name": "Python: Remote",
+            "type": "python",
+            "request": "attach",
+            "port": 3000,
+            "host": "localhost",
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "."
+                }
+            ],
+            "justMyCode": false
+        },
+        ...
+    Connet to vscode "Python: Remote" configuration
+    '''
 
-      ptvsd.wait_for_attach()
+    debugpy.listen(address=('0.0.0.0', args.debug_port))
+    # Pause the program until a remote debugger is attached
 
-      print("Debugger attached")
+    debugpy.wait_for_client()
+    print("Debugger attached")
 
   main(args)

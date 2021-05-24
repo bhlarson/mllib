@@ -12,11 +12,18 @@ from torchvision import datasets
 from torch.utils.data import DataLoader
 from torchvision.transforms import ToTensor
 
-from trainargs import trainargs
+sys.path.insert(0, os.path.abspath(''))
+from utils.s3 import s3store, Connect
+from utils.jsonutil import WriteDictJson, ReadDictJson
+from datasets.citytorch import CityDataset
+from segment_nas.trainargs import trainargs
 
 def make_data_loader(args):
     training_data = Cityscapes('./data/cityscapes', split='train', mode='fine', target_type='semantic')
     test_data = Cityscapes('./data/cityscapes', split='train', mode='fine', target_type='semantic')
+
+    training_data = CityDataset(s3, dataset, dataset_list, classes=args.classes)
+    test_data = CityDataset(s3, dataset, dataset_list, classes=args.classes)
 
     train_loader = DataLoader(training_data, batch_size=64, shuffle=True)
     test_loader = DataLoader(test_data, batch_size=64, shuffle=True)
@@ -104,6 +111,12 @@ def val():
 def main(args):
 
     print('Start training')
+
+    creds = ReadDictJson(args.credentails)
+    s3_creds = next(filter(lambda d: d.get('name') == args.s3_name, creds['s3']), None)
+    s3 = Connect(s3_creds)
+    s3_index = s3.GetDict(s3_creds['index']['bucket'],s3_creds['index']['prefix'] )
+    dataset = s3_index['sets']['dataset']
 
     cuda = args.cuda
 
@@ -196,15 +209,32 @@ if __name__ == '__main__':
     if args.debug:
         print("Wait for debugger attach")
         import debugpy
-        # https://code.visualstudio.com/docs/python/debugging#_remote-debugging
-        # Launch applicaiton on remote computer: 
-        # > python3 -m ptvsd --host 10.150.41.30 --port 3000 --wait fcn/train.py
-        # Allow other computers to attach to ptvsd at this IP address and port.
+        ''' https://code.visualstudio.com/docs/python/debugging#_remote-debugging
+        Launch application from console with -debug flag
+        $ python3 train.py -debug
+        "configurations": [
+            {
+                "name": "Python: Remote",
+                "type": "python",
+                "request": "attach",
+                "port": 3000,
+                "host": "localhost",
+                "pathMappings": [
+                    {
+                        "localRoot": "${workspaceFolder}",
+                        "remoteRoot": "."
+                    }
+                ],
+                "justMyCode": false
+            },
+            ...
+        Connet to vscode "Python: Remote" configuration
+        '''
+
         debugpy.listen(address=('0.0.0.0', args.debug_port))
         # Pause the program until a remote debugger is attached
 
         debugpy.wait_for_client()
-
         print("Debugger attached")
 
     main(args)

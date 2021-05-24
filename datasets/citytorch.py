@@ -17,32 +17,21 @@ from torchvision.io import read_image
 
 sys.path.insert(0, os.path.abspath(''))
 from utils.jsonutil import WriteDictJson, ReadDictJson
-
-sys.path.insert(0, os.path.abspath(''))
 from utils.s3 import s3store, Connect
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
 
-    parser.add_argument('-ann_dir', type=str, default='ann')
-    parser.add_argument('-record_dir', type=str, default='cityrecord', help='Path record work directory')
-
-    parser.add_argument('-sets', type=json.loads,
-        default='[{"name":"train"}, {"name":"val"}, {"name":"test"}]',
-        help='Json string containing an array of [{"name":"<>", "ratio":<probability>}]')
-
-    defaultsetname = '{}-cityscape'.format(datetime.now().strftime("%Y%m%d-%H%M%S"))
-    parser.add_argument('-setname', type=str, default=defaultsetname, help='Path to training set directory')
-   
-    parser.add_argument('-classes', type=json.loads, default='{}', help='Class dictionary JSON.  Leave empty if classes_file points to a JSON file.')
-    parser.add_argument('-classes_file', type=str, default='datasets/cityscapes.json', help='Class dictionary JSON file')
-
     parser.add_argument('-debug', action='store_true',help='Wait for debugge attach')
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
+
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
     parser.add_argument('-s3_name', type=str, default='mllib-s3', help='Credential file s3 name.')
     parser.add_argument('-dataset', type=str, default='cityscapes', help='Dataset name.')
     parser.add_argument('-set', type=str, default='training', help='Set to extract from dataset')
+
+    parser.add_argument('-classes', type=json.loads, default=None, help='Class dictionary JSON.  Leave empty if classes_file points to a JSON file.')
+    parser.add_argument('-classes_file', type=str, default='datasets/cityscapes.json', help='Class dictionary JSON file')
 
     args = parser.parse_args()
     return args
@@ -68,11 +57,12 @@ class CityDataset(Dataset):
 
         return iman  
 
-    def __init__(self, s3, dataset, dataset_index, transform=None, target_transform=None):
+    def __init__(self, s3, dataset, dataset_index, classes=None, transform=None, target_transform=None):
         print('CityDataset __init__')
         self.s3=s3
         self.dataset=dataset
         self.dataset_index=dataset_index
+        self.classes = classes
         self.transform=transform
         self.target_transform=target_transform
 
@@ -113,12 +103,17 @@ class CityDataset(Dataset):
         if 'label' in data:
             label = self.DecodeImage(data['label'], cv2.IMREAD_GRAYSCALE)
             if label is not None:
+                # convert label lable id to trainId pixel value
+                if self.classes is not None:
+                    for objecttype in self.classes['objects']:
+                        label[label == objecttype['id']] = objecttype['trainId']
+
                 data['label_buffer'] = label
         if 'instance' in data:
             instance = self.DecodeImage(data['label'], cv2.IMREAD_GRAYSCALE)
             if instance is not None:
                 data['instance_buffer'] = instance
-        return self.data[idx]
+        return data
 
 def Test(args):
     print('CityDataset Test')
@@ -136,7 +131,7 @@ def Test(args):
     else:
         dataset_list = dataset_index['dataset']
 
-    CityTorch = CityDataset(s3, dataset, dataset_list)
+    CityTorch = CityDataset(s3, dataset, dataset_list, classes=args.classes)
     print('__len__() = {}'.format(CityTorch.__len__()))
     print('__getitem__() = {}'.format(CityTorch.__getitem__(0)))
 
@@ -174,7 +169,8 @@ if __name__ == '__main__':
         debugpy.wait_for_client()
         print("Debugger attached")
 
-
-
+    if args.classes is None and args.classes_file is not None :
+        if '.json' in args.classes_file:
+            args.classes = json.load(open(args.classes_file))
     Test(args)
 

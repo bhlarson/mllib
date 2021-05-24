@@ -39,8 +39,7 @@ def trainargs():
     parser.add_argument('-milestones', default=[30,50,300], metavar='N', nargs='*', 
                         help='epochs at which learning rate is divided by 2')    
     parser.add_argument('-stage', type=str, default='train', choices=['search', 'train'])
-    parser.add_argument('-dataset', type=str, default='sceneflow', 
-                        choices=['sceneflow', 'kitti15', 'kitti12', 'middlebury'], help='dataset name')
+
 
     ######### LEStereo params ##################
     parser.add_argument('-fea_num_layers', type=int, default=6)
@@ -58,6 +57,15 @@ def trainargs():
 
     parser.add_argument('-debug', action='store_true', help='True, enable debug and stop at breakpoint')
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
+
+    ######### Cityscape Dataset Parsing ##################
+    parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
+    parser.add_argument('-s3_name', type=str, default='mllib-s3', help='Credential file s3 name.')
+    parser.add_argument('-dataset', type=str, default='cityscapes', help='Dataset name.')
+    parser.add_argument('-set', type=str, default='training', help='Set to extract from dataset')
+
+    parser.add_argument('-classes', type=json.loads, default=None, help='Class dictionary JSON.  Leave empty if classes_file points to a JSON file.')
+    parser.add_argument('-classes_file', type=str, default='datasets/cityscapes.json', help='Class dictionary JSON file')
 
     args = parser.parse_args()
     return args

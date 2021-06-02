@@ -18,7 +18,7 @@ from utils.jsonutil import WriteDictJson, ReadDictJson
 from datasets.citytorch import CityDataset
 from segment_nas.trainargs import trainargs
 
-def make_data_loader(args):
+def make_data_loader(args, s3, dataset, dataset_index):
     training_data = Cityscapes('./data/cityscapes', split='train', mode='fine', target_type='semantic')
     test_data = Cityscapes('./data/cityscapes', split='train', mode='fine', target_type='semantic')
 
@@ -113,10 +113,11 @@ def main(args):
     print('Start training')
 
     creds = ReadDictJson(args.credentails)
-    s3_creds = next(filter(lambda d: d.get('name') == args.s3_name, creds['s3']), None)
+    s3_creds = next(filter(lambda d: d.get('name') == args.s3_name, creds), None)
     s3 = Connect(s3_creds)
     s3_index = s3.GetDict(s3_creds['index']['bucket'],s3_creds['index']['prefix'] )
-    dataset = s3_index['sets']['dataset']
+    dataset_dfn = next(filter(lambda d: d.get('name') == args.dataset, s3_index['sets']['dataset']['datasets']), None)
+    dataset_index = s3.GetDict(dataset_dfn['bucket'],dataset_dfn['prefix'] )
 
     cuda = args.cuda
 
@@ -129,7 +130,7 @@ def main(args):
 
     print('===> Loading datasets')
     kwargs = {'num_workers': args.threads, 'pin_memory': True, 'drop_last':True}
-    training_data_loader, testing_data_loader = make_data_loader(args, **kwargs)
+    training_data_loader, testing_data_loader = make_data_loader(args, s3, args.dataset, dataset_index)
 
     print('===> Building model')
     model = LEAStereo(args)

@@ -60,7 +60,7 @@ def trainargs():
 
     ######### Cityscape Dataset Parsing ##################
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
-    parser.add_argument('-s3_name', type=str, default='mllib-s3', help='Credential file s3 name.')
+    parser.add_argument('-s3_name', type=str, default='store', help='Credential file s3 name.')
     parser.add_argument('-dataset', type=str, default='cityscapes', help='Dataset name.')
     parser.add_argument('-set', type=str, default='training', help='Set to extract from dataset')
 

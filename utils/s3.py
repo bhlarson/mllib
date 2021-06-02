@@ -412,8 +412,8 @@ def Connect(creds):
                  creds['access key'], 
                  creds['secret key'],
                  tls=creds['tls'],
-                 cert_verify=creds['cert_verify'],
-                 cert_path=creds['cert_path'],
+                 cert_verify=creds['cert verify'],
+                 cert_path=creds['cert path'],
                 )
     buckets = s3.ListBuckets()
     if not (len(buckets) >= 0) :

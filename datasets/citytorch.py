@@ -26,7 +26,7 @@ def parse_arguments():
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
 
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
-    parser.add_argument('-s3_name', type=str, default='mllib-s3', help='Credential file s3 name.')
+    parser.add_argument('-s3_name', type=str, default='store', help='Credential file s3 name.')
     parser.add_argument('-dataset', type=str, default='cityscapes', help='Dataset name.')
     parser.add_argument('-set', type=str, default='training', help='Set to extract from dataset')
 
@@ -45,22 +45,9 @@ def str_prune(text, prefix, suffix):
 
 class CityDataset(Dataset):
 
-    def list_iman(self, imgs, anns):
-
-        for img in imgs:
-            interDir = remove_prefix(img, imgPath)
-            interDir = remove_suffix(interDir, args.image_extension)
-
-            ann = '{}{}{}'.format(annPaths[iPath],interDir,args.annotation_extension)
-            if(os.path.exists(img) and os.path.exists(ann)):
-                iman[dataset['name']].append({'im':img, 'an':ann})
-
-        return iman  
-
-    def __init__(self, s3, dataset, dataset_index, classes=None, transform=None, target_transform=None):
+    def __init__(self, s3, dataset_index, classes=None, transform=None, target_transform=None):
         print('CityDataset __init__')
         self.s3=s3
-        self.dataset=dataset
         self.dataset_index=dataset_index
         self.classes = classes
         self.transform=transform
@@ -70,13 +57,12 @@ class CityDataset(Dataset):
         data_lists = {}
 
         for set in tqdm(dataset_index):
-            setname = '{}/{}'.format(self.dataset['prefix'],set['setname'] )
-            data_list = self.s3.ListObjects(self.dataset['bucket'], setname=setname, pattern=set['pattern'], recursive=set['recursive'])
+            data_list = self.s3.ListObjects(set['bucket'], setname=set['prefix'], pattern=set['pattern'], recursive=set['recursive'])
             for entry in tqdm(data_list, leave=False):
                 basename = os.path.basename(entry)
                 basename = str_prune(basename, set['match']['prefix'], set['match']['suffix'])
                 if basename not in data_lists:
-                    data_lists[basename] = {'name':basename}
+                    data_lists[basename] = {'name':basename, 'bucket':set['bucket']}
                 data_lists[basename][set['type']] = entry
 
         self.data = list(data_lists.values())
@@ -84,9 +70,9 @@ class CityDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-    def DecodeImage(self, objectname, flags=cv2.IMREAD_COLOR):
+    def DecodeImage(self, bucket, objectname, flags=cv2.IMREAD_COLOR):
         img = None
-        imgbuff = self.s3.GetObject(self.dataset['bucket'], objectname)
+        imgbuff = self.s3.GetObject(bucket, objectname)
         if imgbuff:
             imgbuff = np.fromstring(imgbuff, dtype='uint8')
             img = cv2.imdecode(imgbuff, flags=flags)
@@ -97,11 +83,11 @@ class CityDataset(Dataset):
     def __getitem__(self, idx):
         data = deepcopy(self.data[idx])
         if 'image' in data:
-            image = self.DecodeImage(data['image'])
+            image = self.DecodeImage(data['bucket'], data['image'])
             if image is not None:
                 data['image_buffer'] = image
         if 'label' in data:
-            label = self.DecodeImage(data['label'], cv2.IMREAD_GRAYSCALE)
+            label = self.DecodeImage(data['bucket'], data['label'], cv2.IMREAD_GRAYSCALE)
             if label is not None:
                 # convert label lable id to trainId pixel value
                 if self.classes is not None:
@@ -110,7 +96,7 @@ class CityDataset(Dataset):
 
                 data['label_buffer'] = label
         if 'instance' in data:
-            instance = self.DecodeImage(data['label'], cv2.IMREAD_GRAYSCALE)
+            instance = self.DecodeImage(data['bucket'], data['label'], cv2.IMREAD_GRAYSCALE)
             if instance is not None:
                 data['instance_buffer'] = instance
         return data
@@ -119,19 +105,24 @@ def Test(args):
     print('CityDataset Test')
 
     creds = ReadDictJson(args.credentails)
-    s3_creds = next(filter(lambda d: d.get('name') == args.s3_name, creds['s3']), None)
+    s3_creds = next(filter(lambda d: d.get('name') == args.s3_name, creds), None)
     s3 = Connect(s3_creds)
     s3_index = s3.GetDict(s3_creds['index']['bucket'],s3_creds['index']['prefix'] )
     dataset = s3_index['sets']['dataset']
-    dataset['prefix'] += '/{}'.format(args.dataset.replace('/', ''))
-    dataset_index_path='{}/index.json'.format(dataset['prefix'])
-    dataset_index = s3.GetDict(s3_index['sets']['dataset']['bucket'],dataset_index_path)
+
+    dataset_dfn = next(filter(lambda d: d.get('name') == args.dataset, s3_index['sets']['dataset']['datasets']), None)
+    dataset_index = s3.GetDict(dataset_dfn['bucket'],dataset_dfn['prefix'] )
+
+    #dataset['prefix'] += '/{}'.format(args.dataset.replace('/', ''))
+    #dataset_index_path='{}/index.json'.format(dataset['prefix'])
+    #dataset_index = s3.GetDict(s3_index['sets']['dataset']['bucket'],dataset_index_path)
+
     if args.set is not None:
         dataset_list = list(filter(lambda d: d.get('set') == args.set, dataset_index['dataset']))
     else:
         dataset_list = dataset_index['dataset']
 
-    CityTorch = CityDataset(s3, dataset, dataset_list, classes=args.classes)
+    CityTorch = CityDataset(s3, dataset_list, classes=args.classes)
     print('__len__() = {}'.format(CityTorch.__len__()))
     print('__getitem__() = {}'.format(CityTorch.__getitem__(0)))
 

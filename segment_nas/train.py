@@ -18,12 +18,9 @@ from utils.jsonutil import WriteDictJson, ReadDictJson
 from datasets.citytorch import CityDataset
 from segment_nas.trainargs import trainargs
 
-def make_data_loader(args, s3, dataset, dataset_index):
-    training_data = Cityscapes('./data/cityscapes', split='train', mode='fine', target_type='semantic')
-    test_data = Cityscapes('./data/cityscapes', split='train', mode='fine', target_type='semantic')
-
-    training_data = CityDataset(s3, dataset, dataset_list, classes=args.classes)
-    test_data = CityDataset(s3, dataset, dataset_list, classes=args.classes)
+def make_data_loader(args, s3, dataset_list):
+    training_data = CityDataset(s3, dataset_list, classes=args.classes)
+    test_data = CityDataset(s3, dataset_list, classes=args.classes)
 
     train_loader = DataLoader(training_data, batch_size=64, shuffle=True)
     test_loader = DataLoader(test_data, batch_size=64, shuffle=True)
@@ -119,6 +116,10 @@ def main(args):
     dataset_dfn = next(filter(lambda d: d.get('name') == args.dataset, s3_index['sets']['dataset']['datasets']), None)
     dataset_index = s3.GetDict(dataset_dfn['bucket'],dataset_dfn['prefix'] )
 
+    if args.classes is None and args.classes_file is not None :
+        if '.json' in args.classes_file:
+            args.classes = ReadDictJson(args.classes_file)
+
     cuda = args.cuda
 
     if cuda and not torch.cuda.is_available():
@@ -130,7 +131,7 @@ def main(args):
 
     print('===> Loading datasets')
     kwargs = {'num_workers': args.threads, 'pin_memory': True, 'drop_last':True}
-    training_data_loader, testing_data_loader = make_data_loader(args, s3, args.dataset, dataset_index)
+    training_data_loader, testing_data_loader = make_data_loader(args, s3, dataset_index)
 
     print('===> Building model')
     model = LEAStereo(args)

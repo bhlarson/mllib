@@ -19,23 +19,6 @@ sys.path.insert(0, os.path.abspath(''))
 from utils.jsonutil import WriteDictJson, ReadDictJson
 from utils.s3 import s3store, Connect
 
-def parse_arguments():
-    parser = argparse.ArgumentParser(description='Process arguments')
-
-    parser.add_argument('-debug', action='store_true',help='Wait for debugge attach')
-    parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
-
-    parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
-    parser.add_argument('-s3_name', type=str, default='store', help='Credential file s3 name.')
-    parser.add_argument('-dataset', type=str, default='cityscapes', help='Dataset name.')
-    parser.add_argument('-set', type=str, default='training', help='Set to extract from dataset')
-
-    parser.add_argument('-classes', type=json.loads, default=None, help='Class dictionary JSON.  Leave empty if classes_file points to a JSON file.')
-    parser.add_argument('-classes_file', type=str, default='datasets/cityscapes.json', help='Class dictionary JSON file')
-
-    args = parser.parse_args()
-    return args
-
 def str_prune(text, prefix, suffix):
     if text.startswith(prefix):
         text = text[len(prefix):]
@@ -100,6 +83,23 @@ class CityDataset(Dataset):
             if instance is not None:
                 data['instance_buffer'] = instance
         return data
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='Process arguments')
+
+    parser.add_argument('-debug', action='store_true',help='Wait for debugge attach')
+    parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
+
+    parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
+    parser.add_argument('-s3_name', type=str, default='store', help='Credential file s3 name.')
+    parser.add_argument('-dataset', type=str, default='cityscapes', help='Dataset name.')
+    parser.add_argument('-set', type=str, default='training', help='Set to extract from dataset')
+
+    parser.add_argument('-classes', type=json.loads, default=None, help='Class dictionary JSON.  Leave empty if classes_file points to a JSON file.')
+    parser.add_argument('-classes_file', type=str, default='datasets/cityscapes.json', help='Class dictionary JSON file')
+
+    args = parser.parse_args()
+    return args
 
 def Test(args):
     print('CityDataset Test')

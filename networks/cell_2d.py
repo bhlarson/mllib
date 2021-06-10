@@ -1,128 +1,88 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.nn.functional as F
 from collections import namedtuple
-
-Genotype = namedtuple('Genotype_2D', 'cell cell_concat')
-
-# torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros')
-
+# Inner neural architecture cell repetition structure
+# Process: Con2d, optional batch norm, optional ReLu
 class ConvBR(nn.Module):
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, bn=True, relu=True):
+    def __init__(self, 
+                 in_channels, 
+                 out_channels,
+                 batch_norm=True, 
+                 relu=True,
+                 kernel_size=3, 
+                 stride=1, 
+                 padding=0, 
+                 dilation=1, 
+                 groups=1, 
+                 bias=True, 
+                 padding_mode='zeros'):
         super(ConvBR, self).__init__()
+        self.batch_norm = batch_norm
         self.relu = relu
-        self.use_bn = bn
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode)
 
-        self.conv = nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=False)
-        self.bn = nn.BatchNorm2d(C_out)
+        if self.batch_norm:
+            self.batchnorm2d = nn.BatachNorm2d(out_channels)
+
         self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif self.batchnorm2d and isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
         x = self.conv(x)
-        if self.use_bn:
-            x = self.bn(x)
+        if self.batch_norm:
+            x = self.batchnorm2d()
         if self.relu:
             x = F.relu(x, inplace=True)
         return x
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
 
-PRIMITIVES = [
-    'skip_connect',
-    'conv_3x3']
-
-OPS = {
-    'skip_connect': lambda C, stride: Identity() if stride == 1 else FactorizedReduce(C, C),
-    'conv_3x3': lambda C, stride: ConvBR(C, C, 3, stride, 1)
-}
-
-class MixedOp(nn.Module):
-    def __init(self, C, stride):
-        super(MixedOp, self).__init__()
-        self._ops = nn.ModuleList()
-        for primitive in PRIMITIVES:
-            op = OPS[primitive](C, stride)
-            if 'pool' in primitive:
-                op = nn.Sequential(op, nn.BatchNorm2d(C))
-            self._ops.append(op)
-
-    def forward(self, x, weights):
-        return sum(w * op(x) for w, op in zip(weights, self._ops))
-
-
+# Inner neural architecture cell search with convolution steps batch norm parameters
+# Process:
+# 1) Concatenate inputs
+# 2) Repeat ConvBR "steps" times
+# 3) 1x1 convolution to return to in1 number of channels
+# 4) Sum with in1 (residual bypass)
+# in1 and in2: [Batch, channel, height width]
+# in_channels = in1 channels + in2 channels
+# out_channels = 
+# steps: integer 1..n
+# batchNorm: true/false
 class Cell(nn.Module):
-    def __init__(self, steps, block_multiplier, prev_prev_fmultiplier, prev_fmultiplier_same,filter_multiplier):
+    def __init__(self,
+                 steps,
+                 in1_channels, 
+                 in2_channels,
+                 batch_norm=True, 
+                 relu=True,
+                 kernel_size=3, 
+                 stride=1, 
+                 padding=0, 
+                 dilation=1, 
+                 groups=1, 
+                 bias=True, 
+                 padding_mode='zeros'):
+                
         super(Cell, self).__init__()
 
-        self.C_in = block_multiplier * filter_multiplier
-        self.C_out = filter_multiplier
-        self.C_prev_prev = int(prev_prev_fmultiplier * block_multiplier)
-        self._prev_fmultiplier_same = prev_fmultiplier_same
+        self.cnn = torch.nn.Sequential()
 
-        if prev_fmultiplier_same is not None:
-            self.C_prev_same = int(prev_fmultiplier_same * block_multiplier)
-            self.preprocess_same = ConvBR(self.C_prev_same, self.C_out, 1, 1, 0)
+        for i in range(self.steps):
+            conv = ConvBR(in1_channels+in2_channels, in1_channels+in2_channels, batch_norm, relu, kernel_size, stride, padding, dilation, groups, bias, padding_mode)
+            self.cnn.add_module('ConvBR{:02d}'.format(i),conv)
 
-        if prev_prev_fmultiplier != -1:
-            self.pre_preprocess = ConvBR(self.C_prev_prev, self.C_out, 1, 1, 0)
-
-        self._steps = steps
-        self.block_multiplier = block_multiplier
-        self.pre_preprocess = ConvBR(self.C_prev_prev, self.C_out, 1, 1, 0)
-        self._ops = nn.ModuleList()
-
-        for i in range(self._steps):
-            for j in range(2 + i):
-                stride = 1
-                if prev_prev_fmultiplier == -1 and j == 0:
-                    op = None
-                else:
-                    op = MixedOp(self.C_out, stride)
-                self._ops.append(op)
+        # 1x1 convolution to out_channels
+        conv1x1 = nn.Conv2d(in1_channels+in2_channels, in1_channels, kernel_size=1)
+        self.cnn.add_module('ConvBR{:02d}'.format(i),conv1x1)
 
         self._initialize_weights()
 
-
-    def forward(self, s0, s1, n_alphas):
-        all_states = []
-
-        if s0 is None:
-            s0 = 0
-        else:
-        if s1 is None:
-            s1 = 0
-        else:
-
-        s0 = self.pre_preprocess(s0) if (s0.shape[1] != self.C_out) else s0
-
-
-        states = [s0, s1]
-        final_concates = []
-
-        offset = 0
-        for i in range(self._steps):
-            new_states = []
-            for j, h in enumerate(states):
-                branch_index = offset + j
-                if self._ops[branch_index] is None:
-                    continue
-                new_state = self._ops[branch_index](h, n_alphas[branch_index])                
-                new_states.append(new_state)
-
-            s = sum(new_states)
-            offset += len(states)
-            states.append(s)
-
-            concat_feature = torch.cat(states[-self.block_multiplier:], dim=1)
-            final_concates.append(concat_feature)
-        return final_concates
-
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -130,3 +90,100 @@ class Cell(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+
+    def forward(self, in1, in2):
+        if in2 is not None:
+            x = torch.cat((in1, in2))
+        else:
+            x = in1
+
+        x = self.cnn(x)
+
+        if self.relu:
+            x = F.relu(x, inplace=True)
+
+        x = sum(x, in1)
+
+        return x
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='Process arguments')
+
+    parser.add_argument('-debug', action='store_true',help='Wait for debugge attach')
+    parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
+
+    parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
+    parser.add_argument('-s3_name', type=str, default='store', help='Credential file s3 name.')
+    parser.add_argument('-dataset', type=str, default='cityscapes', help='Dataset name.')
+    parser.add_argument('-set', type=str, default='training', help='Set to extract from dataset')
+
+    parser.add_argument('-classes', type=json.loads, default=None, help='Class dictionary JSON.  Leave empty if classes_file points to a JSON file.')
+    parser.add_argument('-classes_file', type=str, default='datasets/cityscapes.json', help='Class dictionary JSON file')
+
+    args = parser.parse_args()
+    return args
+
+def Test(args):
+    print('CityDataset Test')
+
+    creds = ReadDictJson(args.credentails)
+    s3_creds = next(filter(lambda d: d.get('name') == args.s3_name, creds), None)
+    s3 = Connect(s3_creds)
+    s3_index = s3.GetDict(s3_creds['index']['bucket'],s3_creds['index']['prefix'] )
+    dataset = s3_index['sets']['dataset']
+
+    dataset_dfn = next(filter(lambda d: d.get('name') == args.dataset, s3_index['sets']['dataset']['datasets']), None)
+    dataset_index = s3.GetDict(dataset_dfn['bucket'],dataset_dfn['prefix'] )
+
+    #dataset['prefix'] += '/{}'.format(args.dataset.replace('/', ''))
+    #dataset_index_path='{}/index.json'.format(dataset['prefix'])
+    #dataset_index = s3.GetDict(s3_index['sets']['dataset']['bucket'],dataset_index_path)
+
+    if args.set is not None:
+        dataset_list = list(filter(lambda d: d.get('set') == args.set, dataset_index['dataset']))
+    else:
+        dataset_list = dataset_index['dataset']
+
+    CityTorch = CityDataset(s3, dataset_list, classes=args.classes)
+    print('__len__() = {}'.format(CityTorch.__len__()))
+    print('__getitem__() = {}'.format(CityTorch.__getitem__(0)))
+
+if __name__ == '__main__':
+    args = parse_arguments()
+
+    if args.debug:
+        print("Wait for debugger attach")
+        import debugpy
+        ''' https://code.visualstudio.com/docs/python/debugging#_remote-debugging
+        Launch application from console with -debug flag
+        $ python3 train.py -debug
+        "configurations": [
+            {
+                "name": "Python: Remote",
+                "type": "python",
+                "request": "attach",
+                "port": 3000,
+                "host": "localhost",
+                "pathMappings": [
+                    {
+                        "localRoot": "${workspaceFolder}",
+                        "remoteRoot": "."
+                    }
+                ],
+                "justMyCode": false
+            },
+            ...
+        Connet to vscode "Python: Remote" configuration
+        '''
+
+        debugpy.listen(address=('0.0.0.0', args.debug_port))
+        # Pause the program until a remote debugger is attached
+
+        debugpy.wait_for_client()
+        print("Debugger attached")
+
+    if args.classes is None and args.classes_file is not None :
+        if '.json' in args.classes_file:
+            args.classes = json.load(open(args.classes_file))
+    Test(args)
+

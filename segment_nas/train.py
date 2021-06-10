@@ -17,10 +17,15 @@ from utils.s3 import s3store, Connect
 from utils.jsonutil import WriteDictJson, ReadDictJson
 from datasets.citytorch import CityDataset
 from segment_nas.trainargs import trainargs
+from networks.cell_2d import Cell, ConvBR
 
 def make_data_loader(args, s3, dataset_list):
-    training_data = CityDataset(s3, dataset_list, classes=args.classes)
-    test_data = CityDataset(s3, dataset_list, classes=args.classes)
+
+    training_list = list(filter(lambda d: d.get('set') == 'training', dataset_list['dataset']))
+    test_list = list(filter(lambda d: d.get('set') == 'test', dataset_list['dataset']))
+
+    training_data = CityDataset(s3, training_list, classes=args.classes)
+    test_data = CityDataset(s3, test_list, classes=args.classes)
 
     train_loader = DataLoader(training_data, batch_size=64, shuffle=True)
     test_loader = DataLoader(test_data, batch_size=64, shuffle=True)
@@ -134,7 +139,10 @@ def main(args):
     training_data_loader, testing_data_loader = make_data_loader(args, s3, dataset_index)
 
     print('===> Building model')
-    model = LEAStereo(args)
+
+#     def __init__(self, steps, block_multiplier, prev_prev_fmultiplier, prev_fmultiplier_same,filter_multiplier):
+
+    model = Cell()
 
     ## compute parameters
     #print('Total number of model parameters : {}'.format(sum([p.data.nelement() for p in model.parameters()])))

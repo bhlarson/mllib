@@ -1,10 +1,60 @@
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from collections import namedtuple
 from collections import OrderedDict
+from typing import Callable, Optional
+from prettytable import PrettyTable
 # Inner neural architecture cell repetition structure
 # Process: Con2d, optional batch norm, optional ReLu
+
+def count_parameters(model):
+    table = PrettyTable(["Modules", "Parameters"])
+    total_params = 0
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad: continue
+        param = parameter.numel()
+        table.add_row([name, param])
+        total_params+=param
+    print(table)
+    print(f"Total Trainable Params: {total_params}")
+    return total_params
+
+def model_weights(model):
+    total_params = 0
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad: continue
+        param = parameter.numel()
+        total_params+=param
+    return total_params
+
+# compute network parameter stats
+def model_stats(model):
+    weight_array = None
+    bias_array = None
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad: continue
+        param = parameter.numel()
+
+        array = torch.flatten(parameter)
+
+        if name.split('.')[-1] == 'weight':
+            if weight_array is None:
+                weight_array = array
+            else:
+                weight_array = torch.cat((weight_array, array))
+
+        elif name.split('.')[-1] == 'bias':
+            if bias_array is None:
+                bias_array = array
+            else:
+                bias_array = torch.cat((bias_array, array))
+
+    weight_std, weight_mean = torch.std_mean(weight_array, unbiased=False)
+    bias_std, bias_mean = torch.std_mean(bias_array, unbiased=False)
+
+    return weight_std, weight_mean, bias_std, bias_mean
 
 class ConvBR(nn.Module):
     def __init__(self, 
@@ -73,31 +123,37 @@ class Cell(nn.Module):
                  dilation=1, 
                  groups=1,
                  bias=True, 
-                 padding_mode='zeros'):
+                 padding_mode='zeros',
+                 residual=True,
+                 use_cuda=False):
                 
         super(Cell, self).__init__()
         self.steps = steps
         self.relu = relu
+        self.residual = residual
+        self.cnn = torch.nn.ModuleList()
 
-        od = OrderedDict()
+        #self.depth = torch.nn.Parameter(torch.ones(1)*float(steps)/2.0)
+        self.depth = torch.nn.Parameter(torch.ones(1)*4.0)
 
         # First convolution uses in1_channels+in2_channels is input chanels. 
         # Remaining convoutions uses out_channels as chanels
         self.channel_in = in1_channels+in2_channels
         self.channel_out = out_channels
 
-        self.conv_set_channels = ConvBR(self.channel_in, self.channel_out, batch_norm, relu, kernel_size, stride, dilation, groups, bias, padding_mode)
+        self.conv_size = ConvBR(self.channel_in, self.channel_out, batch_norm, relu, kernel_size, stride, dilation, groups, bias, padding_mode)
 
         for i in range(self.steps):
             conv = ConvBR(self.channel_out, self.channel_out, batch_norm, relu, kernel_size, stride, dilation, groups, bias, padding_mode)
-            od['ConvBR{:02d}'.format(i)] = conv
+            self.cnn.append(conv)
 
         # 1x1 convolution to out_channels
-        conv1x1 = nn.Conv2d(self.channel_out, self.channel_out, kernel_size=1)
-        od['Conv1x1'.format(i)] = conv1x1
+        self.conv1x1 = nn.Conv2d(self.channel_out, self.channel_out, kernel_size=1)
 
-        self.cnn = torch.nn.Sequential(od)
         self._initialize_weights()
+        self.total_trainable_weights = model_weights(self)
+        self.cnn_step_weights = model_weights(self.cnn[0])
+        self.dimension_weights = self.total_trainable_weights/self.channel_out
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -107,19 +163,50 @@ class Cell(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
+    def GaussianBasis(self, i, a, r=1.0):
+        return torch.exp(-1*torch.square(r*(i-a)))
+
+    def NormGausBasis(self, i, a, x, r=1.0):
+        den = torch.nn.Parameter(torch.zeros(1))
+        if x.is_cuda:
+            den = den.cuda()
+        for j, l in enumerate(self.cnn):
+            den = den + self.GaussianBasis(j,a,r)
+        return torch.mul(torch.exp(-1*torch.square(r*(i-a)))/den, x)
+
     def forward(self, in1, in2 = None):
         if in2 is not None:
             x = torch.cat((in1, in2))
         else:
             x = in1
 
-        x = self.conv_set_channels(x)
+        # Resizing convolution
+        x = self.conv_size(x)
         residual = x
-        x = self.cnn(x)
-        x = F.relu(x, inplace=True)
-        x = x+residual
+        # Learnable number of convolution layers
+        # Continuous relaxation of number of layers through a basis function providing continuous search space
+        y = torch.zeros_like(x)
+        for i, l in enumerate(self.cnn):
+            x = self.cnn[i](x)
+            x = self.NormGausBasis(i,self.depth, x)
+            y = y+x
 
-        return x
+        # Apply learnable chanel mask to minimize channels during architecture search
+        y = self.conv1x1(y)
+       
+        y = F.relu(y, inplace=True)
+
+        if self.residual:
+            y = y+residual
+
+        return y
+
+    def ArchitectureWeights(self):
+        archatecture_weights = torch.abs(self.cnn_step_weights * self.depth)
+        archatecture_weights += torch.sum(self.dimension_weights * torch.squeeze(torch.linalg.norm(self.conv1x1.weight,dim=1)))
+
+        return archatecture_weights, self.total_trainable_weights
+    
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
@@ -127,25 +214,35 @@ def parse_arguments():
     parser.add_argument('-debug', action='store_true',help='Wait for debugge attach')   
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
 
-    parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=64, help='Training batch size')
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
-    parser.add_argument('-epochs', type=int, default=4, help='Training epochs')
+    parser.add_argument('-epochs', type=int, default=1, help='Training epochs')
+    parser.add_argument('-model', type=str, default='model.pt')
+    parser.add_argument('-cuda', type=bool, default=True)
 
     args = parser.parse_args()
     return args
 
 class Classify(nn.Module):
-    def __init__(self):
+    def __init__(self, is_cuda=False):
         super().__init__()
-        self.cell1 = Cell(2, 8, 3)
-        self.cell2 = Cell(2, 24, 8)
-        self.cell3 = Cell(2, 72, 24)
+        self.is_cuda = is_cuda
+        self.cells = []
+        self.cell1 = Cell(6, 16, 3)
+        self.cells.append(self.cell1)
+        self.cell2 = Cell(6, 32, 16)
+        self.cells.append(self.cell2)
+        self.cell3 = Cell(6, 64, 32)
+        self.cells.append(self.cell3)
         self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(72 * 4 * 4, 256)
+        self.fc1 = nn.Linear(64 * 4 * 4, 256)
         self.fc2 = nn.Linear(256, 64)
         self.fc3 = nn.Linear(64, 10)
+        self.total_trainable_weights = model_weights(self)
 
     def forward(self, x):
+        #for cell in self.cells:
+        #    x = self.pool(cell(x))
         x = self.pool(self.cell1(x))
         x = self.pool(self.cell2(x))
         x = self.pool(self.cell3(x))
@@ -155,32 +252,184 @@ class Classify(nn.Module):
         x = self.fc3(x)
         return x
 
+    def Cells(self):
+        return self.cells
+
+    def ArchitectureWeights(self):
+        archatecture_weights = torch.zeros(1)
+        if self.is_cuda:
+            archatecture_weights = archatecture_weights.cuda()
+        for in_cell in self.cells:
+            cell_archatecture_weights, cell_total_trainable_weights = in_cell.ArchitectureWeights()
+            archatecture_weights += cell_archatecture_weights
+
+        return archatecture_weights, self.total_trainable_weights
+
+class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
+    r"""This criterion combines :class:`~torch.nn.LogSoftmax` and :class:`~torch.nn.NLLLoss` in one single class.
+
+    It is useful when training a classification problem with `C` classes.
+    If provided, the optional argument :attr:`weight` should be a 1D `Tensor`
+    assigning weight to each of the classes.
+    This is particularly useful when you have an unbalanced training set.
+
+    The `input` is expected to contain raw, unnormalized scores for each class.
+
+    `input` has to be a Tensor of size either :math:`(minibatch, C)` or
+    :math:`(minibatch, C, d_1, d_2, ..., d_K)`
+    with :math:`K \geq 1` for the `K`-dimensional case (described later).
+
+    This criterion expects a class index in the range :math:`[0, C-1]` as the
+    `target` for each value of a 1D tensor of size `minibatch`; if `ignore_index`
+    is specified, this criterion also accepts this class index (this index may not
+    necessarily be in the class range).
+
+    The loss can be described as:
+
+    .. math::
+        \text{loss}(x, class) = -\log\left(\frac{\exp(x[class])}{\sum_j \exp(x[j])}\right)
+                       = -x[class] + \log\left(\sum_j \exp(x[j])\right)
+
+    or in the case of the :attr:`weight` argument being specified:
+
+    .. math::
+        \text{loss}(x, class) = weight[class] \left(-x[class] + \log\left(\sum_j \exp(x[j])\right)\right)
+
+    The losses are averaged across observations for each minibatch. If the
+    :attr:`weight` argument is specified then this is a weighted average:
+
+    .. math::
+        \text{loss} = \frac{\sum^{N}_{i=1} loss(i, class[i])}{\sum^{N}_{i=1} weight[class[i]]}
+
+    Can also be used for higher dimension inputs, such as 2D images, by providing
+    an input of size :math:`(minibatch, C, d_1, d_2, ..., d_K)` with :math:`K \geq 1`,
+    where :math:`K` is the number of dimensions, and a target of appropriate shape
+    (see below).
+
+
+    Args:
+        weight (Tensor, optional): a manual rescaling weight given to each class.
+            If given, has to be a Tensor of size `C`
+        size_average (bool, optional): Deprecated (see :attr:`reduction`). By default,
+            the losses are averaged over each loss element in the batch. Note that for
+            some losses, there are multiple elements per sample. If the field :attr:`size_average`
+            is set to ``False``, the losses are instead summed for each minibatch. Ignored
+            when :attr:`reduce` is ``False``. Default: ``True``
+        ignore_index (int, optional): Specifies a target value that is ignored
+            and does not contribute to the input gradient. When :attr:`size_average` is
+            ``True``, the loss is averaged over non-ignored targets.
+        reduce (bool, optional): Deprecated (see :attr:`reduction`). By default, the
+            losses are averaged or summed over observations for each minibatch depending
+            on :attr:`size_average`. When :attr:`reduce` is ``False``, returns a loss per
+            batch element instead and ignores :attr:`size_average`. Default: ``True``
+        reduction (string, optional): Specifies the reduction to apply to the output:
+            ``'none'`` | ``'mean'`` | ``'sum'``. ``'none'``: no reduction will
+            be applied, ``'mean'``: the weighted mean of the output is taken,
+            ``'sum'``: the output will be summed. Note: :attr:`size_average`
+            and :attr:`reduce` are in the process of being deprecated, and in
+            the meantime, specifying either of those two args will override
+            :attr:`reduction`. Default: ``'mean'``
+
+    Shape:
+        - Input: :math:`(N, C)` where `C = number of classes`, or
+          :math:`(N, C, d_1, d_2, ..., d_K)` with :math:`K \geq 1`
+          in the case of `K`-dimensional loss.
+        - Target: :math:`(N)` where each value is :math:`0 \leq \text{targets}[i] \leq C-1`, or
+          :math:`(N, d_1, d_2, ..., d_K)` with :math:`K \geq 1` in the case of
+          K-dimensional loss.
+        - Output: scalar.
+          If :attr:`reduction` is ``'none'``, then the same size as the target:
+          :math:`(N)`, or
+          :math:`(N, d_1, d_2, ..., d_K)` with :math:`K \geq 1` in the case
+          of K-dimensional loss.
+
+    Examples::
+
+        >>> loss = nn.CrossEntropyLoss()
+        >>> input = torch.randn(3, 5, requires_grad=True)
+        >>> target = torch.empty(3, dtype=torch.long).random_(5)
+        >>> output = loss(input, target)
+        >>> output.backward()
+    """
+    __constants__ = ['ignore_index', 'reduction']
+    ignore_index: int
+
+    def __init__(self, weight: Optional[torch.Tensor] = None, size_average=None, ignore_index: int = -100,
+                 reduce=None, reduction: str = 'mean') -> None:
+        super(CrossEntropyRuntimeLoss, self).__init__(weight, size_average, reduce, reduction)
+        self.ignore_index = ignore_index
+        self.k_dims = 0.01
+        self.k_depth = 3.0
+        self.softsign = nn.Softsign()
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor, network) -> torch.Tensor:
+        assert self.weight is None or isinstance(self.weight, torch.Tensor)
+        loss = F.cross_entropy(input, target, weight=self.weight,
+                               ignore_index=self.ignore_index, reduction=self.reduction)
+
+        dims = []
+        depths = []
+        archatecture_weights, total_trainable_weights = network.ArchitectureWeights()
+        architecture_loss = archatecture_weights/total_trainable_weights
+        '''
+        cells = network.Cells()
+        for cell in cells:
+            # Softsign to reduce the gradient of large dimensions while maintainign gradient of small dimensions
+            # Prioritize reducing dimensions with small magnitude
+            # dim_weight = torch.nn.Softsign(torch.squeeze(torch.linalg.norm(cell.conv1x1.weight,dim=1)))
+            dims.append(torch.squeeze(torch.linalg.norm(cell.conv1x1.weight,dim=1)))
+            depths.append(cell.depth)
+        all_dims = torch.cat(dims, 0)
+        dims_norm = self.softsign(torch.sum(all_dims)/all_dims.shape[0])
+        cell_depths = torch.tensor(depths)
+        norm_depth_loss = torch.sum(cell_depths)/cell_depths.shape[0]
+        total_loss = loss + self.k_dims*dims_norm + self.k_depth*norm_depth_loss
+        '''
+        total_loss = loss + self.k_dims*architecture_loss
+        return total_loss,  loss, architecture_loss
+
 # Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
 def Test(args):
     print('Cell Test')
 
+    import os
     import torchvision
     import torchvision.transforms as transforms
     import torch.optim as optim
+
+    classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+
+    # Create classifier
+    classify = Classify(args.cuda)
+
+    device = "cpu"
+    pin_memory = False
+    if args.cuda:
+        device = "cuda"
+        pin_memory = True
+
+    classify.to(device)
+
 
     # Load dataset
     transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
     trainset = torchvision.datasets.CIFAR10(root=args.dataset_path, train=True, download=True, transform=transform)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, num_workers=0)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=pin_memory)
 
     testset = torchvision.datasets.CIFAR10(root=args.dataset_path, train=False, download=True, transform=transform)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
 
-    classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
-    # Create classifier
-    classify = Classify()
+    if os.path.exists(args.model):
+        classify.load_state_dict(torch.load(args.model))
+
+    total_parameters = count_parameters(classify)
 
     # Define a Loss function and optimizer
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(classify.parameters(), lr=0.001, momentum=0.9)
-    #optimizer = optim.Adam(classify.parameters(), lr=0.0001)
+    criterion = CrossEntropyRuntimeLoss()
+    #optimizer = optim.SGD(classify.parameters(), lr=0.001, momentum=0.9)
+    optimizer = optim.Adam(classify.parameters(), lr=0.001)
 
     # Train
     for epoch in range(args.epochs):  # loop over the dataset multiple times
@@ -190,21 +439,61 @@ def Test(args):
             # get the inputs; data is a list of [inputs, labels]
             inputs, labels = data
 
+            if args.cuda:
+                inputs = inputs.cuda()
+                labels = labels.cuda()
+
             # zero the parameter gradients
             optimizer.zero_grad()
 
             # forward + backward + optimize
             outputs = classify(inputs)
-            loss = criterion(outputs, labels)
+            # loss, cross_entropy_loss, dims_norm, all_dims, norm_depth_loss, cell_depths  = criterion(outputs, labels, classify)
+            loss, cross_entropy_loss, architecture_loss  = criterion(outputs, labels, classify)
             loss.backward()
             optimizer.step()
 
             # print statistics
-            running_loss += loss.item()
+            running_loss += cross_entropy_loss.item()
             if i % 20 == 19:    # print every 2000 mini-batches
-                print('[%d, %5d] loss: %.3f' %
-                    (epoch + 1, i + 1, running_loss / 20))
+                running_loss /=20
+
+                weight_std, weight_mean, bias_std, bias_mean = model_stats(classify)
+                #print('[%d, %d] cross_entropy_loss: %.3f dims_norm: %.3f' % (epoch + 1, i + 1, cross_entropy_loss, dims_norm))
+                #print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.3f}, dims: {}'.format(epoch + 1, i + 1, running_loss, dims_norm, all_dims))
+                print('[{}, {:05d}] cross_entropy_loss: {:0.3f} architecture_loss: {:0.3f} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(epoch + 1, i + 1, running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
                 running_loss = 0.0
+            
+            #print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.4f}, norm_depth_loss: {:0.3f}, cell_depths: {}'.format(epoch + 1, i + 1, cross_entropy_loss, dims_norm, norm_depth_loss, cell_depths))
+
+        running_loss = 0.0
+        for i, data in enumerate(testloader, 0):
+            # get the inputs; data is a list of [inputs, labels]
+            inputs, labels = data
+            if args.cuda:
+                inputs = inputs.cuda()
+                labels = labels.cuda()
+
+            # forward + backward + optimize
+            outputs = classify(inputs)
+            # loss, cross_entropy_loss, dims_norm, all_dims, norm_depth_loss, cell_depths  = criterion(outputs, labels, classify)
+            loss, cross_entropy_loss, architecture_loss  = criterion(outputs, labels, classify)
+
+            # print statistics
+            running_loss += cross_entropy_loss.item()
+            if i % 20 == 19:    # print every 2000 mini-batches
+                running_loss /=20
+
+                weight_std, weight_mean, bias_std, bias_mean = model_stats(classify)
+                #print('[%d, %d] cross_entropy_loss: %.3f dims_norm: %.3f' % (epoch + 1, i + 1, cross_entropy_loss, dims_norm))
+                #print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.3f}, dims: {}'.format(epoch + 1, i + 1, running_loss, dims_norm, all_dims))
+                print('Test cross_entropy_loss: {:0.3f} architecture_loss: {:0.3f} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
+                running_loss = 0.0
+            
+            # print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.4f}, norm_depth_loss: {:0.3f}, cell_depths: {}'.format(epoch + 1, i + 1, cross_entropy_loss, dims_norm, norm_depth_loss, cell_depths))
+
+    if args.model:
+        torch.save(classify.state_dict(), args.model)
 
     print('Finished Training')
 

@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/pytorch:20.12-py3
+FROM nvcr.io/nvidia/pytorch:21.06-py3
 LABEL maintainer="Brad Larson"
 
 RUN echo 'alias py=python' >> ~/.bashrc
@@ -37,7 +37,8 @@ RUN pip3 --no-cache-dir install \
         scikit-image \
         apex \
         wget \
-        configparser
+        configparser \
+        prettytable
 
 # Tutorial dependencies
 RUN pip3 --no-cache-dir install \

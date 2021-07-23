@@ -69,8 +69,17 @@ class ConvBR(nn.Module):
                  bias=True, 
                  padding_mode='zeros'):
         super(ConvBR, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
         self.batch_norm = batch_norm
         self.relu = relu
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.dilation = dilation
+        self.groups = groups
+        self.bias = bias
+        self.padding_mode = padding_mode
+
         if type(kernel_size) == int:
             padding = kernel_size // 2 # dynamic add padding based on the kernel_size
         else:
@@ -125,13 +134,15 @@ class Cell(nn.Module):
                  bias=True, 
                  padding_mode='zeros',
                  residual=True,
-                 use_cuda=False):
+                 is_cuda=False,
+                 feature_threshold=0.01):
                 
         super(Cell, self).__init__()
         self.steps = steps
         self.relu = relu
         self.residual = residual
         self.cnn = torch.nn.ModuleList()
+        self.is_cuda = is_cuda
 
         #self.depth = torch.nn.Parameter(torch.ones(1)*float(steps)/2.0)
         self.depth = torch.nn.Parameter(torch.ones(1)*4.0)
@@ -140,6 +151,7 @@ class Cell(nn.Module):
         # Remaining convoutions uses out_channels as chanels
         self.channel_in = in1_channels+in2_channels
         self.channel_out = out_channels
+        self.feature_threshold = feature_threshold
 
         self.conv_size = ConvBR(self.channel_in, self.channel_out, batch_norm, relu, kernel_size, stride, dilation, groups, bias, padding_mode)
 
@@ -154,6 +166,7 @@ class Cell(nn.Module):
         self.total_trainable_weights = model_weights(self)
         self.cnn_step_weights = model_weights(self.cnn[0])
         self.dimension_weights = self.total_trainable_weights/self.channel_out
+        self.search_structure = True
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -174,6 +187,41 @@ class Cell(nn.Module):
             den = den + self.GaussianBasis(j,a,r)
         return torch.mul(torch.exp(-1*torch.square(r*(i-a)))/den, x)
 
+    def ApplyStructure(self):
+
+        # Fix convolution depth
+        cnn = torch.nn.ModuleList()
+        for i in range(round(self.depth.item())):
+            cnn.append(self.cnn[i])
+
+        self.cnn = cnn
+
+        # Drop minimized dimensions
+        torch.linalg.norm(self.conv1x1.weight,dim=1)
+        
+        dimention_weights = torch.squeeze(torch.linalg.norm(self.conv1x1.weight,dim=1))
+        dimension_threshold = torch.where(dimention_weights>self.feature_threshold, 1, 0).type(torch.IntTensor)
+        num_dimensions = torch.sum(dimension_threshold).item()
+        print('dimension_threshold {} dimension ratio {}'.format(num_dimensions, num_dimensions/self.channel_out))
+
+        self.conv_size.conv.bias.data = self.conv.bias.data.weight[:, dimension_threshold!=0]
+        self.conv_size.weight.data = self.conv_size.weight[:, dimension_threshold!=0]
+
+        for i, cnn in enumerate(self.cnn):
+            if i == 0:
+                new_cnn = ConvBR(cnn.in_channels, num_dimensions, cnn.batch_norm, cnn.relu, cnn.kernel_size, cnn.stride, cnn.dilation, cnn.groups, cnn.bias, cnn.padding_mode)
+            else:
+                new_cnn = ConvBR(num_dimensions, num_dimensions, cnn.batch_norm, cnn.relu, cnn.kernel_size, cnn.stride, cnn.dilation, cnn.groups, cnn.bias, cnn.padding_mode)
+        
+            if self.is_cuda:
+                new_cnn = new_cnn.cuda()
+
+            cnn.conv.bias.data = cnn.conv.bias[dimension_threshold!=0]
+            cnn.conv.weight.data = cnn.conv.weight[:, dimension_threshold!=0]
+
+        self.search_structure = False
+
+
     def forward(self, in1, in2 = None):
         if in2 is not None:
             x = torch.cat((in1, in2))
@@ -185,11 +233,17 @@ class Cell(nn.Module):
         residual = x
         # Learnable number of convolution layers
         # Continuous relaxation of number of layers through a basis function providing continuous search space
-        y = torch.zeros_like(x)
-        for i, l in enumerate(self.cnn):
-            x = self.cnn[i](x)
-            x = self.NormGausBasis(i,self.depth, x)
-            y = y+x
+        if self.search_structure:
+            y = torch.zeros_like(x)
+            for i, l in enumerate(self.cnn):
+                x = self.cnn[i](x)
+                x = self.NormGausBasis(i,self.depth, x)
+                y = y+x
+        # Frozen structure
+        else:
+            for i, l in enumerate(self.cnn):
+                x = self.cnn[i](x) 
+            y = x
 
         # Apply learnable chanel mask to minimize channels during architecture search
         y = self.conv1x1(y)
@@ -228,11 +282,11 @@ class Classify(nn.Module):
         super().__init__()
         self.is_cuda = is_cuda
         self.cells = []
-        self.cell1 = Cell(6, 16, 3)
+        self.cell1 = Cell(6, 16, 3, is_cuda=self.is_cuda)
         self.cells.append(self.cell1)
-        self.cell2 = Cell(6, 32, 16)
+        self.cell2 = Cell(6, 32, 16, is_cuda=self.is_cuda)
         self.cells.append(self.cell2)
-        self.cell3 = Cell(6, 64, 32)
+        self.cell3 = Cell(6, 64, 32, is_cuda=self.is_cuda)
         self.cells.append(self.cell3)
         self.pool = nn.MaxPool2d(2, 2)
         self.fc1 = nn.Linear(64 * 4 * 4, 256)
@@ -264,6 +318,10 @@ class Classify(nn.Module):
             archatecture_weights += cell_archatecture_weights
 
         return archatecture_weights, self.total_trainable_weights
+
+    def ApplyStructure(self):
+        for cell in self.cells:
+            cell.ApplyStructure()
 
 class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
     r"""This criterion combines :class:`~torch.nn.LogSoftmax` and :class:`~torch.nn.NLLLoss` in one single class.
@@ -425,6 +483,11 @@ def Test(args):
         classify.load_state_dict(torch.load(args.model))
 
     total_parameters = count_parameters(classify)
+
+    if True:
+        classify.ApplyStructure()
+        reduced_parameters = count_parameters(classify)
+        print('Reduced parameters from {} to {}'.format(total_parameters, reduced_parameters))
 
     # Define a Loss function and optimizer
     criterion = CrossEntropyRuntimeLoss()

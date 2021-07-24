@@ -95,7 +95,7 @@ class ConvBR(nn.Module):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif self.batchnorm2d and isinstance(m, nn.BatchNorm2d):
+            elif self.batch_norm and self.batchnorm2d and isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
@@ -106,6 +106,33 @@ class ConvBR(nn.Module):
         if self.relu:
             x = F.relu(x, inplace=True)
         return x
+
+    # Remove specific network dimensions
+    # remove dimension where inDimensions and outDimensions arrays are 0 for channels to be removed
+    def ApplyStructure(self, in_channels=None, out_channels=None):
+
+        if in_channels is not None:
+            if len(in_channels) == self.in_channels:
+                self.conv.weight.data = self.conv.weight[:, in_channels!=0]
+                self.in_channels = len(in_channels)
+            else:
+                print("len(in_channels)={} must be equal to self.in_channels={}".format(len(in_channels), self.in_channels))
+
+
+        if out_channels is not None:
+            if len(out_channels == self.out_channels):
+                self.conv.bias.data = self.conv.bias[out_channels!=0]
+                self.conv.weight.data = self.conv.weight[out_channels!=0]
+
+                if self.batch_norm:
+                    self.batchnorm2d.bias.data = self.batchnorm2d.bias.data[out_channels!=0]
+                    self.batchnorm2d.weight.data = self.batchnorm2d.weight.data[out_channels!=0]
+                    self.batchnorm2d.running_mean = self.batchnorm2d.running_mean[out_channels!=0]
+                    self.batchnorm2d.running_var = self.batchnorm2d.running_var[out_channels!=0]
+
+                self.out_channels = len(out_channels)
+            else:
+                print("len(out_channels)={} must be equal to self.out_channels={}".format(len(out_channels), self.out_channels))
 
 # Inner neural architecture cell search with convolution steps batch norm parameters
 # Process:
@@ -187,7 +214,7 @@ class Cell(nn.Module):
             den = den + self.GaussianBasis(j,a,r)
         return torch.mul(torch.exp(-1*torch.square(r*(i-a)))/den, x)
 
-    def ApplyStructure(self):
+    def ApplyStructure(self, in_channels=None):
 
         # Fix convolution depth
         cnn = torch.nn.ModuleList()
@@ -200,26 +227,25 @@ class Cell(nn.Module):
         torch.linalg.norm(self.conv1x1.weight,dim=1)
         
         dimention_weights = torch.squeeze(torch.linalg.norm(self.conv1x1.weight,dim=1))
-        dimension_threshold = torch.where(dimention_weights>self.feature_threshold, 1, 0).type(torch.IntTensor)
-        num_dimensions = torch.sum(dimension_threshold).item()
-        print('dimension_threshold {} dimension ratio {}'.format(num_dimensions, num_dimensions/self.channel_out))
+        out_channels = torch.where(dimention_weights>self.feature_threshold, 1, 0).type(torch.IntTensor)
+        num_out_channels = torch.sum(out_channels).item()
+        print('dimension_threshold {}/{} = {}'.format(num_out_channels, self.channel_out, num_out_channels/self.channel_out))
 
-        self.conv_size.conv.bias.data = self.conv.bias.data.weight[:, dimension_threshold!=0]
-        self.conv_size.weight.data = self.conv_size.weight[:, dimension_threshold!=0]
+        self.conv_size.ApplyStructure(in_channels=in_channels, out_channels=out_channels)
+        #self.conv_size.weight.data = self.conv_size.weight[:, dimension_threshold!=0]
 
         for i, cnn in enumerate(self.cnn):
-            if i == 0:
-                new_cnn = ConvBR(cnn.in_channels, num_dimensions, cnn.batch_norm, cnn.relu, cnn.kernel_size, cnn.stride, cnn.dilation, cnn.groups, cnn.bias, cnn.padding_mode)
-            else:
-                new_cnn = ConvBR(num_dimensions, num_dimensions, cnn.batch_norm, cnn.relu, cnn.kernel_size, cnn.stride, cnn.dilation, cnn.groups, cnn.bias, cnn.padding_mode)
-        
-            if self.is_cuda:
-                new_cnn = new_cnn.cuda()
+            cnn.ApplyStructure(in_channels=out_channels, out_channels=out_channels)
+            #cnn.conv.bias.data = cnn.conv.bias[dimension_threshold!=0]
+            #cnn.conv.weight.data = cnn.conv.weight[:, dimension_threshold!=0]
 
-            cnn.conv.bias.data = cnn.conv.bias[dimension_threshold!=0]
-            cnn.conv.weight.data = cnn.conv.weight[:, dimension_threshold!=0]
+        # Apply structure to conv1x1
+        self.conv1x1.bias.data = self.conv1x1.bias.data[out_channels!=0]
+        self.conv1x1.weight.data = self.conv1x1.weight.data[:,out_channels!=0]
+        self.conv1x1.weight.data = self.conv1x1.weight.data[out_channels!=0]
 
         self.search_structure = False
+        return out_channels
 
 
     def forward(self, in1, in2 = None):
@@ -294,6 +320,18 @@ class Classify(nn.Module):
         self.fc3 = nn.Linear(64, 10)
         self.total_trainable_weights = model_weights(self)
 
+
+    def ApplyStructure(self):
+        in_channels = None
+        for cell in self.cells:
+            in_channels = cell.ApplyStructure(in_channels=in_channels)
+
+        # Remove pruned weights from fc1
+        if in_channels is not None:
+            fc1weights = torch.reshape(self.fc1.weight.data,(256,64,4,4))
+            fc1weights = fc1weights[:,in_channels!=0]
+            self.fc1.weight.data = torch.flatten(fc1weights, 1)
+
     def forward(self, x):
         #for cell in self.cells:
         #    x = self.pool(cell(x))
@@ -318,10 +356,6 @@ class Classify(nn.Module):
             archatecture_weights += cell_archatecture_weights
 
         return archatecture_weights, self.total_trainable_weights
-
-    def ApplyStructure(self):
-        for cell in self.cells:
-            cell.ApplyStructure()
 
 class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
     r"""This criterion combines :class:`~torch.nn.LogSoftmax` and :class:`~torch.nn.NLLLoss` in one single class.
@@ -487,7 +521,7 @@ def Test(args):
     if True:
         classify.ApplyStructure()
         reduced_parameters = count_parameters(classify)
-        print('Reduced parameters from {} to {}'.format(total_parameters, reduced_parameters))
+        print('Reduced parameters {}/{} = {}'.format(reduced_parameters, total_parameters, reduced_parameters/total_parameters))
 
     # Define a Loss function and optimizer
     criterion = CrossEntropyRuntimeLoss()

@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/pytorch:21.06-py3
+FROM nvcr.io/nvidia/pytorch:20.12-py3
 LABEL maintainer="Brad Larson"
 
 RUN echo 'alias py=python' >> ~/.bashrc

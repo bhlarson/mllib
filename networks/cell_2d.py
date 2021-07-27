@@ -291,13 +291,14 @@ class Cell(nn.Module):
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
 
-    parser.add_argument('-debug', action='store_true',help='Wait for debugge attach')   
+    parser.add_argument('-debug', action='store_true',help='Wait for debuggee attach')   
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
 
     parser.add_argument('-batch_size', type=int, default=64, help='Training batch size')
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
     parser.add_argument('-epochs', type=int, default=1, help='Training epochs')
-    parser.add_argument('-model', type=str, default='model.pt')
+    parser.add_argument('-model', type=str, default='model')
+    parser.add_argument('-reduce', action='store_true', help='Compress network')
     parser.add_argument('-cuda', type=bool, default=True)
 
     args = parser.parse_args()
@@ -307,19 +308,15 @@ class Classify(nn.Module):
     def __init__(self, is_cuda=False):
         super().__init__()
         self.is_cuda = is_cuda
-        self.cells = []
-        self.cell1 = Cell(6, 16, 3, is_cuda=self.is_cuda)
-        self.cells.append(self.cell1)
-        self.cell2 = Cell(6, 32, 16, is_cuda=self.is_cuda)
-        self.cells.append(self.cell2)
-        self.cell3 = Cell(6, 64, 32, is_cuda=self.is_cuda)
-        self.cells.append(self.cell3)
+        self.cells = torch.nn.ModuleList()
+        self.cells.append(Cell(6, 16, 3, is_cuda=self.is_cuda))
+        self.cells.append(Cell(6, 32, 16, is_cuda=self.is_cuda))
+        self.cells.append(Cell(6, 64, 32, is_cuda=self.is_cuda))
         self.pool = nn.MaxPool2d(2, 2)
         self.fc1 = nn.Linear(64 * 4 * 4, 256)
         self.fc2 = nn.Linear(256, 64)
         self.fc3 = nn.Linear(64, 10)
         self.total_trainable_weights = model_weights(self)
-
 
     def ApplyStructure(self):
         in_channels = None
@@ -333,11 +330,9 @@ class Classify(nn.Module):
             self.fc1.weight.data = torch.flatten(fc1weights, 1)
 
     def forward(self, x):
-        #for cell in self.cells:
-        #    x = self.pool(cell(x))
-        x = self.pool(self.cell1(x))
-        x = self.pool(self.cell2(x))
-        x = self.pool(self.cell3(x))
+        for cell in self.cells:
+            x = self.pool(cell(x))
+
         x = torch.flatten(x, 1) # flatten all dimensions except batch
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
@@ -512,13 +507,15 @@ def Test(args):
     testset = torchvision.datasets.CIFAR10(root=args.dataset_path, train=False, download=True, transform=transform)
     testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
 
+    full_filename = args.model+".pt"
+    compressed_filename = args.model+"_min.pt"
 
-    if os.path.exists(args.model):
-        classify.load_state_dict(torch.load(args.model))
+    if os.path.exists(full_filename):
+        classify.load_state_dict(torch.load(full_filename))
 
     total_parameters = count_parameters(classify)
 
-    if True:
+    if args.reduce:
         classify.ApplyStructure()
         reduced_parameters = count_parameters(classify)
         print('Reduced parameters {}/{} = {}'.format(reduced_parameters, total_parameters, reduced_parameters/total_parameters))
@@ -590,7 +587,10 @@ def Test(args):
             # print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.4f}, norm_depth_loss: {:0.3f}, cell_depths: {}'.format(epoch + 1, i + 1, cross_entropy_loss, dims_norm, norm_depth_loss, cell_depths))
 
     if args.model:
-        torch.save(classify.state_dict(), args.model)
+        if args.reduce:
+            torch.save(classify.state_dict(), compressed_filename)
+        else:
+            torch.save(classify.state_dict(), full_filename)
 
     print('Finished Training')
 

@@ -1,60 +1,20 @@
 import math
+import os
+import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from collections import namedtuple
 from collections import OrderedDict
 from typing import Callable, Optional
-from prettytable import PrettyTable
+
+sys.path.insert(0, os.path.abspath(''))
+from utils.torch_util import count_parameters, model_stats
+
 # Inner neural architecture cell repetition structure
 # Process: Con2d, optional batch norm, optional ReLu
 
-def count_parameters(model):
-    table = PrettyTable(["Modules", "Parameters"])
-    total_params = 0
-    for name, parameter in model.named_parameters():
-        if not parameter.requires_grad: continue
-        param = parameter.numel()
-        table.add_row([name, param])
-        total_params+=param
-    print(table)
-    print(f"Total Trainable Params: {total_params}")
-    return total_params
 
-def model_weights(model):
-    total_params = 0
-    for name, parameter in model.named_parameters():
-        if not parameter.requires_grad: continue
-        param = parameter.numel()
-        total_params+=param
-    return total_params
-
-# compute network parameter stats
-def model_stats(model):
-    weight_array = None
-    bias_array = None
-    for name, parameter in model.named_parameters():
-        if not parameter.requires_grad: continue
-        param = parameter.numel()
-
-        array = torch.flatten(parameter)
-
-        if name.split('.')[-1] == 'weight':
-            if weight_array is None:
-                weight_array = array
-            else:
-                weight_array = torch.cat((weight_array, array))
-
-        elif name.split('.')[-1] == 'bias':
-            if bias_array is None:
-                bias_array = array
-            else:
-                bias_array = torch.cat((bias_array, array))
-
-    weight_std, weight_mean = torch.std_mean(weight_array, unbiased=False)
-    bias_std, bias_mean = torch.std_mean(bias_array, unbiased=False)
-
-    return weight_std, weight_mean, bias_std, bias_mean
 
 class ConvBR(nn.Module):
     def __init__(self, 
@@ -353,7 +313,7 @@ class Classify(nn.Module):
         return archatecture_weights, self.total_trainable_weights
 
 class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
-    r"""This criterion combines :class:`~torch.nn.LogSoftmax` and :class:`~torch.nn.NLLLoss` in one single class.
+    """This criterion combines :class:`~torch.nn.LogSoftmax` and :class:`~torch.nn.NLLLoss` in one single class.
 
     It is useful when training a classification problem with `C` classes.
     If provided, the optional argument :attr:`weight` should be a 1D `Tensor`

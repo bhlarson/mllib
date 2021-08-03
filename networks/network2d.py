@@ -9,71 +9,114 @@ from collections import OrderedDict
 from typing import Callable, Optional
 
 sys.path.insert(0, os.path.abspath(''))
-from networks.cell_2d import Cell
+from networks.cell2d import Cell
 from utils.torch_util import count_parameters, model_stats
 
 class Network2d(nn.Module):
-    def __init__(self, is_cuda=True, search_depth_min=3, search_depth_range=8, source_channels=3, initial_channels=64, max_cell_steps=6, cell=Cell):
+    def __init__(self, out_channels, source_channels=3, initial_channels=64, is_cuda=True, search_depth=7, max_cell_steps=6, cell=Cell):
         super(Network2d, self).__init__()
 
-        self.search_depth_min = search_depth_min
-        self.search_depth_range = search_depth_range
+        self.search_depth = search_depth
+        self.out_channels = out_channels
         self.source_channels = source_channels
         self.initial_channels = initial_channels
         self.is_cuda = is_cuda
         self.cell = cell
         self.max_cell_steps = max_cell_steps
+        self.depth = torch.nn.Parameter(torch.ones(1)*search_depth) # Initial search depth parameter = search_depth_range
 
-        self.depths = torch.nn.ModuleList()
+        self.encode_decode = torch.nn.ModuleList()
         self.upsample = torch.nn.ModuleList()
-        for depth in range(search_depth_min, search_depth_min+search_depth_range):
-            cells = torch.nn.ModuleList()
-            encoder_channels = initial_channels
-            prev_encoder_chanels = source_channels
+        self.final_conv = torch.nn.ModuleList()
 
-            for i in range(depth):
-                cells.append(Cell(max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda))
-                prev_encoder_chanels = encoder_channels
-                encoder_channels = 2*encoder_channels
+        encoder_channels = initial_channels
+        prev_encoder_chanels = source_channels
 
-            for i in range(depth-1):
-                prev_encoder_chanels = encoder_channels
-                encoder_channels = encoder_channels/2
-                cells.append(Cell(max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda))
+        for i in range(search_depth):
+            self.encode_decode.append(cell(max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda))
+            prev_encoder_chanels = encoder_channels
+            encoder_channels = 2*encoder_channels
 
-                self.upsample.append(nn.ConvTranspose2d(encoder_channels, encoder_channels, 2, stride=2))
+        encoder_channels = prev_encoder_chanels
+        for i in range(search_depth-1):
+            prev_encoder_chanels = encoder_channels
+            encoder_channels = int(encoder_channels/2)
+            self.encode_decode.append(cell(max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda))
+            self.upsample.append(nn.ConvTranspose2d(encoder_channels, encoder_channels, 2, stride=2))
 
-            self.depths.append(cells)
+        self.final_conv = cell(max_cell_steps, out_channels, encoder_channels, is_cuda=self.is_cuda)
 
         self.pool = nn.MaxPool2d(2, 2)
 
+    def GaussianBasis(self, i, a, r=1.0):
+        return torch.exp(-1*torch.square(r*(i-a)))
+
+    def NormGausBasis(self, i, a, x, r=1.0):
+        den = torch.nn.Parameter(torch.zeros(1))
+        if x.is_cuda:
+            den = den.cuda()
+        for j, l in enumerate(self.cnn):
+            den = den + self.GaussianBasis(j,a,r)
+        return torch.mul(torch.exp(-1*torch.square(r*(i-a)))/den, x)
+
     def forward(self, in1):
-        for j, depth in enumerate(self.search_depth_min, self.search_depth_min+self.search_depth_range):
-            cells = self.depths(j)
-            feed_forward = []
-            for i in range(depth):
-                x = self.pool(cells[i](x))
-                feed_forward.append(x)
+        y = torch.zeros(self.search_depth_range)
 
-            for i in range(depth-1):
-                x = cells[i+depth](x, feed_forward[depth-i+1])
-                x = self.upsample[i](x)
-        return x
+        feed_forward = []
+        for i in range(self.search_depth):
+            x = self.encode_decode[i](x)
+            feed_forward.append(x)
+            x = self.pool(x)
 
-        for cell in self.cells:
-            x = self.pool(cell(x))
+        # Transform and process latent space here
 
-        x = torch.flatten(x, 1) # flatten all dimensions except batch
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
+        for i in range(self.search_depth-1):
+            x = self.encode_decode[i+self.search_depth](x, feed_forward[self.search_depth-i+1])
+            x = self.upsample[i](x)
+
+        x = self.final_conv(x) # Size to output
+
+        # Continuous relaxation to select network depth
+        # Normalized gaussian bias continuous weighting of depths
+        x = self.NormGausBasis(i,self.depth, x)
+        # Sum of weightings for each depth
+        y = y+x
+            
+        return y
 
     def ApplyStructure(self, in_channels=None):
         print('ApplyStructure')
 
     def ArchitectureWeights(self):
         print('ArchitectureWeights')
+
+        archatecture_weights = torch.zeros(1)
+        total_trainable_weights = torch.zeros(1)
+
+        if self.is_cuda:
+            archatecture_weights = archatecture_weights.cuda()
+            total_trainable_weights = total_trainable_weights.cuda()
+
+        for j, depth in enumerate(self.search_depth_min, self.search_depth_min+self.search_depth_range):
+            cells = self.depths(j)
+            
+            archatecture_weight = torch.zeros(1)
+            if self.is_cuda:
+                archatecture_weight = archatecture_weight.cuda()
+
+            for i in range(depth):
+                cell_archatecture_weights, cell_total_trainable_weights = cells[i].ArchitectureWeights()
+                archatecture_weight += cell_archatecture_weights
+                total_trainable_weights += cell_total_trainable_weights
+
+            for i in range(depth-1):
+                cell_archatecture_weights, cell_total_trainable_weights = cells[i+depth].ArchitectureWeights()
+                archatecture_weight += cell_archatecture_weights
+                total_trainable_weights += cell_total_trainable_weights
+
+            archatecture_weights += self.NormGausBasis(j,self.depth, archatecture_weight)
+
+        return archatecture_weights, self.total_trainable_weights
 
 
 def parse_arguments():
@@ -211,28 +254,28 @@ def Test(args):
     import torchvision.transforms as transforms
     import torch.optim as optim
 
-    classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
-
-    # Create classifier
-    segment = Network2d(args.cuda)
-
+    # Load dataset
     device = "cpu"
     pin_memory = False
     if args.cuda:
         device = "cuda"
         pin_memory = True
 
-    segment.to(device)
-
-
-    # Load dataset
+    classes = ('background', 'airplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'dining table', 'dog', 'horse', 'motorbike', 'person', 'potted plant', 'sheep', 'sofa', 'train', 'tv/monitor')
     transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
     trainset = torchvision.datasets.VOCSegmentation(root=args.dataset_path, image_set='train', download=True, transform=transform)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=pin_memory)
 
-    testset = torchvision.datasets.VOCSegmentation(root=args.dataset_path, image_set='test', download=True, transform=transform)
+    testset = torchvision.datasets.VOCSegmentation(root=args.dataset_path, image_set='val', download=True, transform=transform)
     testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
+
+    # Create classifier
+    segment = Network2d(len(classes), is_cuda=args.cuda)
+
+
+    segment.to(device)
+
 
     full_filename = args.model+".pt"
     compressed_filename = args.model+"_min.pt"

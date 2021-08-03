@@ -9,7 +9,7 @@ from collections import OrderedDict
 from typing import Callable, Optional
 
 sys.path.insert(0, os.path.abspath(''))
-from utils.torch_util import count_parameters, model_stats
+from utils.torch_util import count_parameters, model_stats, model_weights
 
 # Inner neural architecture cell repetition structure
 # Process: Con2d, optional batch norm, optional ReLu

@@ -1,0 +1,167 @@
+"apiVersion": "v1"
+"kind": "Namespace"
+"metadata":
+  "name": "mllib"
+  "labels":
+      "name": "mllib"
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mlstore
+  labels:
+    app: mllib
+spec:
+  storageClassName: mlstore
+  capacity:
+    storage: 900Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /nvmestore/mlstore
+
+--- 
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlstore
+  namespace: mllib
+  labels:
+    app: mllib
+spec:
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Filesystem
+  resources:
+    requests:
+      storage: 900Gi
+  storageClassName: mlstore
+
+---
+
+kind: Secret
+apiVersion: v1
+metadata:
+  name: tls-ssl-minio
+  namespace: mllib
+
+data:
+  private.key: >-
+    LS0tLS1CRUdJTiBFQyBQUklWQVRFIEtFWS0tLS0tCk1IY0NBUUVFSUxGZlBSNkgzY0M4ZTAvS05aMXNJZWhBc1dXa3Z1MWljeFZLQk1uSUROdDJvQW9HQ0NxR1NNNDkKQXdFSG9VUURRZ0FFd2s4STg3T0ZuTUlCZCtZRG56OGRmWmZzNWM5cnlkcEFVWG5ERzRWa1JRUGNEUS9oMmZTTQpxQ2xyVGpaNDhaTlVWbURka01BVTlRM3BweUx5MUE3Wm13PT0KLS0tLS1FTkQgRUMgUFJJVkFURSBLRVktLS0tLQo=
+  public.crt: >-
+    LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUNFVENDQWJpZ0F3SUJBZ0lVYlZaQ1hhT1gxNUgzSzhnR2MweFkyaTMzMElRd0NnWUlLb1pJemowRUF3SXcKYkRFTE1Ba0dBMVVFQmhNQ1ZWTXhDekFKQmdOVkJBZ01BazlTTVJJd0VBWURWUVFIREFsSWFXeHNjMkp2Y204eApIekFkQmdOVkJBb01GbFJvWlhKdGIwWnBjMmhsY2xOamFXVnVkR2xtYVdNeEd6QVpCZ05WQkFNTUVtbHdZeTVzCllYSnpiMjR1Ylhsa2N5NXRaVEFlRncweU1UQXhNRGN5TVRNeE16RmFGdzB5TXpBeE1EY3lNVE14TXpGYU1Hd3gKQ3pBSkJnTlZCQVlUQWxWVE1Rc3dDUVlEVlFRSURBSlBVakVTTUJBR0ExVUVCd3dKU0dsc2JITmliM0p2TVI4dwpIUVlEVlFRS0RCWlVhR1Z5Ylc5R2FYTm9aWEpUWTJsbGJuUnBabWxqTVJzd0dRWURWUVFEREJKcGNHTXViR0Z5CmMyOXVMbTE1WkhNdWJXVXdXVEFUQmdjcWhrak9QUUlCQmdncWhrak9QUU1CQndOQ0FBVENUd2p6czRXY3dnRjMKNWdPZlB4MTlsK3psejJ2SjJrQlJlY01iaFdSRkE5d05EK0haOUl5b0tXdE9Obmp4azFSV1lOMlF3QlQxRGVtbgpJdkxVRHRtYm96Z3dOakEwQmdOVkhSRUVMVEFyaHdSL0FBQUJod1RBcUFHdWdnbHNiMk5oYkdodmMzU0NFbWx3Cll5NXNZWEp6YjI0dWJYbGtjeTV0WlRBS0JnZ3Foa2pPUFFRREFnTkhBREJFQWlCNnFBb1ZZRnV6UTY0NzdQbGIKcytya3hCQnE2SUlkcm9wRklsQlZZWjdXbkFJZ0R2YjVwTndhNjBYWE90dXdtaUpJcW5mWVdhOUU5RXd5cmIzVwp1MEU4eGt3PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlstore
+  namespace: mllib
+spec:
+  selector:
+    matchLabels:
+      app: mlstore 
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        # Label is used as selector in the service.
+        app: mlstore
+    spec:
+      initContainers:
+      
+      volumes:
+      - name: storage
+        persistentVolumeClaim:
+          # Name of the PVC created earlier
+          claimName: mlstore
+      - name: secret-volume
+        secret:
+          secretName: tls-ssl-minio
+          items:
+          - key: public.crt
+            path: public.crt
+          - key: private.key
+            path: private.key
+          - key: public.crt
+            path: CAs/public.crt
+      containers:
+      - name: mlstore
+        # Pulls the default MinIO image from Docker Hub
+        image: minio/minio
+        args:
+        - server
+        - /store
+        env:
+        # MinIO access key and secret key
+        - name: MINIO_ACCESS_KEY
+          value: "admin"
+        - name: MINIO_SECRET_KEY
+          value: "mlstoreadmin"
+        ports:
+        - containerPort: 9000
+        # Mount the volume into the pod
+        volumeMounts:
+        - name: storage # must match the volume name, above
+          mountPath: "/store"
+        - name: secret-volume
+          mountPath: /root/.minio/certs
+        # readinessProbe and livenessProbe fail when tls is enabled.
+        #readinessProbe:
+        #  httpGet:
+        #    path: /minio/health/ready
+        #    port: 9000
+        #  initialDelaySeconds: 10
+        #  periodSeconds: 20
+        #livenessProbe:
+        #  httpGet:
+        #    path: /minio/health/live
+        #    port: 9000
+        #  initialDelaySeconds: 10
+        #  periodSeconds: 20
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: mllibstore
+  namespace: mllib
+spec:
+  type: NodePort
+  selector:
+    app: mllibstore
+  ports:
+    - port: 9000
+      targetPort: 9000
+      nodePort: 32222
+
+#---
+## secret tls-ssl-cl must be defined
+
+#apiVersion: extensions/v1beta1
+#kind: Ingress
+
+#metadata:
+#  name: mllibstore
+#  namespace: mllib
+#spec:
+#  tls:
+#    - hosts:
+#        - hiocnn.larson.myds.me
+#      secretName: tls-ssl-cl
+#  rules:
+#    - host: hiocnn.larson.myds.me
+#      http:
+#        paths:
+#          - path: /
+#            backend:
+#              serviceName: mllibstore
+#              servicePort: 9000

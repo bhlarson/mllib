@@ -13,7 +13,7 @@ from networks.cell2d import Cell
 from utils.torch_util import count_parameters, model_stats
 
 class Network2d(nn.Module):
-    def __init__(self, out_channels, source_channels=3, initial_channels=64, is_cuda=True, search_depth=7, max_cell_steps=6, cell=Cell):
+    def __init__(self, out_channels, source_channels=3, initial_channels=64, is_cuda=True, search_depth=7, max_cell_steps=6, channel_multiple=1.5, cell=Cell):
         super(Network2d, self).__init__()
 
         self.search_depth = search_depth
@@ -35,12 +35,12 @@ class Network2d(nn.Module):
         for i in range(search_depth):
             self.encode_decode.append(cell(max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda))
             prev_encoder_chanels = encoder_channels
-            encoder_channels = 2*encoder_channels
+            encoder_channels = int(channel_multiple*encoder_channels)
 
         encoder_channels = prev_encoder_chanels
         for i in range(search_depth-1):
             prev_encoder_chanels = encoder_channels
-            encoder_channels = int(encoder_channels/2)
+            encoder_channels = int(encoder_channels/channel_multiple)
             self.encode_decode.append(cell(max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda))
             self.upsample.append(nn.ConvTranspose2d(encoder_channels, encoder_channels, 2, stride=2))
 
@@ -245,6 +245,17 @@ class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
         total_loss = loss + self.k_dims*architecture_loss
         return total_loss,  loss, architecture_loss
 
+
+import numpy as np
+class SquarePad:
+	def __call__(self, image):
+		w, h = image.size
+		max_wh = np.max([w, h])
+		hp = int((max_wh - w) / 2)
+		vp = int((max_wh - h) / 2)
+		padding = (hp, vp, hp, vp)
+		return F.pad(image, padding, 0, 'constant')
+
 # Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
 def Test(args):
     print('Cell Test')
@@ -262,7 +273,29 @@ def Test(args):
         pin_memory = True
 
     classes = ('background', 'airplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'dining table', 'dog', 'horse', 'motorbike', 'person', 'potted plant', 'sheep', 'sofa', 'train', 'tv/monitor')
-    transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+
+    transform = transforms.Compose([
+        transforms.CenterCrop(500),
+        transforms.ToTensor(), 
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    ])
+
+    '''transform = {
+        'train': transforms.Compose([
+            transforms.CenterCrop(500),
+            #transforms.Grayscale(num_output_channels=3),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        ]),
+        'val': transforms.Compose([
+            transforms.CenterCrop(500),
+            #transforms.Grayscale(num_output_channels=3),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        ]),
+    }'''
 
     trainset = torchvision.datasets.VOCSegmentation(root=args.dataset_path, image_set='train', download=True, transform=transform)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=pin_memory)
@@ -273,7 +306,7 @@ def Test(args):
     # Create classifier
     segment = Network2d(len(classes), is_cuda=args.cuda)
 
-
+    #I think that setting device here eliminates the need to sepcificy device in Network2D
     segment.to(device)
 
 

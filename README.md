@@ -150,6 +150,10 @@ For 480 height, 512 width images, the following table shows the UNET accuracy, s
 - Instructions to use mllib
 - Jupyter examples
 
+## Notes:
+Setup Microk8s snap install microk8s
+Setup Kubectl snap install kubectl [Working with kubectl](https://microk8s.io/docs/working-with-kubectl)
+
 ## References:
 - [Visual Stuido Code C++ setup](https://code.visualstudio.com/docs/cpp/config-linux)
 - [Developing in Containers](https://code.visualstudio.com/docs/remote/containers)

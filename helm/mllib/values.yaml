@@ -1,0 +1,6 @@
+objectstore:
+  name: mlstore
+  nodePort: 31992
+  size: 900Gi
+  hostPath:
+    path: /nvmestore/mlstore

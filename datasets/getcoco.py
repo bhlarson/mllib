@@ -54,12 +54,13 @@ def main(args):
         sysmsg = 'unzip {} -d {}'.format(outpath, args.path)
         print(sysmsg)
         os.system(sysmsg)
-        os.remove(outpath) # Remove zip file once extracted
+        #os.remove(outpath) # Remove zip file once extracted
 
     saved_name = '{}/{}'.format(s3def['sets']['dataset']['prefix'] , args.dataset)
     print('Save model to {}/{}'.format(s3def['sets']['dataset']['bucket'],saved_name))
-    if s3.PutDir(s3def['sets']['dataset']['bucket'], args.path, saved_name):
-        shutil.rmtree(args.path, ignore_errors=True)
+    #if s3.PutDir(s3def['sets']['dataset']['bucket'], args.path, saved_name):
+    #    shutil.rmtree(args.path, ignore_errors=True)
+    s3.PutDir(s3def['sets']['dataset']['bucket'], args.path, saved_name)
 
     url = s3.GetUrl(s3def['sets']['dataset']['bucket'], saved_name)
     print("Complete. Results saved to {}".format(url))

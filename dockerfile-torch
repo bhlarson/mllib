@@ -38,6 +38,7 @@ RUN pip3 --no-cache-dir install \
         apex \
         wget \
         configparser \
+        pycocotools==2.0.1 \
         prettytable
 
 # Tutorial dependencies

@@ -2,9 +2,13 @@ import sys
 import argparse
 import json
 import os
+import subprocess
 import shutil
+from os import fspath
 sys.path.insert(0, os.path.abspath(''))
 from utils.s3 import s3store
+from zipfile import ZipFile
+from tqdm import tqdm
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
@@ -46,21 +50,22 @@ def main(args):
         outpath = '{}/{}'.format(args.path,os.path.basename(url))
         if os.path.isfile(outpath):
             print('{} exists.  Skipping'.format(outpath))
-        else:
+        else:0
             sysmsg = 'wget -O {} {} '.format(outpath, url)
             print(sysmsg)
             os.system(sysmsg)
 
-        sysmsg = 'unzip {} -d {}'.format(outpath, args.path)
-        print(sysmsg)
-        os.system(sysmsg)
-        #os.remove(outpath) # Remove zip file once extracted
+        dest = '{}/{}'.format(args.path,args.dataset)
+        with ZipFile(outpath,"r") as zip_ref:
+            for file in tqdm(iterable=zip_ref.namelist(), total=len(zip_ref.namelist())):
+                zip_ref.extract(member=file, path=fspath(dest))
+
+        os.remove(outpath) # Remove zip file once extracted
 
     saved_name = '{}/{}'.format(s3def['sets']['dataset']['prefix'] , args.dataset)
-    print('Save model to {}/{}'.format(s3def['sets']['dataset']['bucket'],saved_name))
-    #if s3.PutDir(s3def['sets']['dataset']['bucket'], args.path, saved_name):
-    #    shutil.rmtree(args.path, ignore_errors=True)
-    s3.PutDir(s3def['sets']['dataset']['bucket'], args.path, saved_name)
+    print('Save {} to {}/{}'.format(args.path, s3def['sets']['dataset']['bucket'], saved_name))
+    if s3.PutDir(s3def['sets']['dataset']['bucket'], args.path, saved_name):
+        shutil.rmtree(args.path, ignore_errors=True)
 
     url = s3.GetUrl(s3def['sets']['dataset']['bucket'], saved_name)
     print("Complete. Results saved to {}".format(url))

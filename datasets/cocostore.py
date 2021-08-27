@@ -5,6 +5,9 @@ import numpy as np
 import cv2
 import json
 from collections import defaultdict
+from torch.utils.data import Dataset
+from torchvision import datasets
+from torch.utils.data import DataLoader
 
 sys.path.insert(0, os.path.abspath(''))
 from utils.s3 import s3store, Connect
@@ -12,13 +15,14 @@ from utils.jsonutil import ReadDictJson
 
 class CocoStore:
 
-    def __init__(self, s3, bucket, dataset_desc, image_paths, class_dictionary, name_deccoration=''):
+    def __init__(self, s3, bucket, dataset_desc, image_paths, class_dictionary, imflags=cv2.IMREAD_COLOR, name_deccoration=''):
         self.s3 = s3
         self.bucket = bucket
         self.dataset_desc = dataset_desc
         self.class_dictionary = class_dictionary
         self.image_paths = image_paths
         self.name_deccoration = name_deccoration
+        self.imflags = imflags
 
         self.objDict = s3.GetDict(bucket,class_dictionary)
         self.dataset = s3.GetDict(bucket,dataset_desc)
@@ -115,42 +119,123 @@ class CocoStore:
 
         return class_vector
 
-    def DecodeImage(self, bucket, objectname, flags=cv2.IMREAD_COLOR):
+    def DecodeImage(self, bucket, objectname):
         img = None
         imgbuff = self.s3.GetObject(bucket, objectname)
         if imgbuff:
-            imgbuff = np.fromstring(imgbuff, dtype='uint8')
-            img = cv2.imdecode(imgbuff, flags=flags)
+            imgbuff = np.frombuffer(imgbuff, dtype='uint8')
+            img = cv2.imdecode(imgbuff, flags=self.imflags)
         return img
 
 
+    def len(self):
+        return len(self.dataset['images'])
+
     def __next__(self):
         if self.i < self.len():
-            img_entry = self.dataset['images'][self.i]
-            imgFile = '{}/{}{}'.format(self.image_paths,self.name_deccoration,img_entry['file_name'])
-            img = self.DecodeImage(self.bucket, imgFile)
-            ann_entry = self.imgToAnns[img_entry['id']]
-            ann = self.drawann(img_entry, ann_entry)
-            classes = self.classes(ann_entry)
-            result = {'img':img, 'ann':ann, 'classes':classes}
-
+            result = self.__getitem__(self.i)
             self.i += 1
             return result
         else:
             raise StopIteration
 
-    def len(self):
-        return len(self.dataset['images'])
+    def __getitem__(self, idx):
+        if idx >= 0 and idx < self.len():
+            img_entry = self.dataset['images'][idx]
+            imgFile = '{}/{}{}'.format(self.image_paths,self.name_deccoration,img_entry['file_name'])
+            img = self.DecodeImage(self.bucket, imgFile)
+            ann_entry = self.imgToAnns[img_entry['id']]
+            ann = self.drawann(img_entry, ann_entry)
+            classes = self.classes(ann_entry)
+
+            result = {'img':img, 'ann':ann, 'classes':classes}
+
+            return result
+        else:
+            print('CocoStore.__getitem__ idx {} invalid.  Must be >=0 and < CocoStore.len={}'.format(idx, self.len()))
+            return None
+
 
     def ColorizeAnnotation(self, ann):
         annrgb = [cv2.LUT(ann, self.lut[:, i]) for i in range(3)]
         annrgb = np.dstack(annrgb) 
         return annrgb
 
-    def MergeIman(self, iman):
-        ann = self.ColorizeAnnotation(iman['ann'])
-        img = (iman['img']*ann).astype(np.uint8)
+    def MergeIman(self, img, ann):
+        ann = self.ColorizeAnnotation(ann)
+        img = (img*ann).astype(np.uint8)
         return img
+
+class CocoDataset(Dataset):
+    def __init__(self, s3, bucket, dataset_desc, image_paths, class_dictionary, height=480, width=640, imflags=cv2.IMREAD_COLOR, transform=None, target_transform=None, name_deccoration=''):
+        self.transform = transform
+        self.target_transform = target_transform
+        self.height = height
+        self.width = width
+        self.imflags = imflags
+
+        self.coco = CocoStore(s3, bucket, dataset_desc, image_paths, class_dictionary, imflags=self.imflags, name_deccoration=name_deccoration)
+
+
+    # Expect img.shape[0]==ann.shape[0] and ann.shape[0]==ann.shape[0]
+    def random_resize_crop_or_pad(self, img, ann, target_height, target_width, borderType=cv2.BORDER_CONSTANT, borderValue=0):
+
+        height = img.shape[0]
+        width = img.shape[1]
+        
+        # Pad
+        pad = False
+        top=0
+        bottom=0
+        left=0
+        right=0
+        if target_height > height:
+            bottom = int((target_height-height)/2)
+            top = target_height-height-bottom
+            pad = True
+        if target_width > width:
+            right = int((target_width-width)/2)
+            left = target_width-width-right
+            pad = True
+
+        if pad:
+            img = cv2.copyMakeBorder(img, top, bottom, left, right, borderType, None, borderValue)
+            ann = cv2.copyMakeBorder(ann, top, bottom, left, right, borderType, None, borderValue)
+
+        # Crop
+        height = img.shape[0]
+        width = img.shape[1]
+        maxX = width - target_width
+        maxY = height - target_height
+
+        if maxX > 0 or maxY > 0:
+            startX = np.random.randint(0, maxX)
+            startY = np.random.randint(0, maxY)
+
+            img = img[startY:startY+target_height, startX:startX+target_width]
+            ann = ann[startY:startY+target_height, startX:startX+target_width]
+
+        return img, ann
+
+    def __len__(self):
+        return self.coco.len()
+
+    def __getitem__(self, idx):
+        result = self.coco.__getitem__(idx)
+        if result is not None:
+            image = result['img']
+            label = result['ann']
+            if self.transform:
+                image = self.transform(image)
+                label = self.transform(label)
+
+            if self.width is not None and self.height is not None:
+                image, label = self.random_resize_crop_or_pad(image, label,  self.height, self.width)
+        else:
+            image=None
+            label=None
+            print('CocoDataset.__getitem__ idx {} returned result=None.'.format(idx))
+        return image, label
 
 def Test(args):
 
@@ -161,14 +246,31 @@ def Test(args):
     s3def = creds['s3'][0]
     s3 = Connect(s3def)
 
-    coco = CocoStore(s3, s3def['sets']['dataset']['bucket'], args.dataset, args.image_path, args.class_dict)
+    if args.test_iterator:
+        coco = CocoStore(s3, s3def['sets']['dataset']['bucket'], args.dataset, args.image_path, args.class_dict, imflags=args.imflags)
+        for i, iman in enumerate(coco):
+            img = coco.MergeIman(iman['img'], iman['ann'])
+            cv2.imwrite('cocostoreiterator{:03d}.png'.format(i),img)
+            if i >= args.num_images:
+                print ('test_iterator complete')
+                break
 
-    for i, iman in enumerate(coco):
-        img = coco.MergeIman(iman)
-        cv2.imwrite('cocostore{:03d}.png'.format(i),img)
-        if i >= args.num_images:
-            print ('Exiting because maxiumum number of images {} reached'.format(args.num_images))
-            break
+    if args.test_dataset:
+        dataset = CocoDataset(s3, s3def['sets']['dataset']['bucket'], args.dataset, args.image_path, args.class_dict, args.height, args.width, imflags=args.imflags)
+
+        train_dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+        i = 0
+        while i < args.num_images:
+            train_features, train_labels = next(iter(train_dataloader))
+            j = 0
+            while j < args.batch_size and i < args.num_images:
+                img = dataset.coco.MergeIman(train_features[j].numpy(), train_labels[j].numpy())
+                cv2.imwrite('cocostoredataset{:03d}.png'.format(i),img)
+                i += 1
+                j += 1
+        print ('test_dataset complete')
+
+    print('Test complete')
 
 #objdict = json.load(open('/data/git/mllib/datasets/coco.json'))
 #Test(objdict, '/store/Datasets/coco/instances_val2017.json', '/store/Datasets/coco/val2014', 'COCO_val2014_')
@@ -185,6 +287,13 @@ def parse_arguments():
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
     parser.add_argument('-training', type=str, default='segmin', help='Credentials file.')
     parser.add_argument('-num_images', type=int, default=10, help='Maximum number of images to display')
+    parser.add_argument('-batch_size', type=int, default=4, help='Maximum number of images to display')
+    parser.add_argument('-test_iterator', type=bool, default=False, help='Maximum number of images to display')
+    parser.add_argument('-test_dataset', type=bool, default=True, help='Maximum number of images to display')
+    parser.add_argument('-height', type=int, default=640, help='Batch image height')
+    parser.add_argument('-width', type=int, default=640, help='Batch image width')
+    parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')
+
 
     args = parser.parse_args()
     return args

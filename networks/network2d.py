@@ -7,10 +7,14 @@ import torch.nn.functional as F
 from collections import namedtuple
 from collections import OrderedDict
 from typing import Callable, Optional
+import cv2
 
 sys.path.insert(0, os.path.abspath(''))
 from networks.cell2d import Cell
 from utils.torch_util import count_parameters, model_stats
+from utils.jsonutil import ReadDictJson
+from utils.s3 import s3store, Connect
+from datasets.cocostore import CocoDataset
 
 class Network2d(nn.Module):
     def __init__(self, out_channels, source_channels=3, initial_channels=64, is_cuda=True, search_depth=7, max_cell_steps=6, channel_multiple=1.5, cell=Cell):
@@ -125,12 +129,23 @@ def parse_arguments():
     parser.add_argument('-debug', action='store_true',help='Wait for debuggee attach')   
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
 
+    parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
+
+    parser.add_argument('-trainingset', type=str, default='data/coco/annotations/instances_train2017.json', help='Coco dataset instance json file.')
+    parser.add_argument('-validationset', type=str, default='data/coco/annotations/instances_val2017.json', help='Coco dataset instance json file.')
+    parser.add_argument('-train_image_path', type=str, default='data/coco/train2017', help='Coco image path for dataset.')
+    parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
+    parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
+
     parser.add_argument('-batch_size', type=int, default=64, help='Training batch size')
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
     parser.add_argument('-epochs', type=int, default=1, help='Training epochs')
     parser.add_argument('-model', type=str, default='segment_nas')
     parser.add_argument('-reduce', action='store_true', help='Compress network')
     parser.add_argument('-cuda', type=bool, default=True)
+    parser.add_argument('-height', type=int, default=640, help='Batch image height')
+    parser.add_argument('-width', type=int, default=640, help='Batch image width')
+    parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')
 
     args = parser.parse_args()
     return args
@@ -246,16 +261,6 @@ class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
         return total_loss,  loss, architecture_loss
 
 
-import numpy as np
-class SquarePad:
-	def __call__(self, image):
-		w, h = image.size
-		max_wh = np.max([w, h])
-		hp = int((max_wh - w) / 2)
-		vp = int((max_wh - h) / 2)
-		padding = (hp, vp, hp, vp)
-		return F.pad(image, padding, 0, 'constant')
-
 # Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
 def Test(args):
     print('Cell Test')
@@ -265,6 +270,13 @@ def Test(args):
     import torchvision.transforms as transforms
     import torch.optim as optim
 
+    creds = ReadDictJson(args.credentails)
+    if not creds:
+        print('Failed to load credentials file {}. Exiting'.format(args.credentails))
+        return False
+    s3def = creds['s3'][0]
+    s3 = Connect(s3def)
+
     # Load dataset
     device = "cpu"
     pin_memory = False
@@ -272,14 +284,28 @@ def Test(args):
         device = "cuda"
         pin_memory = True
 
-    classes = ('background', 'airplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'dining table', 'dog', 'horse', 'motorbike', 'person', 'potted plant', 'sheep', 'sofa', 'train', 'tv/monitor')
-
-
     transform = transforms.Compose([
-        transforms.CenterCrop(500),
-        transforms.ToTensor(), 
+        transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
+
+    trainingset = CocoDataset(s3, s3def['sets']['dataset']['bucket'], args.trainingset, 
+        args.train_image_path,
+        args.class_dict, 
+        args.height, 
+        args.width, 
+        imflags=args.imflags, 
+        transform=transform)
+    trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=pin_memory)
+
+    valset = CocoDataset(s3, s3def['sets']['dataset']['bucket'], args.validationset, 
+        args.val_image_path,
+        args.class_dict, 
+        args.height, 
+        args.width, 
+        imflags=args.imflags, 
+        transform=transform)
+    valloader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
 
     '''transform = {
         'train': transforms.Compose([
@@ -297,14 +323,8 @@ def Test(args):
         ]),
     }'''
 
-    trainset = torchvision.datasets.VOCSegmentation(root=args.dataset_path, image_set='train', download=True, transform=transform)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=pin_memory)
-
-    testset = torchvision.datasets.VOCSegmentation(root=args.dataset_path, image_set='val', download=True, transform=transform)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
-
     # Create classifier
-    segment = Network2d(len(classes), is_cuda=args.cuda)
+    segment = Network2d(trainingset.coco.objDict['classes'], is_cuda=args.cuda)
 
     #I think that setting device here eliminates the need to sepcificy device in Network2D
     segment.to(device)
@@ -358,13 +378,14 @@ def Test(args):
                 weight_std, weight_mean, bias_std, bias_mean = model_stats(segment)
                 #print('[%d, %d] cross_entropy_loss: %.3f dims_norm: %.3f' % (epoch + 1, i + 1, cross_entropy_loss, dims_norm))
                 #print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.3f}, dims: {}'.format(epoch + 1, i + 1, running_loss, dims_norm, all_dims))
-                print('[{}, {:05d}] cross_entropy_loss: {:0.3f} architecture_loss: {:0.3f} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(epoch + 1, i + 1, running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
+                print('[{}, {:05d}] cross_entropy_loss: {:0.3f} architecture_loss: {:0.3f} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(
+                    epoch + 1, i + 1, running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
                 running_loss = 0.0
             
             #print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.4f}, norm_depth_loss: {:0.3f}, cell_depths: {}'.format(epoch + 1, i + 1, cross_entropy_loss, dims_norm, norm_depth_loss, cell_depths))
 
         running_loss = 0.0
-        for i, data in enumerate(testloader, 0):
+        for i, data in enumerate(valloader, 0):
             # get the inputs; data is a list of [inputs, labels]
             inputs, labels = data
             if args.cuda:
@@ -384,7 +405,8 @@ def Test(args):
                 weight_std, weight_mean, bias_std, bias_mean = model_stats(segment)
                 #print('[%d, %d] cross_entropy_loss: %.3f dims_norm: %.3f' % (epoch + 1, i + 1, cross_entropy_loss, dims_norm))
                 #print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.3f}, dims: {}'.format(epoch + 1, i + 1, running_loss, dims_norm, all_dims))
-                print('Test cross_entropy_loss: {:0.3f} architecture_loss: {:0.3f} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
+                print('Test cross_entropy_loss: {:0.3f} architecture_loss: {:0.3f} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(
+                    running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
                 running_loss = 0.0
             
             # print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.4f}, norm_depth_loss: {:0.3f}, cell_depths: {}'.format(epoch + 1, i + 1, cross_entropy_loss, dims_norm, norm_depth_loss, cell_depths))

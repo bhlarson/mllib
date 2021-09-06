@@ -15,13 +15,14 @@ from utils.jsonutil import ReadDictJson
 
 class CocoStore:
 
-    def __init__(self, s3, bucket, dataset_desc, image_paths, class_dictionary, imflags=cv2.IMREAD_COLOR, name_deccoration=''):
+    def __init__(self, s3, bucket, dataset_desc, image_paths, class_dictionary, imflags=cv2.IMREAD_COLOR, name_decoration='' ):
+
         self.s3 = s3
         self.bucket = bucket
         self.dataset_desc = dataset_desc
         self.class_dictionary = class_dictionary
         self.image_paths = image_paths
-        self.name_deccoration = name_deccoration
+        self.name_decoration = name_decoration
         self.imflags = imflags
 
         self.objDict = s3.GetDict(bucket,class_dictionary)
@@ -142,12 +143,11 @@ class CocoStore:
     def __getitem__(self, idx):
         if idx >= 0 and idx < self.len():
             img_entry = self.dataset['images'][idx]
-            imgFile = '{}/{}{}'.format(self.image_paths,self.name_deccoration,img_entry['file_name'])
+            imgFile = '{}/{}{}'.format(self.image_paths,self.name_decoration,img_entry['file_name'])
             img = self.DecodeImage(self.bucket, imgFile)
             ann_entry = self.imgToAnns[img_entry['id']]
             ann = self.drawann(img_entry, ann_entry)
             classes = self.classes(ann_entry)
-
             result = {'img':img, 'ann':ann, 'classes':classes}
 
             return result
@@ -167,14 +167,38 @@ class CocoStore:
         return img
 
 class CocoDataset(Dataset):
-    def __init__(self, s3, bucket, dataset_desc, image_paths, class_dictionary, height=480, width=640, imflags=cv2.IMREAD_COLOR, transform=None, target_transform=None, name_deccoration=''):
-        self.transform = transform
+    def __init__(self, s3, bucket, dataset_desc, image_paths, class_dictionary, 
+        height=480, 
+        width=640, 
+        imflags=cv2.IMREAD_COLOR, 
+        torch_transform=None, 
+        target_transform=None, 
+        name_decoration='',
+        normalize=True, 
+        enable_transform=True, 
+        flipX=True, 
+        flipY=False, 
+        rotate=15, 
+        scale_min=0.75, 
+        scale_max=1.25, 
+        offset=0.1
+    ):
+        self.torch_transform = torch_transform
         self.target_transform = target_transform
         self.height = height
         self.width = width
         self.imflags = imflags
 
-        self.coco = CocoStore(s3, bucket, dataset_desc, image_paths, class_dictionary, imflags=self.imflags, name_deccoration=name_deccoration)
+        self.normalize = normalize
+        self.enable_transform = enable_transform
+        self.flipX = flipX
+        self.flipY = flipY
+        self.rotate = rotate
+        self.scale_min = scale_min
+        self.scale_max = scale_max
+        self.offset = offset
+
+        self.coco = CocoStore(s3, bucket, dataset_desc, image_paths, class_dictionary, imflags=self.imflags, name_decoration=name_decoration)
 
 
     # Expect img.shape[0]==ann.shape[0] and ann.shape[0]==ann.shape[0]
@@ -202,6 +226,32 @@ class CocoDataset(Dataset):
             img = cv2.copyMakeBorder(img, top, bottom, left, right, borderType, None, borderValue)
             ann = cv2.copyMakeBorder(ann, top, bottom, left, right, borderType, None, borderValue)
 
+        if self.enable_transform:
+                height, width = img.shape[:2]
+
+                matFlip = np.identity(3)
+                if self.flipX and np.random.choice(np.array([True, False])):
+                    matFlip[0,0] *= -1.0
+                    matFlip[0,2] += width-1
+                if self.flipY and np.random.choice(np.array([True, False])):
+                    matFlip[1,1] *= -1.0
+                    matFlip[1,2] += height-1
+
+                scale = np.random.uniform(self.scale_min, self.scale_max)
+                angle = np.random.uniform(-self.rotate, self.rotate)
+                offsetX = width*np.random.uniform(-self.offset, self.offset)
+                offsetY = height*np.random.uniform(-self.offset, self.offset)
+                center = (width/2.0 + offsetX, height/2.0 + offsetY)
+                matRot = cv2.getRotationMatrix2D(center, angle, scale)
+                matRot = np.append(matRot, [[0,0,1]],axis= 0)
+
+                mat = np.matmul(matFlip, matRot)
+                mat = mat[0:2]
+
+
+                img = cv2.warpAffine(src=img, M=mat, dsize=(width, height))
+                ann = cv2.warpAffine(src=ann, M=mat, dsize=(width, height))
+
         # Crop
         height = img.shape[0]
         width = img.shape[1]
@@ -225,9 +275,9 @@ class CocoDataset(Dataset):
         if result is not None:
             image = result['img']
             label = result['ann']
-            if self.transform:
-                image = self.transform(image)
-                label = self.transform(label)
+            if self.torch_transform:
+                image = self.torch_transform(image)
+                label = self.torch_transform(label)
 
             if self.width is not None and self.height is not None:
                 image, label = self.random_resize_crop_or_pad(image, label,  self.height, self.width)
@@ -288,7 +338,7 @@ def parse_arguments():
     parser.add_argument('-training', type=str, default='segmin', help='Credentials file.')
     parser.add_argument('-num_images', type=int, default=10, help='Maximum number of images to display')
     parser.add_argument('-batch_size', type=int, default=4, help='Maximum number of images to display')
-    parser.add_argument('-test_iterator', type=bool, default=False, help='Maximum number of images to display')
+    parser.add_argument('-test_iterator', type=bool, default=True, help='Maximum number of images to display')
     parser.add_argument('-test_dataset', type=bool, default=True, help='Maximum number of images to display')
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
     parser.add_argument('-width', type=int, default=640, help='Batch image width')

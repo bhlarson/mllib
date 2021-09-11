@@ -5,6 +5,7 @@ import numpy as np
 import cv2
 import json
 from collections import defaultdict
+import torch
 from torch.utils.data import Dataset
 from torchvision import datasets
 from torch.utils.data import DataLoader
@@ -161,18 +162,20 @@ class CocoStore:
         annrgb = np.dstack(annrgb) 
         return annrgb
 
-    def MergeIman(self, img, ann):
+    def MergeIman(self, img, ann, mean=None, stDev = None):
+        if mean is not None and stDev is not None:
+            img = (img*stDev) + mean
+
         ann = self.ColorizeAnnotation(ann)
         img = (img*ann).astype(np.uint8)
         return img
 
 class CocoDataset(Dataset):
     def __init__(self, s3, bucket, dataset_desc, image_paths, class_dictionary, 
-        height=480, 
+        height=640, 
         width=640, 
         imflags=cv2.IMREAD_COLOR, 
         torch_transform=None, 
-        target_transform=None, 
         name_decoration='',
         normalize=True, 
         enable_transform=True, 
@@ -181,10 +184,10 @@ class CocoDataset(Dataset):
         rotate=15, 
         scale_min=0.75, 
         scale_max=1.25, 
-        offset=0.1
+        offset=0.1,
+        astype=None
     ):
         self.torch_transform = torch_transform
-        self.target_transform = target_transform
         self.height = height
         self.width = width
         self.imflags = imflags
@@ -197,12 +200,25 @@ class CocoDataset(Dataset):
         self.scale_min = scale_min
         self.scale_max = scale_max
         self.offset = offset
+        self.astype = astype
 
         self.coco = CocoStore(s3, bucket, dataset_desc, image_paths, class_dictionary, imflags=self.imflags, name_decoration=name_decoration)
 
 
     # Expect img.shape[0]==ann.shape[0] and ann.shape[0]==ann.shape[0]
     def random_resize_crop_or_pad(self, img, ann, target_height, target_width, borderType=cv2.BORDER_CONSTANT, borderValue=0):
+        imgMean = None
+        imgStd = None
+        imgtype = img.dtype.name
+        if self.normalize:
+            imgMean = np.mean(img)
+            imgStd = np.std(img)
+            img = (img - imgMean)/imgStd
+        
+        if self.astype is not None:
+            img = img.astype(self.astype)
+        elif img.dtype.name is not  imgtype:
+            img = img.astype(imgtype)
 
         height = img.shape[0]
         width = img.shape[1]
@@ -226,6 +242,7 @@ class CocoDataset(Dataset):
             img = cv2.copyMakeBorder(img, top, bottom, left, right, borderType, None, borderValue)
             ann = cv2.copyMakeBorder(ann, top, bottom, left, right, borderType, None, borderValue)
 
+        # Transform
         if self.enable_transform:
                 height, width = img.shape[:2]
 
@@ -258,14 +275,21 @@ class CocoDataset(Dataset):
         maxX = width - target_width
         maxY = height - target_height
 
-        if maxX > 0 or maxY > 0:
+        crop = False
+        startX = 0
+        startY = 0
+        if maxX > 0:
             startX = np.random.randint(0, maxX)
+            crop = True
+        if  maxY > 0:
             startY = np.random.randint(0, maxY)
+            crop = True
+        if crop:
 
             img = img[startY:startY+target_height, startX:startX+target_width]
             ann = ann[startY:startY+target_height, startX:startX+target_width]
 
-        return img, ann
+        return img, ann, imgMean, imgStd
 
     def __len__(self):
         return self.coco.len()
@@ -275,17 +299,18 @@ class CocoDataset(Dataset):
         if result is not None:
             image = result['img']
             label = result['ann']
+
+            if self.width is not None and self.height is not None:
+                image, label, imgMean, imgStd = self.random_resize_crop_or_pad(image, label,  self.height, self.width)
+
             if self.torch_transform:
                 image = self.torch_transform(image)
                 label = self.torch_transform(label)
-
-            if self.width is not None and self.height is not None:
-                image, label = self.random_resize_crop_or_pad(image, label,  self.height, self.width)
         else:
             image=None
             label=None
             print('CocoDataset.__getitem__ idx {} returned result=None.'.format(idx))
-        return image, label
+        return image, label, imgMean, imgStd
 
 def Test(args):
 
@@ -311,10 +336,10 @@ def Test(args):
         train_dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
         i = 0
         while i < args.num_images:
-            train_features, train_labels = next(iter(train_dataloader))
+            train_features, train_labels, train_mean, train_stdev = next(iter(train_dataloader))
             j = 0
             while j < args.batch_size and i < args.num_images:
-                img = dataset.coco.MergeIman(train_features[j].numpy(), train_labels[j].numpy())
+                img = dataset.coco.MergeIman(train_features[j], train_labels[j], train_mean[j], train_stdev[j])
                 cv2.imwrite('cocostoredataset{:03d}.png'.format(i),img)
                 i += 1
                 j += 1
@@ -338,7 +363,7 @@ def parse_arguments():
     parser.add_argument('-training', type=str, default='segmin', help='Credentials file.')
     parser.add_argument('-num_images', type=int, default=10, help='Maximum number of images to display')
     parser.add_argument('-batch_size', type=int, default=4, help='Maximum number of images to display')
-    parser.add_argument('-test_iterator', type=bool, default=True, help='Maximum number of images to display')
+    parser.add_argument('-test_iterator', type=bool, default=False, help='Maximum number of images to display')
     parser.add_argument('-test_dataset', type=bool, default=True, help='Maximum number of images to display')
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
     parser.add_argument('-width', type=int, default=640, help='Batch image width')

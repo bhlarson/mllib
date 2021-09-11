@@ -11,7 +11,7 @@ import cv2
 
 sys.path.insert(0, os.path.abspath(''))
 from networks.cell2d import Cell
-from utils.torch_util import count_parameters, model_stats
+from utils.torch_util import count_parameters, model_stats, model_weights
 from utils.jsonutil import ReadDictJson
 from utils.s3 import s3store, Connect
 from datasets.cocostore import CocoDataset
@@ -27,7 +27,7 @@ class Network2d(nn.Module):
         self.is_cuda = is_cuda
         self.cell = cell
         self.max_cell_steps = max_cell_steps
-        self.depth = torch.nn.Parameter(torch.ones(1)*search_depth) # Initial search depth parameter = search_depth_range
+        self.depth = torch.nn.Parameter(torch.ones(1)*search_depth) # Initial depth parameter = search_depth
 
         self.encode_decode = torch.nn.ModuleList()
         self.upsample = torch.nn.ModuleList()
@@ -35,21 +35,24 @@ class Network2d(nn.Module):
 
         encoder_channels = initial_channels
         prev_encoder_chanels = source_channels
+        feedforward_chanels = []
 
-        for i in range(search_depth):
+        for i in range(self.search_depth-1):
             self.encode_decode.append(cell(max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda))
+            feedforward_chanels.append(encoder_channels)
             prev_encoder_chanels = encoder_channels
             encoder_channels = int(channel_multiple*encoder_channels)
 
-        encoder_channels = prev_encoder_chanels
-        for i in range(search_depth-1):
-            prev_encoder_chanels = encoder_channels
-            encoder_channels = int(encoder_channels/channel_multiple)
-            self.encode_decode.append(cell(max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda))
+        self.encode_decode.append(cell(max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda))
+
+        for i in range(self.search_depth-1):
             self.upsample.append(nn.ConvTranspose2d(encoder_channels, encoder_channels, 2, stride=2))
 
-        self.final_conv = cell(max_cell_steps, out_channels, encoder_channels, is_cuda=self.is_cuda)
+            prev_encoder_chanels = encoder_channels
+            encoder_channels = int(encoder_channels/channel_multiple)
+            self.encode_decode.append(cell(max_cell_steps, encoder_channels, prev_encoder_chanels, feedforward_chanels[-(i+1)], is_cuda=self.is_cuda))       
 
+        self.encode_decode.append(cell(max_cell_steps, out_channels, encoder_channels, is_cuda=self.is_cuda))
         self.pool = nn.MaxPool2d(2, 2)
 
     def GaussianBasis(self, i, a, r=1.0):
@@ -59,68 +62,62 @@ class Network2d(nn.Module):
         den = torch.nn.Parameter(torch.zeros(1))
         if x.is_cuda:
             den = den.cuda()
-        for j, l in enumerate(self.cnn):
+        for j, l in enumerate(self.encode_decode):
             den = den + self.GaussianBasis(j,a,r)
         return torch.mul(torch.exp(-1*torch.square(r*(i-a)))/den, x)
 
-    def forward(self, in1):
-        y = torch.zeros(self.search_depth_range)
+    def forward(self, x):
+        y = torch.zeros(self.search_depth)
 
         feed_forward = []
-        for i in range(self.search_depth):
+        for i in range(self.search_depth-1):
             x = self.encode_decode[i](x)
             feed_forward.append(x)
             x = self.pool(x)
 
-        # Transform and process latent space here
+        # Feed-through
+        x = self.encode_decode[self.search_depth-1](x)
 
         for i in range(self.search_depth-1):
-            x = self.encode_decode[i+self.search_depth](x, feed_forward[self.search_depth-i+1])
             x = self.upsample[i](x)
+            x = self.encode_decode[i+self.search_depth](x, feed_forward[-(i+1)])
 
-        x = self.final_conv(x) # Size to output
+
+        x = self.encode_decode[-1](x) # Size to output
 
         # Continuous relaxation to select network depth
         # Normalized gaussian bias continuous weighting of depths
-        x = self.NormGausBasis(i,self.depth, x)
+        #x = self.NormGausBasis(i,self.depth, x)
         # Sum of weightings for each depth
-        y = y+x
+        #y = y+x
             
-        return y
+        #return y
+        return x
 
     def ApplyStructure(self, in_channels=None):
         print('ApplyStructure')
 
     def ArchitectureWeights(self):
-        print('ArchitectureWeights')
+        #print('ArchitectureWeights')
 
         archatecture_weights = torch.zeros(1)
-        total_trainable_weights = torch.zeros(1)
+        total_trainable_weights = torch.tensor(model_weights(self))
 
         if self.is_cuda:
             archatecture_weights = archatecture_weights.cuda()
             total_trainable_weights = total_trainable_weights.cuda()
 
-        for j, depth in enumerate(self.search_depth_min, self.search_depth_min+self.search_depth_range):
-            cells = self.depths(j)
+        for j in range(self.search_depth-1):
             
-            archatecture_weight = torch.zeros(1)
-            if self.is_cuda:
-                archatecture_weight = archatecture_weight.cuda()
+            encode_archatecture_weights, _ = self.encode_decode[j].ArchitectureWeights()
+            decode_archatecture_weights, _ = self.encode_decode[-(j+2)].ArchitectureWeights()
+            resize_archatecture_weights = torch.tensor(model_weights(self.upsample[j]))
 
-            for i in range(depth):
-                cell_archatecture_weights, cell_total_trainable_weights = cells[i].ArchitectureWeights()
-                archatecture_weight += cell_archatecture_weights
-                total_trainable_weights += cell_total_trainable_weights
+            # Sigmoid weightingof architecture weighting to reduce model depth 
+            depth_weighted_archatecture_weight = F.sigmoid(self.depth-j)*(encode_archatecture_weights+decode_archatecture_weights+resize_archatecture_weights)
+            archatecture_weights += depth_weighted_archatecture_weight
 
-            for i in range(depth-1):
-                cell_archatecture_weights, cell_total_trainable_weights = cells[i+depth].ArchitectureWeights()
-                archatecture_weight += cell_archatecture_weights
-                total_trainable_weights += cell_total_trainable_weights
-
-            archatecture_weights += self.NormGausBasis(j,self.depth, archatecture_weight)
-
-        return archatecture_weights, self.total_trainable_weights
+        return archatecture_weights, total_trainable_weights
 
 
 def parse_arguments():
@@ -137,14 +134,14 @@ def parse_arguments():
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=64, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=2, help='Training batch size')
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
     parser.add_argument('-epochs', type=int, default=1, help='Training epochs')
     parser.add_argument('-model', type=str, default='segment_nas')
     parser.add_argument('-reduce', action='store_true', help='Compress network')
     parser.add_argument('-cuda', type=bool, default=True)
-    parser.add_argument('-height', type=int, default=640, help='Batch image height')
-    parser.add_argument('-width', type=int, default=640, help='Batch image width')
+    parser.add_argument('-height', type=int, default=320, help='Batch image height')
+    parser.add_argument('-width', type=int, default=320, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')
 
     args = parser.parse_args()
@@ -249,8 +246,8 @@ class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
 
     def forward(self, input: torch.Tensor, target: torch.Tensor, network) -> torch.Tensor:
         assert self.weight is None or isinstance(self.weight, torch.Tensor)
-        loss = F.cross_entropy(input, target, weight=self.weight,
-                               ignore_index=self.ignore_index, reduction=self.reduction)
+        #loss = F.cross_entropy(input, target, weight=self.weight,reduction=self.reduction)
+        loss = F.cross_entropy(input, torch.squeeze(target).long())
 
         dims = []
         depths = []
@@ -286,25 +283,27 @@ def Test(args):
 
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
 
-    trainingset = CocoDataset(s3, s3def['sets']['dataset']['bucket'], args.trainingset, 
-        args.train_image_path,
-        args.class_dict, 
-        args.height, 
-        args.width, 
+    trainingset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.trainingset, 
+        image_paths=args.train_image_path,
+        class_dictionary=args.class_dict, 
+        height=args.height, 
+        width=args.width, 
         imflags=args.imflags, 
-        transform=transform)
+        torch_transform=transform, 
+        astype='float32')
+
     trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=pin_memory)
 
-    valset = CocoDataset(s3, s3def['sets']['dataset']['bucket'], args.validationset, 
-        args.val_image_path,
-        args.class_dict, 
-        args.height, 
-        args.width, 
+    valset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
+        image_paths=args.val_image_path,
+        class_dictionary=args.class_dict, 
+        height=args.height, 
+        width=args.width, 
         imflags=args.imflags, 
-        transform=transform)
+        torch_transform=transform, 
+        astype='float32')
     valloader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
 
     '''transform = {
@@ -354,7 +353,7 @@ def Test(args):
         running_loss = 0.0
         for i, data in enumerate(trainloader, 0):
             # get the inputs; data is a list of [inputs, labels]
-            inputs, labels = data
+            inputs, labels, mean, stdev = data
 
             if args.cuda:
                 inputs = inputs.cuda()
@@ -387,7 +386,7 @@ def Test(args):
         running_loss = 0.0
         for i, data in enumerate(valloader, 0):
             # get the inputs; data is a list of [inputs, labels]
-            inputs, labels = data
+            inputs, labels, mean, stdev = data
             if args.cuda:
                 inputs = inputs.cuda()
                 labels = labels.cuda()

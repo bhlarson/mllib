@@ -136,11 +136,12 @@ class Cell(nn.Module):
 
         # First convolution uses in1_channels+in2_channels is input chanels. 
         # Remaining convoutions uses out_channels as chanels
-        self.channel_in = in1_channels+in2_channels
+        self.in1_channels = in1_channels
+        self.in2_channels = in2_channels
         self.channel_out = out_channels
         self.feature_threshold = feature_threshold
 
-        self.conv_size = ConvBR(self.channel_in, self.channel_out, batch_norm, relu, kernel_size, stride, dilation, groups, bias, padding_mode)
+        self.conv_size = ConvBR(self.in1_channels+self.in2_channels, self.channel_out, batch_norm, relu, kernel_size, stride, dilation, groups, bias, padding_mode)
 
         for i in range(self.steps):
             conv = ConvBR(self.channel_out, self.channel_out, batch_norm, relu, kernel_size, stride, dilation, groups, bias, padding_mode)
@@ -210,7 +211,7 @@ class Cell(nn.Module):
 
     def forward(self, in1, in2 = None):
         if in2 is not None:
-            x = torch.cat((in1, in2))
+            x = torch.cat((in1, in2), dim=1)
         else:
             x = in1
 
@@ -224,7 +225,7 @@ class Cell(nn.Module):
             for i, l in enumerate(self.cnn):
                 x = self.cnn[i](x)
                 x = self.NormGausBasis(i,self.depth, x)
-                y = y+x
+                y = y+x # Residual connection
         # Frozen structure
         else:
             for i, l in enumerate(self.cnn):

@@ -39,7 +39,8 @@ RUN pip3 --no-cache-dir install \
         wget \
         configparser \
         pycocotools==2.0.1 \
-        prettytable
+        prettytable \
+        sklearn
 
 # Tutorial dependencies
 RUN pip3 --no-cache-dir install \

@@ -248,23 +248,6 @@ class Cell(nn.Module):
 
         return archatecture_weights, self.total_trainable_weights
     
-
-def parse_arguments():
-    parser = argparse.ArgumentParser(description='Process arguments')
-
-    parser.add_argument('-debug', action='store_true',help='Wait for debuggee attach')   
-    parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
-
-    parser.add_argument('-batch_size', type=int, default=64, help='Training batch size')
-    parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
-    parser.add_argument('-epochs', type=int, default=1, help='Training epochs')
-    parser.add_argument('-model', type=str, default='model')
-    parser.add_argument('-reduce', action='store_true', help='Compress network')
-    parser.add_argument('-cuda', type=bool, default=True)
-
-    args = parser.parse_args()
-    return args
-
 class Classify(nn.Module):
     def __init__(self, is_cuda=False):
         super().__init__()
@@ -436,6 +419,27 @@ class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
         total_loss = loss + self.k_dims*architecture_loss
         return total_loss,  loss, architecture_loss
 
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='Process arguments')
+
+    parser.add_argument('-debug', action='store_true',help='Wait for debuggee attach')   
+    parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
+
+    parser.add_argument('-batch_size', type=int, default=64, help='Training batch size')
+    parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
+    parser.add_argument('-epochs', type=int, default=1, help='Training epochs')
+    parser.add_argument('-model', type=str, default='model')
+    parser.add_argument('-reduce', action='store_true', help='Compress network')
+    parser.add_argument('-cuda', type=bool, default=True)
+
+    parser.add_argument('-train', type=bool, default=True)
+    parser.add_argument('-test', type=bool, default=True)
+    parser.add_argument('-prune', type=bool, default=True)
+    parser.add_argument('-infer', type=bool, default=True)
+
+    args = parser.parse_args()
+    return args
+
 # Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
 def Test(args):
     print('Cell Test')
@@ -486,66 +490,68 @@ def Test(args):
     #optimizer = optim.SGD(classify.parameters(), lr=0.001, momentum=0.9)
     optimizer = optim.Adam(classify.parameters(), lr=0.001)
 
-    # Train
     for epoch in range(args.epochs):  # loop over the dataset multiple times
 
-        running_loss = 0.0
-        for i, data in enumerate(trainloader, 0):
-            # get the inputs; data is a list of [inputs, labels]
-            inputs, labels = data
+        # Train
+        if args.train:
+            running_loss = 0.0
+            for i, data in enumerate(trainloader, 0):
+                # get the inputs; data is a list of [inputs, labels]
+                inputs, labels = data
 
-            if args.cuda:
-                inputs = inputs.cuda()
-                labels = labels.cuda()
+                if args.cuda:
+                    inputs = inputs.cuda()
+                    labels = labels.cuda()
 
-            # zero the parameter gradients
-            optimizer.zero_grad()
+                # zero the parameter gradients
+                optimizer.zero_grad()
 
-            # forward + backward + optimize
-            outputs = classify(inputs)
-            # loss, cross_entropy_loss, dims_norm, all_dims, norm_depth_loss, cell_depths  = criterion(outputs, labels, classify)
-            loss, cross_entropy_loss, architecture_loss  = criterion(outputs, labels, classify)
-            loss.backward()
-            optimizer.step()
+                # forward + backward + optimize
+                outputs = classify(inputs)
+                # loss, cross_entropy_loss, dims_norm, all_dims, norm_depth_loss, cell_depths  = criterion(outputs, labels, classify)
+                loss, cross_entropy_loss, architecture_loss  = criterion(outputs, labels, classify)
+                loss.backward()
+                optimizer.step()
 
-            # print statistics
-            running_loss += cross_entropy_loss.item()
-            if i % 20 == 19:    # print every 2000 mini-batches
-                running_loss /=20
+                # print statistics
+                running_loss += cross_entropy_loss.item()
+                if i % 20 == 19:    # print every 2000 mini-batches
+                    running_loss /=20
 
-                weight_std, weight_mean, bias_std, bias_mean = model_stats(classify)
-                #print('[%d, %d] cross_entropy_loss: %.3f dims_norm: %.3f' % (epoch + 1, i + 1, cross_entropy_loss, dims_norm))
-                #print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.3f}, dims: {}'.format(epoch + 1, i + 1, running_loss, dims_norm, all_dims))
-                print('[{}, {:05d}] cross_entropy_loss: {:0.3f} architecture_loss: {:0.3f} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(epoch + 1, i + 1, running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
-                running_loss = 0.0
-            
-            #print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.4f}, norm_depth_loss: {:0.3f}, cell_depths: {}'.format(epoch + 1, i + 1, cross_entropy_loss, dims_norm, norm_depth_loss, cell_depths))
+                    weight_std, weight_mean, bias_std, bias_mean = model_stats(classify)
+                    #print('[%d, %d] cross_entropy_loss: %.3f dims_norm: %.3f' % (epoch + 1, i + 1, cross_entropy_loss, dims_norm))
+                    #print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.3f}, dims: {}'.format(epoch + 1, i + 1, running_loss, dims_norm, all_dims))
+                    print('[{}, {:05d}] cross_entropy_loss: {:0.3f} architecture_loss: {:0.3f} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(epoch + 1, i + 1, running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
+                    running_loss = 0.0
+                
+                #print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.4f}, norm_depth_loss: {:0.3f}, cell_depths: {}'.format(epoch + 1, i + 1, cross_entropy_loss, dims_norm, norm_depth_loss, cell_depths))
 
-        running_loss = 0.0
-        for i, data in enumerate(testloader, 0):
-            # get the inputs; data is a list of [inputs, labels]
-            inputs, labels = data
-            if args.cuda:
-                inputs = inputs.cuda()
-                labels = labels.cuda()
+        if args.test:
+            running_loss = 0.0
+            for i, data in enumerate(testloader, 0):
+                # get the inputs; data is a list of [inputs, labels]
+                inputs, labels = data
+                if args.cuda:
+                    inputs = inputs.cuda()
+                    labels = labels.cuda()
 
-            # forward + backward + optimize
-            outputs = classify(inputs)
-            # loss, cross_entropy_loss, dims_norm, all_dims, norm_depth_loss, cell_depths  = criterion(outputs, labels, classify)
-            loss, cross_entropy_loss, architecture_loss  = criterion(outputs, labels, classify)
+                # forward + backward + optimize
+                outputs = classify(inputs)
+                # loss, cross_entropy_loss, dims_norm, all_dims, norm_depth_loss, cell_depths  = criterion(outputs, labels, classify)
+                loss, cross_entropy_loss, architecture_loss  = criterion(outputs, labels, classify)
 
-            # print statistics
-            running_loss += cross_entropy_loss.item()
-            if i % 20 == 19:    # print every 2000 mini-batches
-                running_loss /=20
+                # print statistics
+                running_loss += cross_entropy_loss.item()
+                if i % 20 == 19:    # print every 2000 mini-batches
+                    running_loss /=20
 
-                weight_std, weight_mean, bias_std, bias_mean = model_stats(classify)
-                #print('[%d, %d] cross_entropy_loss: %.3f dims_norm: %.3f' % (epoch + 1, i + 1, cross_entropy_loss, dims_norm))
-                #print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.3f}, dims: {}'.format(epoch + 1, i + 1, running_loss, dims_norm, all_dims))
-                print('Test cross_entropy_loss: {:0.3f} architecture_loss: {:0.3f} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
-                running_loss = 0.0
-            
-            # print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.4f}, norm_depth_loss: {:0.3f}, cell_depths: {}'.format(epoch + 1, i + 1, cross_entropy_loss, dims_norm, norm_depth_loss, cell_depths))
+                    weight_std, weight_mean, bias_std, bias_mean = model_stats(classify)
+                    #print('[%d, %d] cross_entropy_loss: %.3f dims_norm: %.3f' % (epoch + 1, i + 1, cross_entropy_loss, dims_norm))
+                    #print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.3f}, dims: {}'.format(epoch + 1, i + 1, running_loss, dims_norm, all_dims))
+                    print('Test cross_entropy_loss: {:0.3f} architecture_loss: {:0.3f} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
+                    running_loss = 0.0
+                
+                # print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.4f}, norm_depth_loss: {:0.3f}, cell_depths: {}'.format(epoch + 1, i + 1, cross_entropy_loss, dims_norm, norm_depth_loss, cell_depths))
 
     if args.model:
         if args.reduce:
@@ -553,7 +559,7 @@ def Test(args):
         else:
             torch.save(classify.state_dict(), full_filename)
 
-    print('Finished Training')
+    print('Finished network2d Test')
 
 
 if __name__ == '__main__':

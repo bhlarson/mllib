@@ -7,7 +7,7 @@ import json
 from collections import defaultdict
 import torch
 from torch.utils.data import Dataset
-from torchvision import datasets
+from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
 sys.path.insert(0, os.path.abspath(''))
@@ -26,7 +26,6 @@ class CocoStore:
         self.name_decoration = name_decoration
         self.imflags = imflags
 
-        self.objDict = s3.GetDict(bucket,class_dictionary)
         self.dataset = s3.GetDict(bucket,dataset_desc)
 
 
@@ -58,8 +57,8 @@ class CocoStore:
             for ann in self.dataset['annotations']:
                 catToImgs[ann['category_id']].append(ann['image_id'])
 
-        if self.objDict is not None:
-            for obj in self.objDict['objects']:
+        if self.class_dictionary  is not None:
+            for obj in self.class_dictionary ['objects']:
                 catToObj[obj['id']] = obj
                 objs[obj['trainId']] = {'category':obj['category'], 
                                         'color':obj['color'],
@@ -80,18 +79,18 @@ class CocoStore:
 
     def CreateLut(self):
         self.lut = np.zeros([256,3], dtype=np.uint8)
-        for obj in self.objDict['objects']: # Load RGB colors as BGR
+        for obj in self.class_dictionary ['objects']: # Load RGB colors as BGR
             self.lut[obj['trainId']][0] = obj['color'][2]
             self.lut[obj['trainId']][1] = obj['color'][1]
             self.lut[obj['trainId']][2] = obj['color'][0]
         self.lut = self.lut.astype(np.float) * 1/255. # scale colors 0-1
-        self.lut[self.objDict['background']] = [1.0,1.0,1.0] # Pass Through
+        self.lut[self.class_dictionary ['background']] = [1.0,1.0,1.0] # Pass Through
 
     def drawann(self, imgDef, anns):
         annimg = np.zeros(shape=[imgDef['height'], imgDef['width']], dtype=np.uint8)
         for ann in anns:
             obj = self.catToObj[ann['category_id']]
-            if obj['trainId'] < self.objDict["classes"]:
+            if obj['trainId'] < self.class_dictionary ["classes"]:
                 if type(ann['segmentation']) is list:
                     for i in range(len(ann['segmentation'])):
                         contour = np.rint(np.reshape(ann['segmentation'][i], (-1, 2))).astype(np.int32)
@@ -104,7 +103,7 @@ class CocoStore:
                 else:
                     print('unexpected segmentation')
             else:
-                print('trainId {} >= classes {}'.format(obj['trainId'], self.objDict["classes"]))    
+                print('trainId {} >= classes {}'.format(obj['trainId'], self.class_dictionary ["classes"]))    
         return annimg
 
     def __iter__(self):
@@ -112,11 +111,11 @@ class CocoStore:
         return self
 
     def classes(self, anns):
-        class_vector = np.zeros(self.objDict['classes'], dtype=np.float32)
+        class_vector = np.zeros(self.class_dictionary ['classes'], dtype=np.float32)
 
         for ann in anns:
             obj = self.catToObj[ann['category_id']]
-            if obj['trainId'] < self.objDict["classes"]:
+            if obj['trainId'] < self.class_dictionary ["classes"]:
                 class_vector[obj['trainId']] = 1.0
 
         return class_vector
@@ -175,7 +174,8 @@ class CocoDataset(Dataset):
         height=640, 
         width=640, 
         imflags=cv2.IMREAD_COLOR, 
-        torch_transform=None, 
+        image_transform=None,
+        label_transform=None,
         name_decoration='',
         normalize=True, 
         enable_transform=True, 
@@ -185,9 +185,10 @@ class CocoDataset(Dataset):
         scale_min=0.75, 
         scale_max=1.25, 
         offset=0.1,
-        astype=None
+        astype='float32'
     ):
-        self.torch_transform = torch_transform
+        self.image_transform = image_transform
+        self.label_transform = label_transform
         self.height = height
         self.width = width
         self.imflags = imflags
@@ -303,9 +304,14 @@ class CocoDataset(Dataset):
             if self.width is not None and self.height is not None:
                 image, label, imgMean, imgStd = self.random_resize_crop_or_pad(image, label,  self.height, self.width)
 
-            if self.torch_transform:
-                image = self.torch_transform(image)
-                label = self.torch_transform(label)
+            image = torch.from_numpy(image).permute(2, 0, 1)
+            label = torch.from_numpy(label)
+
+            if self.image_transform:
+                image = self.image_transform(image)
+            if self.label_transform:
+                label = self.label_transform(label)
+            
         else:
             image=None
             label=None

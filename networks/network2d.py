@@ -2,6 +2,7 @@ import math
 import os
 import sys
 import copy
+import io
 import numpy as np
 import torch
 import torch.nn as nn
@@ -216,11 +217,10 @@ class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
     ignore_index: int
 
     def __init__(self, weight: Optional[torch.Tensor] = None, size_average=None, ignore_index: int = -100,
-                 reduce=None, reduction: str = 'mean') -> None:
+                 reduce=None, reduction: str = 'mean', k_structure=0.0) -> None:
         super(CrossEntropyRuntimeLoss, self).__init__(weight, size_average, reduce, reduction)
         self.ignore_index = ignore_index
-        self.k_dims = 0.01
-        self.k_depth = 3.0
+        self.k_structure = k_structure
         self.softsign = nn.Softsign()
 
     def forward(self, input: torch.Tensor, target: torch.Tensor, network) -> torch.Tensor:
@@ -233,7 +233,7 @@ class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
         archatecture_weights, total_trainable_weights = network.ArchitectureWeights()
         architecture_loss = archatecture_weights/total_trainable_weights
 
-        total_loss = loss + self.k_dims*architecture_loss
+        total_loss = loss + self.k_structure*architecture_loss
         return total_loss,  loss, architecture_loss
 
 def parse_arguments():
@@ -252,14 +252,21 @@ def parse_arguments():
 
     parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
-    parser.add_argument('-epochs', type=int, default=1, help='Training epochs')
-    parser.add_argument('-model', type=str, default='segment_nas')
+    parser.add_argument('-epochs', type=int, default=3, help='Training epochs')
+    parser.add_argument('-model_src', type=str, default=None)
+    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_640x640.pt')
+    parser.add_argument('-test_results', type=str, default='segmin/test_results.json')
     parser.add_argument('-reduce', action='store_true', help='Compress network')
     parser.add_argument('-cuda', type=bool, default=True)
-    parser.add_argument('-height', type=int, default=320, help='Batch image height')
-    parser.add_argument('-width', type=int, default=320, help='Batch image width')
+    parser.add_argument('-height', type=int, default=640, help='Batch image height')
+    parser.add_argument('-width', type=int, default=640, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')
     parser.add_argument('-fast', type=bool, default=False, help='Fast debug run')
+    parser.add_argument('-learning_rate', type=float, default=0.0001, help='Adam learning rate')
+    parser.add_argument('-search_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
+    parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
+    parser.add_argument('-channel_multiple', type=float, default=1.5, help='maximum number of layers to grow per level')
+    parser.add_argument('-k_structure', type=float, default=0.0, help='Structure minimization weighting fator')
 
     parser.add_argument('-train', type=bool, default=True)
     parser.add_argument('-test', type=bool, default=True)
@@ -267,6 +274,7 @@ def parse_arguments():
     parser.add_argument('-infer', type=bool, default=True)
 
     parser.add_argument('-test_dir', type=str, default='test/nasseg')
+    
 
     args = parser.parse_args()
     return args
@@ -314,7 +322,8 @@ def Test(args):
             height=args.height, 
             width=args.width, 
             imflags=args.imflags, 
-            astype='float32')
+            astype='float32',
+            enable_transform=False)
         valloader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
 
     '''transform = {
@@ -334,17 +343,18 @@ def Test(args):
     }'''
 
     # Create classifier
-    segment = Network2d(class_dictionary['classes'], is_cuda=args.cuda)
+    segment = Network2d(class_dictionary['classes'], 
+        is_cuda=args.cuda, 
+        search_depth=args.search_depth, 
+        max_cell_steps=args.max_cell_steps, 
+        channel_multiple=args.channel_multiple)
 
     #I think that setting device here eliminates the need to sepcificy device in Network2D
     segment.to(device)
 
-
-    full_filename = args.model+".pt"
-    compressed_filename = args.model+"_min.pt"
-
-    if os.path.exists(full_filename):
-        segment.load_state_dict(torch.load(full_filename))
+    if(args.model_src and args.model_src != ''):
+        model_buffer = io.BytesIO(s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_src )))
+        segment.load_state_dict(torch.load(model_buffer))
 
     total_parameters = count_parameters(segment)
 
@@ -354,9 +364,9 @@ def Test(args):
         print('Reduced parameters {}/{} = {}'.format(reduced_parameters, total_parameters, reduced_parameters/total_parameters))
 
     # Define a Loss function and optimizer
-    criterion = CrossEntropyRuntimeLoss()
+    criterion = CrossEntropyRuntimeLoss(k_structure=args.k_structure)
     #optimizer = optim.SGD(segment.parameters(), lr=0.001, momentum=0.9)
-    optimizer = optim.Adam(segment.parameters(), lr=0.001)
+    optimizer = optim.Adam(segment.parameters(), lr= args.learning_rate)
 
     # Train
     for epoch in range(args.epochs):  # loop over the dataset multiple times
@@ -422,40 +432,32 @@ def Test(args):
                         running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
                     running_loss = 0.0
                 
-                print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.4f}, norm_depth_loss: {:0.3f}, cell_depths: {}'.format(epoch + 1, i + 1, cross_entropy_loss, dims_norm, norm_depth_loss, cell_depths))
+                print('[{}, {:05d}] cross_entropy_loss: {:0.3f}'.format(epoch + 1, i + 1, cross_entropy_loss))
+
                 if args.fast:
                     break
 
         if args.fast:
             break
 
-    if args.model:
-        if args.reduce:
-            torch.save(segment.state_dict(), compressed_filename)
-        elif args.train:
-            torch.save(segment.state_dict(), full_filename)
+    out_buffer = io.BytesIO()
+    torch.save(segment.state_dict(), out_buffer)
+    s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_dest ), out_buffer)
 
     if args.infer:
         config = {
             'name': 'network2d.Test',
             'batch_size': args.batch_size,
-            'trainingset': args.trainingset,
-            'validationset': args.validationset,
+            'trainingset': '{}/{}'.format(s3def['sets']['dataset']['bucket'], args.trainingset),
+            'validationset': '{}/{}'.format(s3def['sets']['dataset']['bucket'], args.validationset),
+            'model_src': '{}/{}/{}'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_src),
+            'model_dest': '{}/{}/{}'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_dest),
             'height': args.height,
             'width': args.width,
             'cuda': args.cuda
         }
 
         results = {'class similarity':{}, 'config':config, 'image':[]}
-        testset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
-            image_paths=args.val_image_path,
-            class_dictionary=class_dictionary, 
-            height=args.height, 
-            width=args.width, 
-            imflags=args.imflags,
-            astype='float32')
-
-        testloader = torch.utils.data.DataLoader(testset, batch_size=1, shuffle=False, num_workers=0, pin_memory=pin_memory)
 
         # Prepare datasets for similarity computation
         objTypes = {}
@@ -465,6 +467,20 @@ def Test(args):
                 # set name to category for objTypes and id to trainId
                 objTypes[objType['trainId']]['name'] = objType['category']
                 objTypes[objType['trainId']]['id'] = objType['trainId']
+
+        for i in objTypes:
+            results['class similarity'][i]={'intersection':0, 'union':0}
+
+        testset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
+            image_paths=args.val_image_path,
+            class_dictionary=class_dictionary, 
+            height=args.height, 
+            width=args.width, 
+            imflags=args.imflags,
+            astype='float32',
+            enable_transform=False)
+
+        testloader = torch.utils.data.DataLoader(testset, batch_size=1, shuffle=False, num_workers=0, pin_memory=pin_memory)
 
         dtSum = 0.0
         total_confusion = None
@@ -505,6 +521,10 @@ def Test(args):
 
             results['image'].append({'dt':imageTime,'similarity':imagesimilarity, 'confusion':confusion.tolist()})
 
+            if args.fast and i >= 24:
+                break
+
+
         num_images = len(testloader)
         average_time = dtSum/num_images
         sumIntersection = 0
@@ -525,36 +545,39 @@ def Test(args):
 
         now = datetime.now()
         date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
-        test_summary = {'date':date_time, 'model':config['initialmodel']}
-        test_summary['model']=config['initialmodel']
+        test_summary = {'date':date_time}
+        test_summary['model']=args.model_dest
         test_summary['class_similarity']=dataset_similarity
         test_summary['similarity']=total_similarity
         test_summary['confusion']=total_confusion.tolist()
         test_summary['images']=num_images
         test_summary['image time']=average_time
-        test_summary['batch size']=config['batch_size']
+        test_summary['batch size']=args.batch_size
         test_summary['test store'] =s3def['address']
         test_summary['test bucket'] = s3def['sets']['trainingset']['bucket']
-        test_summary['results'] = results
+        test_summary['config'] = results['config']
         
-        print ("Average time {}".format(average_time))
-        print ('Similarity: {}'.format(dataset_similarity))
+        print ("{}".format(test_summary))
 
         # If there is a way to lock this object between read and write, it would prevent the possability of loosing data
-        training_data = s3.GetDict(s3def['sets']['trainingset']['bucket'], config['test_archive']+args.tests_json)
+        training_data = s3.GetDict(s3def['sets']['model']['bucket'], 
+            '{}/{}'.format(s3def['sets']['model']['prefix'], args.test_results))
         if training_data is None:
             training_data = []
         training_data.append(test_summary)
-        s3.PutDict(s3def['sets']['trainingset']['bucket'], config['test_archive']+args.tests_json, training_data)
+        s3.PutDict(s3def['sets']['model']['bucket'], 
+            '{}/{}'.format(s3def['sets']['model']['prefix'], args.test_results),
+            training_data)
 
-        test_url = s3.GetUrl(s3def['sets']['trainingset']['bucket'], config['test_archive']+args.tests_json)
+        test_url = s3.GetUrl(s3def['sets']['model']['bucket'], 
+            '{}/{}'.format(s3def['sets']['model']['prefix'], args.test_results))
 
         print("Test results {}".format(test_url))
 
     #from utils.similarity import similarity
     #from segment.display import DrawFeatures
 
-        print('Finished Training')
+    print('Finished network2d Test')
 
 
 if __name__ == '__main__':

@@ -1,7 +1,10 @@
 # Datasets
-The dataset python programs convert datasets to [tfrecord](https://www.tensorflow.org/tutorials/load_data/tfrecord) trainingset to increase trainging and test performance.  It also enables dataset transformations.  For example, cocorecord converts all coco images to a uniform RGB pixel format, rasters image annotations into PNG images, and converts the dataset to application class indexes.  It also enables multiple datasets to be combined into one training set.
+For tensorflow training, dataset python programs convert datasets to [tfrecord](https://www.tensorflow.org/tutorials/load_data/tfrecord) trainingset to increase trainging and test performance.  It also enables dataset transformations.  For example, cocorecord converts all coco images to a uniform RGB pixel format, rasters image annotations into PNG images, and converts the dataset to application class indexes.  It also enables multiple datasets to be combined into one training set.
 
-To prepare the COCO for training, run getcoco.py to download and and store the coco dataset in the s3 object store: 
+The [Cityscapes dataset)[https://www.cityscapes-dataset.com/] may be the most [common dataset](https://paperswithcode.com/sota/semantic-segmentation-on-cityscapes) used with image segmentation algorithms.  It contains segmented outdoor images of various German cities.
+
+
+The [COCO dataset](https://cocodataset.org) provides object segmentation images and annotations.  [Coco Segmentation](https://paperswithcode.com/sota/semantic-segmentation-on-coco-stuff-test) is occasionlay used in image [segmentation papers](https://paperswithcode.com/sota/semantic-segmentation-on-coco-stuff-test) but the the mean IOU (intersection over union) scores are typically low and does not show image segmentation algorithms in the best light.  I suspect this is due to annotation errors in COCO.   To prepare the COCO for training, run getcoco.py to download and and store the coco dataset in the s3 object store: 
 ```consol
 $ ./drb  # build development docker environment
 $ ./dr  # run docker development environment 

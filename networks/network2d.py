@@ -25,7 +25,7 @@ from utils.similarity import similarity, jaccard
 # from segment.display import DrawFeatures
 
 class Network2d(nn.Module):
-    def __init__(self, out_channels, source_channels=3, initial_channels=64, is_cuda=True, search_depth=7, max_cell_steps=6, channel_multiple=1.5, cell=Cell):
+    def __init__(self, out_channels, source_channels=3, initial_channels=64, is_cuda=True, search_depth=7, max_cell_steps=6, channel_multiple=1.5, batch_norm=True, cell=Cell):
         super(Network2d, self).__init__()
 
         self.search_depth = search_depth
@@ -46,21 +46,21 @@ class Network2d(nn.Module):
         feedforward_chanels = []
 
         for i in range(self.search_depth-1):
-            self.encode_decode.append(cell(max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda))
+            self.encode_decode.append(cell(max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda, batch_norm=batch_norm))
             feedforward_chanels.append(encoder_channels)
             prev_encoder_chanels = encoder_channels
             encoder_channels = int(channel_multiple*encoder_channels)
 
-        self.encode_decode.append(cell(max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda))
+        self.encode_decode.append(cell(max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda, batch_norm=batch_norm))
 
         for i in range(self.search_depth-1):
             self.upsample.append(nn.ConvTranspose2d(encoder_channels, encoder_channels, 2, stride=2))
 
             prev_encoder_chanels = encoder_channels
             encoder_channels = int(encoder_channels/channel_multiple)
-            self.encode_decode.append(cell(max_cell_steps, encoder_channels, prev_encoder_chanels, feedforward_chanels[-(i+1)], is_cuda=self.is_cuda))       
+            self.encode_decode.append(cell(max_cell_steps, encoder_channels, prev_encoder_chanels, feedforward_chanels[-(i+1)], is_cuda=self.is_cuda, batch_norm=batch_norm))       
 
-        self.encode_decode.append(cell(max_cell_steps, out_channels, encoder_channels, is_cuda=self.is_cuda))
+        self.encode_decode.append(cell(max_cell_steps, out_channels, encoder_channels, is_cuda=self.is_cuda, batch_norm=batch_norm))
         self.pool = nn.MaxPool2d(2, 2)
 
     def GaussianBasis(self, i, a, r=1.0):
@@ -251,10 +251,9 @@ def parse_arguments():
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
     parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
-    parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
     parser.add_argument('-epochs', type=int, default=3, help='Training epochs')
-    parser.add_argument('-model_src', type=str, default=None)
-    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_640x640.pt')
+    parser.add_argument('-model_src', type=str, default='segmin/segment_nas_640x640.pt')
+    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_weight_640x640.pt')
     parser.add_argument('-test_results', type=str, default='segmin/test_results.json')
     parser.add_argument('-reduce', action='store_true', help='Compress network')
     parser.add_argument('-cuda', type=bool, default=True)
@@ -266,14 +265,15 @@ def parse_arguments():
     parser.add_argument('-search_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=1.5, help='maximum number of layers to grow per level')
-    parser.add_argument('-k_structure', type=float, default=0.0, help='Structure minimization weighting fator')
+    parser.add_argument('-k_structure', type=float, default=0.0001, help='Structure minimization weighting fator')
+    parser.add_argument('-batch_norm', type=bool, default=False)
 
-    parser.add_argument('-train', type=bool, default=True)
-    parser.add_argument('-test', type=bool, default=True)
+    parser.add_argument('-train', type=bool, default=False)
+    parser.add_argument('-test', type=bool, default=False)
     parser.add_argument('-prune', type=bool, default=False)
     parser.add_argument('-infer', type=bool, default=True)
 
-    parser.add_argument('-test_dir', type=str, default='test/nasseg')
+    parser.add_argument('-test_dir', type=str, default='/store/test/nasseg')
     
 
     args = parser.parse_args()
@@ -347,7 +347,8 @@ def Test(args):
         is_cuda=args.cuda, 
         search_depth=args.search_depth, 
         max_cell_steps=args.max_cell_steps, 
-        channel_multiple=args.channel_multiple)
+        channel_multiple=args.channel_multiple,
+        batch_norm=args.batch_norm)
 
     #I think that setting device here eliminates the need to sepcificy device in Network2D
     segment.to(device)
@@ -393,8 +394,9 @@ def Test(args):
 
                 # print statistics
                 running_loss += cross_entropy_loss.item()
-                if i % 20 == 19:    # print every 2000 mini-batches
-                    running_loss /=20
+                iDisplay = 20
+                if i % iDisplay == iDisplay-1:    # print every 20 mini-batches
+                    running_loss /=iDisplay
 
                     weight_std, weight_mean, bias_std, bias_mean = model_stats(segment)
                     #print('[%d, %d] cross_entropy_loss: %.3f dims_norm: %.3f' % (epoch + 1, i + 1, cross_entropy_loss, dims_norm))
@@ -404,45 +406,52 @@ def Test(args):
                     running_loss = 0.0
                 
                 #print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.4f}, norm_depth_loss: {:0.3f}, cell_depths: {}'.format(epoch + 1, i + 1, cross_entropy_loss, dims_norm, norm_depth_loss, cell_depths))
+                iSave = 2000
+                if i % iSave == iSave-1:    # print every 20 mini-batches
+                    out_buffer = io.BytesIO()
+                    torch.save(segment.state_dict(), out_buffer)
+                    s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_dest ), out_buffer)
 
                 if args.fast:
                     break
+
+            out_buffer = io.BytesIO()
+            torch.save(segment.state_dict(), out_buffer)
+            s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_dest ), out_buffer)
 
         if args.test:
             running_loss = 0.0
-            for i, data in enumerate(valloader, 0):
-                # get the inputs; data is a list of [inputs, labels]
-                inputs, labels, mean, stdev = data
-                if args.cuda:
-                    inputs = inputs.cuda()
-                    labels = labels.cuda()
+            with torch.no_grad():
+                for i, data in enumerate(valloader, 0):
+                    # get the inputs; data is a list of [inputs, labels]
+                    inputs, labels, mean, stdev = data
+                    if args.cuda:
+                        inputs = inputs.cuda()
+                        labels = labels.cuda()
 
-                # forward + backward + optimize
-                outputs = segment(inputs)
-                loss, cross_entropy_loss, architecture_loss  = criterion(outputs, labels, segment)
+                    # forward + backward + optimize
+                    outputs = segment(inputs)
+                    loss, cross_entropy_loss, architecture_loss  = criterion(outputs, labels, segment)
 
-                # print statistics
-                running_loss += cross_entropy_loss.item()
+                    # print statistics
+                    running_loss += cross_entropy_loss.item()
 
-                if i % 20 == 19:    # print every 2000 mini-batches
-                    running_loss /=20
+                    if i % 20 == 19:    # print every 2000 mini-batches
+                        running_loss /=20
 
-                    weight_std, weight_mean, bias_std, bias_mean = model_stats(segment)
-                    print('Test cross_entropy_loss: {:0.5e} architecture_loss: {:0.5e} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(
-                        running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
-                    running_loss = 0.0
-                
-                print('[{}, {:05d}] cross_entropy_loss: {:0.3f}'.format(epoch + 1, i + 1, cross_entropy_loss))
+                        weight_std, weight_mean, bias_std, bias_mean = model_stats(segment)
+                        print('Test cross_entropy_loss: {:0.5e} architecture_loss: {:0.5e} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(
+                            running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
+                        running_loss = 0.0
+                    
+                    #print('[{}, {:05d}] cross_entropy_loss: {:0.3f}'.format(epoch + 1, i + 1, cross_entropy_loss))
 
-                if args.fast:
-                    break
+                    if args.fast:
+                        break
 
         if args.fast:
             break
 
-    out_buffer = io.BytesIO()
-    torch.save(segment.state_dict(), out_buffer)
-    s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_dest ), out_buffer)
 
     if args.infer:
         config = {
@@ -454,7 +463,27 @@ def Test(args):
             'model_dest': '{}/{}/{}'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_dest),
             'height': args.height,
             'width': args.width,
-            'cuda': args.cuda
+            'cuda': args.cuda,
+            'train': args.train,
+            'test': args.test,
+            'prune': args.prune,
+            'reduce': args.reduce,
+            'infer': args.infer,
+            'test_dir': args.test_dir,
+            'train_image_path': args.train_image_path,
+            'val_image_path': args.val_image_path,
+            'class_dict': args.class_dict,
+            'batch_size': args.batch_size,
+            'epochs': args.epochs,
+            'cuda': args.cuda,
+            'imflags': args.imflags,
+            'fast': args.fast,
+            'learning_rate': args.learning_rate,
+            'search_depth': args.search_depth,
+            'max_cell_steps': args.max_cell_steps,
+            'channel_multiple': args.channel_multiple,
+            'k_structure': args.k_structure,
+            'batch_norm': args.batch_norm,
         }
 
         results = {'class similarity':{}, 'config':config, 'image':[]}
@@ -484,6 +513,7 @@ def Test(args):
 
         dtSum = 0.0
         total_confusion = None
+        os.makedirs(args.test_dir, exist_ok=True)
         for i, data in tqdm(enumerate(testloader)):
             image, labels, mean, stdev = data
             if args.cuda:
@@ -546,7 +576,7 @@ def Test(args):
         now = datetime.now()
         date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
         test_summary = {'date':date_time}
-        test_summary['model']=args.model_dest
+        test_summary['objects'] = objTypes
         test_summary['class_similarity']=dataset_similarity
         test_summary['similarity']=total_similarity
         test_summary['confusion']=total_confusion.tolist()

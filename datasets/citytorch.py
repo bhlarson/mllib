@@ -28,13 +28,20 @@ def str_prune(text, prefix, suffix):
 
 class CityDataset(Dataset):
 
-    def __init__(self, s3, dataset_index, classes=None, transform=None, target_transform=None):
+    def __init__(self, s3, dataset_index, classes=None, normalize=True, transform=True, flipX=False, flipY=True, rotate=15, scale_min=.75, scale_max=1.25, offset=0.1 ):
         print('CityDataset __init__')
         self.s3=s3
         self.dataset_index=dataset_index
         self.classes = classes
-        self.transform=transform
-        self.target_transform=target_transform
+
+        self.normalize = normalize
+        self.transform = transform
+        self.flipX = flipX
+        self.flipY = flipY
+        self.rotate = rotate
+        self.scale_min = scale_min
+        self.scale_max = scale_max
+        self.offset = offset
 
         # Create a list of elements from dataset
         data_lists = {}
@@ -82,6 +89,20 @@ class CityDataset(Dataset):
             instance = self.DecodeImage(data['bucket'], data['label'], cv2.IMREAD_GRAYSCALE)
             if instance is not None:
                 data['instance_buffer'] = instance
+
+        if self.transform:
+            height, width = image.shape[:2]
+
+            scale = np.random.uniform(self.scale_min, self.scale_max)
+            angle = np.random.uniform(-self.rotate, self.rotate)
+            offsetX = width*np.random.uniform(-self.offset, self.offset)
+            offsetY = height*np.random.uniform(-self.offset, self.offset)
+            center = (width/2.0 + offsetX, height/2.0 + offsetY)
+            mat = cv2.getRotationMatrix2D(center, angle, scale)
+
+            image = cv2.warpAffine(src=image, M=mat, dsize=(width, height))
+            label = cv2.warpAffine(src=label, M=mat, dsize=(width, height))
+
         return data
 
 def parse_arguments():
@@ -105,7 +126,7 @@ def Test(args):
     print('CityDataset Test')
 
     creds = ReadDictJson(args.credentails)
-    s3_creds = next(filter(lambda d: d.get('name') == args.s3_name, creds), None)
+    s3_creds = next(filter(lambda d: d.get('name') == args.s3_name, creds['s3']), None)
     s3 = Connect(s3_creds)
     s3_index = s3.GetDict(s3_creds['index']['bucket'],s3_creds['index']['prefix'] )
     dataset = s3_index['sets']['dataset']

@@ -204,8 +204,13 @@ class s3store:
         # List all object paths in bucket that begin with my-prefixname.
         try:
             self.MakeBucket(bucket)
-            objStream = io.BytesIO(obj)
-            self.s3.put_object(bucket, object_name, objStream, length=len(objStream))
+            if not isinstance(obj, io.BytesIO):
+                objStream = io.BytesIO(obj)
+                self.s3.put_object(bucket, object_name, objStream, length=len(objStream.getvalue()))
+            else:
+                obj.seek(0)
+                self.s3.put_object(bucket, object_name, data=obj, length=len(obj.getvalue()))
+
         except Exception as err:
             print(err)
             success = False

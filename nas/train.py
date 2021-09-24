@@ -17,7 +17,7 @@ from utils.s3 import s3store, Connect
 from utils.jsonutil import WriteDictJson, ReadDictJson
 from datasets.citytorch import CityDataset
 from segment_nas.trainargs import trainargs
-from networks.cell_2d import Cell, ConvBR
+from networks.cell2d import Cell, ConvBR
 
 def make_data_loader(args, s3, dataset_list):
 

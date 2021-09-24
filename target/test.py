@@ -23,7 +23,6 @@ from utils.s3 import s3store
 from utils.jsonutil import WriteDictJson, ReadDictJson
 from utils.similarity import jaccard, similarity
 
-
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
 parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')

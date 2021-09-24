@@ -69,30 +69,31 @@ class ConvBR(nn.Module):
 
     # Remove specific network dimensions
     # remove dimension where inDimensions and outDimensions arrays are 0 for channels to be removed
-    def ApplyStructure(self, in_channels=None, out_channels=None):
+    def ApplyStructure(self, in_channel_mask=None, out_channel_mask=None):
 
-        if in_channels is not None:
-            if len(in_channels) == self.in_channels:
-                self.conv.weight.data = self.conv.weight[:, in_channels!=0]
-                self.in_channels = len(in_channels)
+        if in_channel_mask is not None:
+            if len(in_channel_mask) == self.in_channels:
+                self.conv.weight.data = self.conv.weight[:, in_channel_mask!=0]
+                self.in_channels = len(in_channel_mask[in_channel_mask!=0])
             else:
-                print("len(in_channels)={} must be equal to self.in_channels={}".format(len(in_channels), self.in_channels))
+                raise ValueError("len(in_channel_mask)={} must be equal to self.in_channels={}".format(len(in_channel_mask), self.in_channels))
 
-
-        if out_channels is not None:
-            if len(out_channels == self.out_channels):
-                self.conv.bias.data = self.conv.bias[out_channels!=0]
-                self.conv.weight.data = self.conv.weight[out_channels!=0]
+        if out_channel_mask is not None:
+            if len(out_channel_mask) == self.out_channels:
+                self.conv.bias.data = self.conv.bias[out_channel_mask!=0]
+                self.conv.weight.data = self.conv.weight[out_channel_mask!=0]
 
                 if self.batch_norm:
-                    self.batchnorm2d.bias.data = self.batchnorm2d.bias.data[out_channels!=0]
-                    self.batchnorm2d.weight.data = self.batchnorm2d.weight.data[out_channels!=0]
-                    self.batchnorm2d.running_mean = self.batchnorm2d.running_mean[out_channels!=0]
-                    self.batchnorm2d.running_var = self.batchnorm2d.running_var[out_channels!=0]
+                    self.batchnorm2d.bias.data = self.batchnorm2d.bias.data[out_channel_mask!=0]
+                    self.batchnorm2d.weight.data = self.batchnorm2d.weight.data[out_channel_mask!=0]
+                    self.batchnorm2d.running_mean = self.batchnorm2d.running_mean[out_channel_mask!=0]
+                    self.batchnorm2d.running_var = self.batchnorm2d.running_var[out_channel_mask!=0]
 
-                self.out_channels = len(out_channels)
+                self.out_channels = len(out_channel_mask[out_channel_mask!=0])
             else:
-                print("len(out_channels)={} must be equal to self.out_channels={}".format(len(out_channels), self.out_channels))
+                raise ValueError("len(out_channel_mask)={} must be equal to self.out_channels={}".format(len(out_channel_mask), self.out_channels))
+
+        return out_channel_mask
 
 # Inner neural architecture cell search with convolution steps batch norm parameters
 # Process:
@@ -138,22 +139,22 @@ class Cell(nn.Module):
         # Remaining convoutions uses out_channels as chanels
         self.in1_channels = in1_channels
         self.in2_channels = in2_channels
-        self.channel_out = out_channels
+        self.out_channels = out_channels
         self.feature_threshold = feature_threshold
 
-        self.conv_size = ConvBR(self.in1_channels+self.in2_channels, self.channel_out, batch_norm, relu, kernel_size, stride, dilation, groups, bias, padding_mode)
+        self.conv_size = ConvBR(self.in1_channels+self.in2_channels, self.out_channels, batch_norm, relu, kernel_size, stride, dilation, groups, bias, padding_mode)
 
         for i in range(self.steps):
-            conv = ConvBR(self.channel_out, self.channel_out, batch_norm, relu, kernel_size, stride, dilation, groups, bias, padding_mode)
+            conv = ConvBR(self.out_channels, self.out_channels, batch_norm, relu, kernel_size, stride, dilation, groups, bias, padding_mode)
             self.cnn.append(conv)
 
         # 1x1 convolution to out_channels
-        self.conv1x1 = nn.Conv2d(self.channel_out, self.channel_out, kernel_size=1)
+        self.conv1x1 = nn.Conv2d(self.out_channels, self.out_channels, kernel_size=1)
 
         self._initialize_weights()
         self.total_trainable_weights = model_weights(self)
         self.cnn_step_weights = model_weights(self.cnn[0])
-        self.dimension_weights = self.total_trainable_weights/self.channel_out
+        self.dimension_weights = self.total_trainable_weights/self.out_channels
         self.search_structure = True
 
     def _initialize_weights(self):
@@ -175,38 +176,69 @@ class Cell(nn.Module):
             den = den + self.GaussianBasis(j,a,r)
         return torch.mul(torch.exp(-1*torch.square(r*(i-a)))/den, x)
 
-    def ApplyStructure(self, in_channels=None):
+    def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None):
+
+        # Reduce channels 
+        if in1_channel_mask is not None or in2_channel_mask is not None:
+
+            if in1_channel_mask is not None:
+                if len(in1_channel_mask) == self.in1_channels:
+                    self.in1_channels = len(in1_channel_mask[in1_channel_mask!=0])
+                else:
+                    raise ValueError("ApplyStructure len(in1_channel_mask)={} must be = self.in1_channels {}".format(len(in1_channel_mask), self.in1_channels))
+
+                in_channel_mask = in1_channel_mask
+
+            if in2_channel_mask is not None:
+                if len(in2_channel_mask) == self.in2_channels:
+                    self.in2_channels = len(in2_channel_mask[in2_channel_mask!=0])
+                else:
+                    raise ValueError("ApplyStructure len(in2_channel_mask)={} must be = self.in2_channels {}".format(len(in2_channel_mask), self.in2_channels))
+                
+                if in1_channel_mask is not None:
+                    in_channel_mask = torch.cat((in1_channel_mask, in2_channel_mask))
+
+        else: # Do not reduce input channels.  
+            in_channel_mask = torch.ones((self.in1_channels+self.in2_channels), dtype=torch.int32)
 
         # Fix convolution depth
         cnn = torch.nn.ModuleList()
-        for i in range(round(self.depth.item())):
-            cnn.append(self.cnn[i])
+        if self.depth.item() < 1:
+            cnn_depth = 1
+        elif round(self.depth.item()) < self.steps:
+            cnn_depth = round(self.depth.item())
+        else:
+            cnn_depth = self.steps
 
+        for i in range(cnn_depth):
+            cnn.append(self.cnn[i])
+        self.steps = cnn_depth
         self.cnn = cnn
 
-        # Drop minimized dimensions
-        torch.linalg.norm(self.conv1x1.weight,dim=1)
-        
-        dimention_weights = torch.squeeze(torch.linalg.norm(self.conv1x1.weight,dim=1))
-        out_channels = torch.where(dimention_weights>self.feature_threshold, 1, 0).type(torch.IntTensor)
-        num_out_channels = torch.sum(out_channels).item()
-        print('dimension_threshold {}/{} = {}'.format(num_out_channels, self.channel_out, num_out_channels/self.channel_out))
+        # Drop minimized dimensions      
+        dimension_weights = torch.squeeze(torch.linalg.norm(self.conv1x1.weight,dim=1))
+        out_channel_mask = torch.where(dimension_weights>self.feature_threshold, 1, 0).type(torch.IntTensor)
+        num_out_channels = len(out_channel_mask[out_channel_mask!=0])
 
-        self.conv_size.ApplyStructure(in_channels=in_channels, out_channels=out_channels)
+        print('dimension_threshold {}/{} = {}'.format(num_out_channels, self.out_channels, num_out_channels/self.out_channels))
+
+        self.conv_size.ApplyStructure(in_channel_mask=in_channel_mask, out_channel_mask=out_channel_mask)
         #self.conv_size.weight.data = self.conv_size.weight[:, dimension_threshold!=0]
 
         for i, cnn in enumerate(self.cnn):
-            cnn.ApplyStructure(in_channels=out_channels, out_channels=out_channels)
+            cnn.ApplyStructure(in_channel_mask=out_channel_mask, out_channel_mask=out_channel_mask)
             #cnn.conv.bias.data = cnn.conv.bias[dimension_threshold!=0]
             #cnn.conv.weight.data = cnn.conv.weight[:, dimension_threshold!=0]
 
         # Apply structure to conv1x1
-        self.conv1x1.bias.data = self.conv1x1.bias.data[out_channels!=0]
-        self.conv1x1.weight.data = self.conv1x1.weight.data[:,out_channels!=0]
-        self.conv1x1.weight.data = self.conv1x1.weight.data[out_channels!=0]
+        self.conv1x1.bias.data = self.conv1x1.bias.data[out_channel_mask!=0]
+        self.conv1x1.weight.data = self.conv1x1.weight.data[:,out_channel_mask!=0]
+        self.conv1x1.weight.data = self.conv1x1.weight.data[out_channel_mask!=0]
 
         self.search_structure = False
-        return out_channels
+        self.out_channels = len(out_channel_mask[out_channel_mask!=0])
+
+        return out_channel_mask
 
 
     def forward(self, in1, in2 = None):
@@ -263,14 +295,14 @@ class Classify(nn.Module):
         self.total_trainable_weights = model_weights(self)
 
     def ApplyStructure(self):
-        in_channels = None
+        in_channel_mask = None
         for cell in self.cells:
-            in_channels = cell.ApplyStructure(in_channels=in_channels)
+            in_channel_mask = cell.ApplyStructure(in_channel_mask=in_channel_mask)
 
         # Remove pruned weights from fc1
-        if in_channels is not None:
+        if in_channel_mask is not None:
             fc1weights = torch.reshape(self.fc1.weight.data,(256,64,4,4))
-            fc1weights = fc1weights[:,in_channels!=0]
+            fc1weights = fc1weights[:,in_channel_mask!=0]
             self.fc1.weight.data = torch.flatten(fc1weights, 1)
 
     def forward(self, x):
@@ -345,19 +377,19 @@ class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
             the losses are averaged over each loss element in the batch. Note that for
             some losses, there are multiple elements per sample. If the field :attr:`size_average`
             is set to ``False``, the losses are instead summed for each minibatch. Ignored
-            when :attr:`reduce` is ``False``. Default: ``True``
+            when :attr:`prune` is ``False``. Default: ``True``
         ignore_index (int, optional): Specifies a target value that is ignored
             and does not contribute to the input gradient. When :attr:`size_average` is
             ``True``, the loss is averaged over non-ignored targets.
-        reduce (bool, optional): Deprecated (see :attr:`reduction`). By default, the
+        prune (bool, optional): Deprecated (see :attr:`reduction`). By default, the
             losses are averaged or summed over observations for each minibatch depending
-            on :attr:`size_average`. When :attr:`reduce` is ``False``, returns a loss per
+            on :attr:`size_average`. When :attr:`prune` is ``False``, returns a loss per
             batch element instead and ignores :attr:`size_average`. Default: ``True``
         reduction (string, optional): Specifies the reduction to apply to the output:
             ``'none'`` | ``'mean'`` | ``'sum'``. ``'none'``: no reduction will
             be applied, ``'mean'``: the weighted mean of the output is taken,
             ``'sum'``: the output will be summed. Note: :attr:`size_average`
-            and :attr:`reduce` are in the process of being deprecated, and in
+            and :attr:`prune` are in the process of being deprecated, and in
             the meantime, specifying either of those two args will override
             :attr:`reduction`. Default: ``'mean'``
 
@@ -386,8 +418,8 @@ class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
     ignore_index: int
 
     def __init__(self, weight: Optional[torch.Tensor] = None, size_average=None, ignore_index: int = -100,
-                 reduce=None, reduction: str = 'mean') -> None:
-        super(CrossEntropyRuntimeLoss, self).__init__(weight, size_average, reduce, reduction)
+                 prune=None, reduction: str = 'mean') -> None:
+        super(CrossEntropyRuntimeLoss, self).__init__(weight, size_average, prune, reduction)
         self.ignore_index = ignore_index
         self.k_dims = 0.01
         self.k_depth = 3.0
@@ -405,7 +437,7 @@ class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
         '''
         cells = network.Cells()
         for cell in cells:
-            # Softsign to reduce the gradient of large dimensions while maintainign gradient of small dimensions
+            # Softsign to prune the gradient of large dimensions while maintainign gradient of small dimensions
             # Prioritize reducing dimensions with small magnitude
             # dim_weight = torch.nn.Softsign(torch.squeeze(torch.linalg.norm(cell.conv1x1.weight,dim=1)))
             dims.append(torch.squeeze(torch.linalg.norm(cell.conv1x1.weight,dim=1)))
@@ -429,7 +461,7 @@ def parse_arguments():
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
     parser.add_argument('-epochs', type=int, default=1, help='Training epochs')
     parser.add_argument('-model', type=str, default='model')
-    parser.add_argument('-reduce', action='store_true', help='Compress network')
+    parser.add_argument('-prune', action='store_true', help='Compress network')
     parser.add_argument('-cuda', type=bool, default=True)
 
     parser.add_argument('-train', type=bool, default=True)
@@ -480,7 +512,7 @@ def Test(args):
 
     total_parameters = count_parameters(classify)
 
-    if args.reduce:
+    if args.prune:
         classify.ApplyStructure()
         reduced_parameters = count_parameters(classify)
         print('Reduced parameters {}/{} = {}'.format(reduced_parameters, total_parameters, reduced_parameters/total_parameters))
@@ -554,7 +586,7 @@ def Test(args):
                 # print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.4f}, norm_depth_loss: {:0.3f}, cell_depths: {}'.format(epoch + 1, i + 1, cross_entropy_loss, dims_norm, norm_depth_loss, cell_depths))
 
     if args.model:
-        if args.reduce:
+        if args.prune:
             torch.save(classify.state_dict(), compressed_filename)
         else:
             torch.save(classify.state_dict(), full_filename)

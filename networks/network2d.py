@@ -35,32 +35,34 @@ class Network2d(nn.Module):
         self.is_cuda = is_cuda
         self.cell = cell
         self.max_cell_steps = max_cell_steps
+        self.channel_multiple = channel_multiple
         self.depth = torch.nn.Parameter(torch.ones(1)*search_depth) # Initial depth parameter = search_depth
+        self.batch_norm = batch_norm
 
         self.encode_decode = torch.nn.ModuleList()
         self.upsample = torch.nn.ModuleList()
         self.final_conv = torch.nn.ModuleList()
 
-        encoder_channels = initial_channels
-        prev_encoder_chanels = source_channels
+        encoder_channels = self.initial_channels
+        prev_encoder_chanels = self.source_channels
         feedforward_chanels = []
 
         for i in range(self.search_depth-1):
-            self.encode_decode.append(cell(max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda, batch_norm=batch_norm))
+            self.encode_decode.append(cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda, batch_norm=self.batch_norm))
             feedforward_chanels.append(encoder_channels)
             prev_encoder_chanels = encoder_channels
-            encoder_channels = int(channel_multiple*encoder_channels)
+            encoder_channels = int(self.channel_multiple*encoder_channels)
 
-        self.encode_decode.append(cell(max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda, batch_norm=batch_norm))
+        self.encode_decode.append(cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda, batch_norm=self.batch_norm))
 
         for i in range(self.search_depth-1):
             self.upsample.append(nn.ConvTranspose2d(encoder_channels, encoder_channels, 2, stride=2))
 
             prev_encoder_chanels = encoder_channels
-            encoder_channels = int(encoder_channels/channel_multiple)
-            self.encode_decode.append(cell(max_cell_steps, encoder_channels, prev_encoder_chanels, feedforward_chanels[-(i+1)], is_cuda=self.is_cuda, batch_norm=batch_norm))       
+            encoder_channels = int(encoder_channels/self.channel_multiple)
+            self.encode_decode.append(cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, feedforward_chanels[-(i+1)], is_cuda=self.is_cuda, batch_norm=self.batch_norm))       
 
-        self.encode_decode.append(cell(max_cell_steps, out_channels, encoder_channels, is_cuda=self.is_cuda, batch_norm=batch_norm))
+        self.encode_decode.append(cell(self.max_cell_steps, out_channels, encoder_channels, is_cuda=self.is_cuda, batch_norm=self.batch_norm))
         self.pool = nn.MaxPool2d(2, 2)
 
     def GaussianBasis(self, i, a, r=1.0):
@@ -80,30 +82,86 @@ class Network2d(nn.Module):
         feed_forward = []
         for i in range(self.search_depth-1):
             x = self.encode_decode[i](x)
+            x = self.NormGausBasis(i,self.depth, x)
             feed_forward.append(x)
             x = self.pool(x)
 
         # Feed-through
         x = self.encode_decode[self.search_depth-1](x)
+        x = self.NormGausBasis(self.search_depth-1,self.depth, x)
 
         for i in range(self.search_depth-1):
             x = self.upsample[i](x)
             x = self.encode_decode[i+self.search_depth](x, feed_forward[-(i+1)])
+            x = self.NormGausBasis(self.search_depth-1-i,self.depth, x)
 
 
         x = self.encode_decode[-1](x) # Size to output
-
-        # Continuous relaxation to select network depth
-        # Normalized gaussian bias continuous weighting of depths
-        #x = self.NormGausBasis(i,self.depth, x)
-        # Sum of weightings for each depth
-        #y = y+x
-            
+           
         #return y
         return x
 
-    def ApplyStructure(self, in_channels=None):
+    def ApplyStructureConvTranspose2d(self, conv, in_channels=None, out_channels=None):
+
+        if in_channels is not None:
+            if len(in_channels) == conv.in_channels:
+                conv.weight.data = conv.weight[:, in_channels!=0]
+                conv.in_channels = len(in_channels)
+            else:
+                raise ValueError("len(in_channels)={} must be equal to conv.in_channels={}".format(len(in_channels), conv.in_channels))
+
+        if out_channels is not None:
+            if len(out_channels) == conv.out_channels:
+                conv.bias.data = conv.bias[out_channels!=0]
+                conv.weight.data = conv.weight[out_channels!=0]
+
+                conv.out_channels = len(out_channels)
+            else:
+                raise ValueError("len(out_channels)={} must be equal to conv.out_channels={}".format(len(out_channels), conv.out_channels))
+
+
+    def ApplyStructure(self):
         print('ApplyStructure')
+
+        depth = round(self.depth.item())
+        if depth <=1:
+            new_depth = 1
+        elif depth < self.search_depth:
+            new_depth = depth
+        else:
+            new_depth = self.search_depth
+        # Override depth pruning and just evaluate cell pruning
+        new_depth = self.search_depth-2.3
+
+        encoder_channel_mask = None
+        feedforward_channel_mask = []
+        new_encode_decode = torch.nn.ModuleList()
+        new_upsample = torch.nn.ModuleList()
+        
+        for i in range(new_depth-1):
+            encoder_channel_mask = self.encode_decode[i].ApplyStructure(encoder_channel_mask)
+            new_encode_decode.append(self.encode_decode[i])
+            feedforward_channel_mask.append(encoder_channel_mask)
+
+        encoder_channel_mask = self.encode_decode[new_depth-1].ApplyStructure(encoder_channel_mask)
+        new_encode_decode.append(self.encode_decode[new_depth-1])
+
+        for i in range(self.search_depth-1):
+            self.ApplyStructureConvTranspose2d(self.upsample[i], encoder_channel_mask, encoder_channel_mask) # Remove same input and output channels
+            new_upsample.append(self.upsample[i])
+            encoder_channel_mask = self.encode_decode[i+self.search_depth].ApplyStructure(encoder_channel_mask, feedforward_channel_mask[-(i+1)])
+            new_encode_decode.append(self.encode_decode[i+self.search_depth])
+
+
+        encoder_channel_mask = self.encode_decode[-1].ApplyStructure(encoder_channel_mask) # Final resize to output features
+        new_encode_decode.append(self.encode_decode[-1])
+
+        self.encode_decode = new_encode_decode
+        self.upsample = new_upsample
+        self.search_depth = new_depth
+
+        return encoder_channel_mask
+
 
     def ArchitectureWeights(self):
         #print('ArchitectureWeights')
@@ -121,7 +179,7 @@ class Network2d(nn.Module):
             decode_archatecture_weights, _ = self.encode_decode[-(j+2)].ArchitectureWeights()
             resize_archatecture_weights = torch.tensor(model_weights(self.upsample[j]))
 
-            # Sigmoid weightingof architecture weighting to reduce model depth 
+            # Sigmoid weightingof architecture weighting to prune model depth 
             depth_weighted_archatecture_weight = F.sigmoid(self.depth-j)*(encode_archatecture_weights+decode_archatecture_weights+resize_archatecture_weights)
             archatecture_weights += depth_weighted_archatecture_weight
 
@@ -176,19 +234,19 @@ class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
             the losses are averaged over each loss element in the batch. Note that for
             some losses, there are multiple elements per sample. If the field :attr:`size_average`
             is set to ``False``, the losses are instead summed for each minibatch. Ignored
-            when :attr:`reduce` is ``False``. Default: ``True``
+            when :attr:`prune` is ``False``. Default: ``True``
         ignore_index (int, optional): Specifies a target value that is ignored
             and does not contribute to the input gradient. When :attr:`size_average` is
             ``True``, the loss is averaged over non-ignored targets.
-        reduce (bool, optional): Deprecated (see :attr:`reduction`). By default, the
+        prune (bool, optional): Deprecated (see :attr:`reduction`). By default, the
             losses are averaged or summed over observations for each minibatch depending
-            on :attr:`size_average`. When :attr:`reduce` is ``False``, returns a loss per
+            on :attr:`size_average`. When :attr:`prune` is ``False``, returns a loss per
             batch element instead and ignores :attr:`size_average`. Default: ``True``
         reduction (string, optional): Specifies the reduction to apply to the output:
             ``'none'`` | ``'mean'`` | ``'sum'``. ``'none'``: no reduction will
             be applied, ``'mean'``: the weighted mean of the output is taken,
             ``'sum'``: the output will be summed. Note: :attr:`size_average`
-            and :attr:`reduce` are in the process of being deprecated, and in
+            and :attr:`prune` are in the process of being deprecated, and in
             the meantime, specifying either of those two args will override
             :attr:`reduction`. Default: ``'mean'``
 
@@ -217,8 +275,8 @@ class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
     ignore_index: int
 
     def __init__(self, weight: Optional[torch.Tensor] = None, size_average=None, ignore_index: int = -100,
-                 reduce=None, reduction: str = 'mean', k_structure=0.0) -> None:
-        super(CrossEntropyRuntimeLoss, self).__init__(weight, size_average, reduce, reduction)
+                 prune=None, reduction: str = 'mean', k_structure=0.0) -> None:
+        super(CrossEntropyRuntimeLoss, self).__init__(weight, size_average, prune, reduction)
         self.ignore_index = ignore_index
         self.k_structure = k_structure
         self.softsign = nn.Softsign()
@@ -252,10 +310,9 @@ def parse_arguments():
 
     parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=3, help='Training epochs')
-    parser.add_argument('-model_src', type=str, default='segmin/segment_nas_640x640.pt')
-    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_weight_640x640.pt')
+    parser.add_argument('-model_src', type=str, default='segmin/segment_nas_weight_640x640.pt')
+    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_prune_640x640.pt')
     parser.add_argument('-test_results', type=str, default='segmin/test_results.json')
-    parser.add_argument('-reduce', action='store_true', help='Compress network')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
     parser.add_argument('-width', type=int, default=640, help='Batch image width')
@@ -268,12 +325,12 @@ def parse_arguments():
     parser.add_argument('-k_structure', type=float, default=0.0001, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=False)
 
+    parser.add_argument('-prune', type=bool, default=True)
     parser.add_argument('-train', type=bool, default=False)
     parser.add_argument('-test', type=bool, default=False)
-    parser.add_argument('-prune', type=bool, default=False)
     parser.add_argument('-infer', type=bool, default=True)
 
-    parser.add_argument('-test_dir', type=str, default='/store/test/nasseg')
+    parser.add_argument('-test_dir', type=str, default='/store/test/nassegprune')
     
 
     args = parser.parse_args()
@@ -359,7 +416,7 @@ def Test(args):
 
     total_parameters = count_parameters(segment)
 
-    if args.reduce:
+    if args.prune:
         segment.ApplyStructure()
         reduced_parameters = count_parameters(segment)
         print('Reduced parameters {}/{} = {}'.format(reduced_parameters, total_parameters, reduced_parameters/total_parameters))
@@ -467,7 +524,7 @@ def Test(args):
             'train': args.train,
             'test': args.test,
             'prune': args.prune,
-            'reduce': args.reduce,
+            'prune': args.prune,
             'infer': args.infer,
             'test_dir': args.test_dir,
             'train_image_path': args.train_image_path,
@@ -514,7 +571,7 @@ def Test(args):
         dtSum = 0.0
         total_confusion = None
         os.makedirs(args.test_dir, exist_ok=True)
-        for i, data in tqdm(enumerate(testloader)):
+        for i, data in tqdm(enumerate(testloader), total=testset.__len__()):
             image, labels, mean, stdev = data
             if args.cuda:
                 image = image.cuda()

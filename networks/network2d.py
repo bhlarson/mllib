@@ -130,8 +130,6 @@ class Network2d(nn.Module):
             new_depth = depth
         else:
             new_depth = self.search_depth
-        # Override depth pruning and just evaluate cell pruning
-        new_depth = self.search_depth-2.3
 
         encoder_channel_mask = None
         feedforward_channel_mask = []
@@ -146,12 +144,13 @@ class Network2d(nn.Module):
         encoder_channel_mask = self.encode_decode[new_depth-1].ApplyStructure(encoder_channel_mask)
         new_encode_decode.append(self.encode_decode[new_depth-1])
 
-        for i in range(self.search_depth-1):
-            self.ApplyStructureConvTranspose2d(self.upsample[i], encoder_channel_mask, encoder_channel_mask) # Remove same input and output channels
-            new_upsample.append(self.upsample[i])
-            encoder_channel_mask = self.encode_decode[i+self.search_depth].ApplyStructure(encoder_channel_mask, feedforward_channel_mask[-(i+1)])
-            new_encode_decode.append(self.encode_decode[i+self.search_depth])
-
+        for i in range(new_depth-1):
+            iUpsample = i+self.search_depth-new_depth
+            self.ApplyStructureConvTranspose2d(self.upsample[iUpsample], encoder_channel_mask, encoder_channel_mask) # Remove same input and output channels
+            new_upsample.append(self.upsample[iUpsample])
+            iEncDec = i+2*self.search_depth-new_depth
+            encoder_channel_mask = self.encode_decode[iEncDec].ApplyStructure(encoder_channel_mask, feedforward_channel_mask[-(i+1)])
+            new_encode_decode.append(self.encode_decode[iEncDec])
 
         encoder_channel_mask = self.encode_decode[-1].ApplyStructure(encoder_channel_mask) # Final resize to output features
         new_encode_decode.append(self.encode_decode[-1])
@@ -166,24 +165,36 @@ class Network2d(nn.Module):
     def ArchitectureWeights(self):
         #print('ArchitectureWeights')
 
-        archatecture_weights = torch.zeros(1)
-        total_trainable_weights = torch.tensor(model_weights(self))
+        architecture_weights = torch.zeros(1)
+        total_trainable_weights = torch.zeros(1)
+        torch_total_trainable_weights = torch.tensor(model_weights(self))
+
 
         if self.is_cuda:
-            archatecture_weights = archatecture_weights.cuda()
+            architecture_weights = architecture_weights.cuda()
             total_trainable_weights = total_trainable_weights.cuda()
 
         for j in range(self.search_depth-1):
             
-            encode_archatecture_weights, _ = self.encode_decode[j].ArchitectureWeights()
-            decode_archatecture_weights, _ = self.encode_decode[-(j+2)].ArchitectureWeights()
-            resize_archatecture_weights = torch.tensor(model_weights(self.upsample[j]))
+            encode_architecture_weights, step_total_trainable_weights = self.encode_decode[j].ArchitectureWeights()
+            total_trainable_weights += step_total_trainable_weights
+            decode_architecture_weights, step_total_trainable_weights = self.encode_decode[-(j+2)].ArchitectureWeights()
+            total_trainable_weights += step_total_trainable_weights
+            resize_architecture_weights = torch.tensor(model_weights(self.upsample[j]))
 
-            # Sigmoid weightingof architecture weighting to prune model depth 
-            depth_weighted_archatecture_weight = F.sigmoid(self.depth-j)*(encode_archatecture_weights+decode_archatecture_weights+resize_archatecture_weights)
-            archatecture_weights += depth_weighted_archatecture_weight
+            # Sigmoid weightingof architecture weighting to prune model depth
+            depth_weighted_architecture_weight = self.NormGausBasis(self.search_depth-1,self.depth, encode_architecture_weights+decode_architecture_weights+resize_architecture_weights)
+            architecture_weights += depth_weighted_architecture_weight
 
-        return archatecture_weights, total_trainable_weights
+        encode_architecture_weights, step_total_trainable_weights = self.encode_decode[self.search_depth].ArchitectureWeights()
+        architecture_weights += encode_architecture_weights
+        total_trainable_weights += step_total_trainable_weights
+
+        encode_architecture_weights, step_total_trainable_weights = self.encode_decode[-1].ArchitectureWeights()
+        architecture_weights += encode_architecture_weights
+        total_trainable_weights += step_total_trainable_weights
+
+        return architecture_weights, total_trainable_weights
 
 class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
     """This criterion combines :class:`~torch.nn.LogSoftmax` and :class:`~torch.nn.NLLLoss` in one single class.
@@ -275,11 +286,13 @@ class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
     ignore_index: int
 
     def __init__(self, weight: Optional[torch.Tensor] = None, size_average=None, ignore_index: int = -100,
-                 prune=None, reduction: str = 'mean', k_structure=0.0) -> None:
+                 prune=None, reduction: str = 'mean', k_structure=0.0, target_structure=1.0) -> None:
         super(CrossEntropyRuntimeLoss, self).__init__(weight, size_average, prune, reduction)
         self.ignore_index = ignore_index
         self.k_structure = k_structure
         self.softsign = nn.Softsign()
+        self.target_structure = target_structure  
+        self.mseloss = nn.MSELoss()
 
     def forward(self, input: torch.Tensor, target: torch.Tensor, network) -> torch.Tensor:
         assert self.weight is None or isinstance(self.weight, torch.Tensor)
@@ -288,11 +301,12 @@ class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
 
         dims = []
         depths = []
-        archatecture_weights, total_trainable_weights = network.ArchitectureWeights()
-        architecture_loss = archatecture_weights/total_trainable_weights
+        architecture_weights, total_trainable_weights = network.ArchitectureWeights()
+        arcitecture_reduction = architecture_weights/total_trainable_weights
+        architecture_loss = self.mseloss(arcitecture_reduction,self.target_structure)
 
         total_loss = loss + self.k_structure*architecture_loss
-        return total_loss,  loss, architecture_loss
+        return total_loss,  loss, arcitecture_reduction
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
@@ -309,9 +323,9 @@ def parse_arguments():
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
     parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=3, help='Training epochs')
-    parser.add_argument('-model_src', type=str, default='segmin/segment_nas_weight_640x640.pt')
-    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_prune_640x640.pt')
+    parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
+    parser.add_argument('-model_src', type=str, default='segmin/segment_nas_640x640_target_structure_01.pt')
+    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_640x640_target_structure_01.pt')
     parser.add_argument('-test_results', type=str, default='segmin/test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
@@ -323,11 +337,12 @@ def parse_arguments():
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=1.5, help='maximum number of layers to grow per level')
     parser.add_argument('-k_structure', type=float, default=0.0001, help='Structure minimization weighting fator')
+    parser.add_argument('-target_structure', type=float, default=0.5, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=False)
 
-    parser.add_argument('-prune', type=bool, default=True)
-    parser.add_argument('-train', type=bool, default=False)
-    parser.add_argument('-test', type=bool, default=False)
+    parser.add_argument('-prune', type=bool, default=False)
+    parser.add_argument('-train', type=bool, default=True)
+    parser.add_argument('-test', type=bool, default=True)
     parser.add_argument('-infer', type=bool, default=True)
 
     parser.add_argument('-test_dir', type=str, default='/store/test/nassegprune')
@@ -422,7 +437,10 @@ def Test(args):
         print('Reduced parameters {}/{} = {}'.format(reduced_parameters, total_parameters, reduced_parameters/total_parameters))
 
     # Define a Loss function and optimizer
-    criterion = CrossEntropyRuntimeLoss(k_structure=args.k_structure)
+    target_structure = torch.as_tensor(args.target_structure, dtype=torch.float32)
+    if args.cuda:
+        target_structure = target_structure.cuda()
+    criterion = CrossEntropyRuntimeLoss(k_structure=args.k_structure, target_structure=target_structure)
     #optimizer = optim.SGD(segment.parameters(), lr=0.001, momentum=0.9)
     optimizer = optim.Adam(segment.parameters(), lr= args.learning_rate)
 
@@ -431,7 +449,7 @@ def Test(args):
 
         if args.train:
             running_loss = 0.0
-            for i, data in enumerate(trainloader, 0):
+            for i, data in tqdm(enumerate(trainloader), total=trainingset.__len__()/args.batch_size):
                 # get the inputs; data is a list of [inputs, labels]
                 inputs, labels, mean, stdev = data
 
@@ -458,7 +476,7 @@ def Test(args):
                     weight_std, weight_mean, bias_std, bias_mean = model_stats(segment)
                     #print('[%d, %d] cross_entropy_loss: %.3f dims_norm: %.3f' % (epoch + 1, i + 1, cross_entropy_loss, dims_norm))
                     #print('[{}, {:05d}] cross_entropy_loss: {:0.5f} dims_norm: {:0.3f}, dims: {}'.format(epoch + 1, i + 1, running_loss, dims_norm, all_dims))
-                    print('Train [{}, {:06}] cross_entropy_loss: {:0.5e} architecture_loss: {:0.5e} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(
+                    print('\nTrain [{}, {:06}] cross_entropy_loss: {:0.5e} architecture_loss: {:0.5e} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(
                         epoch + 1, i + 1, running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
                     running_loss = 0.0
                 
@@ -479,7 +497,7 @@ def Test(args):
         if args.test:
             running_loss = 0.0
             with torch.no_grad():
-                for i, data in enumerate(valloader, 0):
+                for i, data in tqdm(enumerate(valloader), total=valset.__len__()/args.batch_size):
                     # get the inputs; data is a list of [inputs, labels]
                     inputs, labels, mean, stdev = data
                     if args.cuda:

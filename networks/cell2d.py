@@ -133,7 +133,7 @@ class Cell(nn.Module):
         self.is_cuda = is_cuda
 
         #self.depth = torch.nn.Parameter(torch.ones(1)*float(steps)/2.0)
-        self.depth = torch.nn.Parameter(torch.ones(1)*self.steps)
+        self.depth = nn.Parameter(torch.ones(1)*self.steps)
 
         # First convolution uses in1_channels+in2_channels is input chanels. 
         # Remaining convoutions uses out_channels as chanels
@@ -150,6 +150,8 @@ class Cell(nn.Module):
 
         # 1x1 convolution to out_channels
         self.conv1x1 = nn.Conv2d(self.out_channels, self.out_channels, kernel_size=1)
+        self.sigmoid = nn.Sigmoid()
+        self.tanh = nn.Tanh()
 
         self._initialize_weights()
         self.total_trainable_weights = model_weights(self)
@@ -279,10 +281,10 @@ class Cell(nn.Module):
         if self.is_cuda:
             architecture_weights = architecture_weights.cuda()
 
-        layer_weight = torch.sum(self.dimension_weights*F.tanh(torch.squeeze(torch.linalg.norm(self.conv1x1.weight,dim=1))))
+        layer_weight = torch.sum(self.dimension_weights*self.tanh(torch.squeeze(torch.linalg.norm(self.conv1x1.weight,dim=1))))
 
         for i, l in enumerate(self.cnn):
-            x = F.sigmoid(self.depth-i) * layer_weight
+            x = self.sigmoid(self.depth-i) * layer_weight
             architecture_weights = architecture_weights+x
 
         return architecture_weights, self.total_trainable_weights

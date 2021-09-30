@@ -23,6 +23,7 @@ from utils.s3 import s3store, Connect
 from datasets.cocostore import CocoDataset
 from utils.similarity import similarity, jaccard
 # from segment.display import DrawFeatures
+from torch.utils.tensorboard import SummaryWriter
 
 class Network2d(nn.Module):
     def __init__(self, out_channels, source_channels=3, initial_channels=64, is_cuda=True, search_depth=7, max_cell_steps=6, channel_multiple=1.5, batch_norm=True, cell=Cell):
@@ -64,6 +65,7 @@ class Network2d(nn.Module):
 
         self.encode_decode.append(cell(self.max_cell_steps, out_channels, encoder_channels, is_cuda=self.is_cuda, batch_norm=self.batch_norm))
         self.pool = nn.MaxPool2d(2, 2)
+        self.sigmoid = nn.Sigmoid()
 
     def GaussianBasis(self, i, a, r=1.0):
         return torch.exp(-1*torch.square(r*(i-a)))
@@ -77,28 +79,25 @@ class Network2d(nn.Module):
         return torch.mul(torch.exp(-1*torch.square(r*(i-a)))/den, x)
 
     def forward(self, x):
-        y = torch.zeros(self.search_depth)
+        #y = torch.zeros(self.search_depth)
 
         feed_forward = []
         for i in range(self.search_depth-1):
             x = self.encode_decode[i](x)
-            x = self.NormGausBasis(i,self.depth, x)
+            x = x*self.sigmoid(self.depth-i)
             feed_forward.append(x)
             x = self.pool(x)
 
         # Feed-through
         x = self.encode_decode[self.search_depth-1](x)
-        x = self.NormGausBasis(self.search_depth-1,self.depth, x)
+        x = x*self.sigmoid(self.depth-i)
 
         for i in range(self.search_depth-1):
             x = self.upsample[i](x)
             x = self.encode_decode[i+self.search_depth](x, feed_forward[-(i+1)])
-            x = self.NormGausBasis(self.search_depth-1-i,self.depth, x)
-
+            x = x*self.sigmoid(self.depth-i)
 
         x = self.encode_decode[-1](x) # Size to output
-           
-        #return y
         return x
 
     def ApplyStructureConvTranspose2d(self, conv, in_channels=None, out_channels=None):
@@ -183,7 +182,8 @@ class Network2d(nn.Module):
             resize_architecture_weights = torch.tensor(model_weights(self.upsample[j]))
 
             # Sigmoid weightingof architecture weighting to prune model depth
-            depth_weighted_architecture_weight = self.NormGausBasis(self.search_depth-1,self.depth, encode_architecture_weights+decode_architecture_weights+resize_architecture_weights)
+            architecture_weights = encode_architecture_weights+decode_architecture_weights+resize_architecture_weights
+            depth_weighted_architecture_weight = architecture_weights*self.sigmoid(self.search_depth-1-self.depth)
             architecture_weights += depth_weighted_architecture_weight
 
         encode_architecture_weights, step_total_trainable_weights = self.encode_decode[self.search_depth].ArchitectureWeights()
@@ -196,7 +196,8 @@ class Network2d(nn.Module):
 
         return architecture_weights, total_trainable_weights
 
-class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
+class TotalLoss(torch.nn.modules.loss._WeightedLoss):
+    # https://github.com/JunMa11/SegLoss
     """This criterion combines :class:`~torch.nn.LogSoftmax` and :class:`~torch.nn.NLLLoss` in one single class.
 
     It is useful when training a classification problem with `C` classes.
@@ -286,26 +287,32 @@ class CrossEntropyRuntimeLoss(torch.nn.modules.loss._WeightedLoss):
     ignore_index: int
 
     def __init__(self, weight: Optional[torch.Tensor] = None, size_average=None, ignore_index: int = -100,
-                 prune=None, reduction: str = 'mean', k_structure=0.0, target_structure=1.0) -> None:
-        super(CrossEntropyRuntimeLoss, self).__init__(weight, size_average, prune, reduction)
+                 prune=None, reduction: str = 'mean', k_structure=0.0, target_structure=1.0, class_weight=None) -> None:
+        super(TotalLoss, self).__init__(weight, size_average, prune, reduction)
         self.ignore_index = ignore_index
+        self.reduction = reduction
         self.k_structure = k_structure
         self.softsign = nn.Softsign()
         self.target_structure = target_structure  
         self.mseloss = nn.MSELoss()
+        self.class_weight = class_weight
+        self.cross_entropy_loss = nn.CrossEntropyLoss(weight=self.class_weight, ignore_index=self.ignore_index, reduction=self.reduction)
+
 
     def forward(self, input: torch.Tensor, target: torch.Tensor, network) -> torch.Tensor:
         assert self.weight is None or isinstance(self.weight, torch.Tensor)
-        #loss = F.cross_entropy(input, target, weight=self.weight,reduction=self.reduction)
-        loss = F.cross_entropy(input, torch.squeeze(target).long())
+        #loss = F.cross_entropy(input, target.long(), weight=self.weight,reduction=self.reduction)
+        #loss = F.cross_entropy(input, target.long(), weight=self.class_weight)
+        loss = self.cross_entropy_loss(input, target.long())
 
-        dims = []
-        depths = []
+        #dims = []
+        #depths = []
         architecture_weights, total_trainable_weights = network.ArchitectureWeights()
         arcitecture_reduction = architecture_weights/total_trainable_weights
-        architecture_loss = self.mseloss(arcitecture_reduction,self.target_structure)
+        #architecture_loss = self.mseloss(arcitecture_reduction,self.target_structure)
 
-        total_loss = loss + self.k_structure*architecture_loss
+        #total_loss = loss + self.k_structure*architecture_loss
+        total_loss = loss
         return total_loss,  loss, arcitecture_reduction
 
 def parse_arguments():
@@ -322,21 +329,21 @@ def parse_arguments():
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
-    parser.add_argument('-model_src', type=str, default='segmin/segment_nas_640x640_target_structure_01.pt')
-    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_640x640_target_structure_01.pt')
+    parser.add_argument('-model_src', type=str, default=None)
+    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_640x640_20210927.pt')
     parser.add_argument('-test_results', type=str, default='segmin/test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
     parser.add_argument('-width', type=int, default=640, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')
     parser.add_argument('-fast', type=bool, default=False, help='Fast debug run')
-    parser.add_argument('-learning_rate', type=float, default=0.0001, help='Adam learning rate')
-    parser.add_argument('-search_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
-    parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
+    parser.add_argument('-learning_rate', type=float, default=0.001, help='Adam learning rate')
+    parser.add_argument('-search_depth', type=int, default=4, help='number of encoder/decoder levels to search/minimize')
+    parser.add_argument('-max_cell_steps', type=int, default=1, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=1.5, help='maximum number of layers to grow per level')
-    parser.add_argument('-k_structure', type=float, default=0.0001, help='Structure minimization weighting fator')
+    parser.add_argument('-k_structure', type=float, default=0.001, help='Structure minimization weighting fator')
     parser.add_argument('-target_structure', type=float, default=0.5, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=False)
 
@@ -345,7 +352,8 @@ def parse_arguments():
     parser.add_argument('-test', type=bool, default=True)
     parser.add_argument('-infer', type=bool, default=True)
 
-    parser.add_argument('-test_dir', type=str, default='/store/test/nassegprune')
+    parser.add_argument('-test_dir', type=str, default='/store/test/nasseg')
+    parser.add_argument('-tensorboard_dir', type=str, default='/store/test/nassegtb')
     
 
     args = parser.parse_args()
@@ -360,6 +368,8 @@ def Test(args):
     import torchvision.transforms as transforms
     import torch.optim as optim
 
+    #torch.autograd.set_detect_anomaly(True)
+
     creds = ReadDictJson(args.credentails)
     if not creds:
         print('Failed to load credentials file {}. Exiting'.format(args.credentails))
@@ -368,6 +378,9 @@ def Test(args):
     s3 = Connect(s3def)
 
     class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.class_dict)
+    if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0):
+        os.makedirs(args.tensorboard_dir, exist_ok=True)
+    writer = SummaryWriter(args.tensorboard_dir)
 
     # Load dataset
     device = "cpu"
@@ -438,18 +451,20 @@ def Test(args):
 
     # Define a Loss function and optimizer
     target_structure = torch.as_tensor(args.target_structure, dtype=torch.float32)
+    class_weight = torch.Tensor([0.01,0.35,1.0, 2.0])
     if args.cuda:
         target_structure = target_structure.cuda()
-    criterion = CrossEntropyRuntimeLoss(k_structure=args.k_structure, target_structure=target_structure)
+        class_weight = class_weight.cuda()
+    criterion = TotalLoss(k_structure=args.k_structure, target_structure=target_structure, class_weight=class_weight)
     #optimizer = optim.SGD(segment.parameters(), lr=0.001, momentum=0.9)
     optimizer = optim.Adam(segment.parameters(), lr= args.learning_rate)
 
     # Train
-    for epoch in range(args.epochs):  # loop over the dataset multiple times
+    for epoch in tqdm(range(args.epochs), desc="Train epochs"):  # loop over the dataset multiple times
 
         if args.train:
             running_loss = 0.0
-            for i, data in tqdm(enumerate(trainloader), total=trainingset.__len__()/args.batch_size):
+            for i, data in tqdm(enumerate(trainloader), total=trainingset.__len__()/args.batch_size, desc="Train steps"):
                 # get the inputs; data is a list of [inputs, labels]
                 inputs, labels, mean, stdev = data
 
@@ -469,6 +484,11 @@ def Test(args):
 
                 # print statistics
                 running_loss += cross_entropy_loss.item()
+
+                writer.add_scalar('loss/train', loss, i)
+                writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, i)
+                writer.add_scalar('architecture_loss/train', architecture_loss, i)
+
                 iDisplay = 20
                 if i % iDisplay == iDisplay-1:    # print every 20 mini-batches
                     running_loss /=iDisplay
@@ -476,10 +496,27 @@ def Test(args):
                     weight_std, weight_mean, bias_std, bias_mean = model_stats(segment)
                     #print('[%d, %d] cross_entropy_loss: %.3f dims_norm: %.3f' % (epoch + 1, i + 1, cross_entropy_loss, dims_norm))
                     #print('[{}, {:05d}] cross_entropy_loss: {:0.5f} dims_norm: {:0.3f}, dims: {}'.format(epoch + 1, i + 1, running_loss, dims_norm, all_dims))
-                    print('\nTrain [{}, {:06}] cross_entropy_loss: {:0.5e} architecture_loss: {:0.5e} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(
+                    tqdm.write('Train [{}, {:06}] cross_entropy_loss: {:0.5e} architecture_loss: {:0.5e} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(
                         epoch + 1, i + 1, running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
                     running_loss = 0.0
-                
+
+                    image = np.squeeze(inputs.cpu().permute(0, 2, 3, 1).numpy())
+                    label = np.around(np.squeeze(labels.cpu().numpy())).astype('uint8')
+                    segmentation = torch.argmax(outputs, 1)
+                    segmentation = np.squeeze(segmentation.cpu().numpy()).astype('uint8')
+
+                    for j in range(1):
+
+                        iman = trainingset.coco.MergeIman(image[0], label[0], mean[0].item(), stdev[0].item())
+                        imseg = trainingset.coco.MergeIman(image[0], segmentation[0], mean[0].item(), stdev[0].item())
+
+                        iman = cv2.putText(iman, 'Annotation',(10,25), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),1,cv2.LINE_AA)
+                        imseg = cv2.putText(imseg, 'Segmentation',(10,25), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),1,cv2.LINE_AA)
+                        imanseg = cv2.hconcat([iman, imseg])
+                        imanseg = cv2.cvtColor(imanseg, cv2.COLOR_BGR2RGB)
+
+                        writer.add_image('segment', imanseg, 0,dataformats='HWC')
+                                    
                 #print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.4f}, norm_depth_loss: {:0.3f}, cell_depths: {}'.format(epoch + 1, i + 1, cross_entropy_loss, dims_norm, norm_depth_loss, cell_depths))
                 iSave = 2000
                 if i % iSave == iSave-1:    # print every 20 mini-batches
@@ -497,7 +534,7 @@ def Test(args):
         if args.test:
             running_loss = 0.0
             with torch.no_grad():
-                for i, data in tqdm(enumerate(valloader), total=valset.__len__()/args.batch_size):
+                for i, data in tqdm(enumerate(valloader), total=valset.__len__()/args.batch_size, desc="Test steps"):
                     # get the inputs; data is a list of [inputs, labels]
                     inputs, labels, mean, stdev = data
                     if args.cuda:
@@ -508,6 +545,10 @@ def Test(args):
                     outputs = segment(inputs)
                     loss, cross_entropy_loss, architecture_loss  = criterion(outputs, labels, segment)
 
+                    writer.add_scalar('loss/test', loss, i)
+                    writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, i)
+                    writer.add_scalar('architecture_loss/test', architecture_loss, i)
+
                     # print statistics
                     running_loss += cross_entropy_loss.item()
 
@@ -515,7 +556,7 @@ def Test(args):
                         running_loss /=20
 
                         weight_std, weight_mean, bias_std, bias_mean = model_stats(segment)
-                        print('Test cross_entropy_loss: {:0.5e} architecture_loss: {:0.5e} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(
+                        tqdm.write('Test cross_entropy_loss: {:0.5e} architecture_loss: {:0.5e} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(
                             running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
                         running_loss = 0.0
                     
@@ -545,6 +586,7 @@ def Test(args):
             'prune': args.prune,
             'infer': args.infer,
             'test_dir': args.test_dir,
+            'tensorboard_dir': args.tensorboard_dir,
             'train_image_path': args.train_image_path,
             'val_image_path': args.val_image_path,
             'class_dict': args.class_dict,
@@ -573,7 +615,7 @@ def Test(args):
                 objTypes[objType['trainId']]['id'] = objType['trainId']
 
         for i in objTypes:
-            results['class similarity'][i]={'intersection':0, 'union':0}
+            results['class similaCocoDatasetrity'][i]={'intersection':0, 'union':0}
 
         testset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
             image_paths=args.val_image_path,
@@ -589,7 +631,7 @@ def Test(args):
         dtSum = 0.0
         total_confusion = None
         os.makedirs(args.test_dir, exist_ok=True)
-        for i, data in tqdm(enumerate(testloader), total=testset.__len__()):
+        for i, data in tqdm(enumerate(testloader), total=testset.__len__(), desc="Inference steps"): # try https://pypi.org/project/enlighten/ rather than tqdm to include progress & log messages
             image, labels, mean, stdev = data
             if args.cuda:
                 image = image.cuda()

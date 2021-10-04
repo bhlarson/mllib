@@ -49,21 +49,21 @@ class Network2d(nn.Module):
         feedforward_chanels = []
 
         for i in range(self.search_depth-1):
-            self.encode_decode.append(cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda, batch_norm=self.batch_norm))
+            self.encode_decode.append(self.cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda, batch_norm=self.batch_norm))
             feedforward_chanels.append(encoder_channels)
             prev_encoder_chanels = encoder_channels
             encoder_channels = int(self.channel_multiple*encoder_channels)
 
-        self.encode_decode.append(cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda, batch_norm=self.batch_norm))
+        self.encode_decode.append(self.cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda, batch_norm=self.batch_norm))
 
         for i in range(self.search_depth-1):
             self.upsample.append(nn.ConvTranspose2d(encoder_channels, encoder_channels, 2, stride=2))
 
             prev_encoder_chanels = encoder_channels
             encoder_channels = int(encoder_channels/self.channel_multiple)
-            self.encode_decode.append(cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, feedforward_chanels[-(i+1)], is_cuda=self.is_cuda, batch_norm=self.batch_norm))       
+            self.encode_decode.append(self.cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, feedforward_chanels[-(i+1)], is_cuda=self.is_cuda, batch_norm=self.batch_norm))       
 
-        self.encode_decode.append(cell(self.max_cell_steps, out_channels, encoder_channels, is_cuda=self.is_cuda, batch_norm=self.batch_norm))
+        self.encode_decode.append(self.cell(self.max_cell_steps, out_channels, encoder_channels, is_cuda=self.is_cuda, batch_norm=self.batch_norm))
         self.pool = nn.MaxPool2d(2, 2)
         self.sigmoid = nn.Sigmoid()
 
@@ -84,9 +84,10 @@ class Network2d(nn.Module):
         feed_forward = []
         for i in range(self.search_depth-1):
             x = self.encode_decode[i](x)
-            x = x*self.sigmoid(self.depth-i)
             feed_forward.append(x)
             x = self.pool(x)
+            x = x*self.sigmoid(self.depth-i)
+
 
         # Feed-through
         x = self.encode_decode[self.search_depth-1](x)
@@ -182,9 +183,11 @@ class Network2d(nn.Module):
             resize_architecture_weights = torch.tensor(model_weights(self.upsample[j]))
 
             # Sigmoid weightingof architecture weighting to prune model depth
-            architecture_weights = encode_architecture_weights+decode_architecture_weights+resize_architecture_weights
-            depth_weighted_architecture_weight = architecture_weights*self.sigmoid(self.search_depth-1-self.depth)
+            layer_weights = encode_architecture_weights+decode_architecture_weights+resize_architecture_weights
+            #architecture_weights += layer_weights
+            depth_weighted_architecture_weight = layer_weights*self.sigmoid(self.depth-j)
             architecture_weights += depth_weighted_architecture_weight
+
 
         encode_architecture_weights, step_total_trainable_weights = self.encode_decode[self.search_depth].ArchitectureWeights()
         architecture_weights += encode_architecture_weights
@@ -195,6 +198,88 @@ class Network2d(nn.Module):
         total_trainable_weights += step_total_trainable_weights
 
         return architecture_weights, total_trainable_weights
+
+class Down(nn.Module):
+    """Downscaling with maxpool then double conv"""
+
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.maxpool_conv = nn.Sequential(
+            nn.MaxPool2d(2),
+            Cell(2, out_channels, in_channels)
+        )
+
+    def forward(self, x):
+        return self.maxpool_conv(x)
+
+
+class Up(nn.Module):
+    """Upscaling then double conv"""
+
+    def __init__(self, in_channels, out_channels, bilinear=True):
+        super().__init__()
+
+        # if bilinear, use the normal convolutions to reduce the number of channels
+        if bilinear:
+            self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+            self.conv = Cell(2, out_channels, in_channels)
+        else:
+            self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
+            self.conv = Cell(2, out_channels, in_channels)
+
+    def forward(self, x1, x2):
+        x1 = self.up(x1)
+        # input is CHW
+        diffY = x2.size()[2] - x1.size()[2]
+        diffX = x2.size()[3] - x1.size()[3]
+
+        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
+                        diffY // 2, diffY - diffY // 2])
+        # if you have padding issues, see
+        # https://github.com/HaiyongJiang/U-Net-Pytorch-Unstructured-Buggy/commit/0e854509c2cea854e247a9c615f175f76fbb2e3a
+        # https://github.com/xiaopeng-liao/Pytorch-UNet/commit/8ebac70e633bac59fc22bb5195e513d5832fb3bd
+        x = torch.cat([x2, x1], dim=1)
+        return self.conv(x)
+
+
+class OutConv(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(OutConv, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+
+    def forward(self, x):
+        return self.conv(x)
+class UNet(nn.Module):
+    def __init__(self, n_channels, n_classes, bilinear=True):
+        super(UNet, self).__init__()
+        self.n_channels = n_channels
+        self.n_classes = n_classes
+        self.bilinear = bilinear
+
+        self.inc = Cell(2, 64, n_channels)
+        self.down1 = Down(64, 128)
+        self.down2 = Down(128, 256)
+        self.down3 = Down(256, 512)
+        factor = 2 if bilinear else 1
+        self.down4 = Down(512, 1024 // factor)
+        self.up1 = Up(1024, 512 // factor, bilinear)
+        self.up2 = Up(512, 256 // factor, bilinear)
+        self.up3 = Up(256, 128 // factor, bilinear)
+        self.up4 = Up(128, 64, bilinear)
+        self.outc = OutConv(64, n_classes)
+
+    def forward(self, x):
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x5 = self.down4(x4)
+        x = self.up1(x5, x4)
+        x = self.up2(x, x3)
+        x = self.up3(x, x2)
+        x = self.up4(x, x1)
+        logits = self.outc(x)
+        return logits
 
 class TotalLoss(torch.nn.modules.loss._WeightedLoss):
     # https://github.com/JunMa11/SegLoss
@@ -301,19 +386,20 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
 
     def forward(self, input: torch.Tensor, target: torch.Tensor, network) -> torch.Tensor:
         assert self.weight is None or isinstance(self.weight, torch.Tensor)
-        #loss = F.cross_entropy(input, target.long(), weight=self.weight,reduction=self.reduction)
+        loss = F.cross_entropy(input, target.long(), weight=self.weight,reduction=self.reduction)
         #loss = F.cross_entropy(input, target.long(), weight=self.class_weight)
         loss = self.cross_entropy_loss(input, target.long())
 
-        #dims = []
-        #depths = []
+        dims = []
+        depths = []
         architecture_weights, total_trainable_weights = network.ArchitectureWeights()
         arcitecture_reduction = architecture_weights/total_trainable_weights
-        #architecture_loss = self.mseloss(arcitecture_reduction,self.target_structure)
+        architecture_loss = self.mseloss(arcitecture_reduction,self.target_structure)
 
-        #total_loss = loss + self.k_structure*architecture_loss
-        total_loss = loss
+        total_loss = loss + self.k_structure*architecture_loss
+        #total_loss = loss
         return total_loss,  loss, arcitecture_reduction
+        #return total_loss,  loss, loss
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
@@ -329,7 +415,7 @@ def parse_arguments():
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=3, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
     parser.add_argument('-model_src', type=str, default=None)
     parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_640x640_20210927.pt')
@@ -339,11 +425,11 @@ def parse_arguments():
     parser.add_argument('-width', type=int, default=640, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')
     parser.add_argument('-fast', type=bool, default=False, help='Fast debug run')
-    parser.add_argument('-learning_rate', type=float, default=0.001, help='Adam learning rate')
-    parser.add_argument('-search_depth', type=int, default=4, help='number of encoder/decoder levels to search/minimize')
-    parser.add_argument('-max_cell_steps', type=int, default=1, help='maximum number of convolution cells in layer to search/minimize')
+    parser.add_argument('-learning_rate', type=float, default=0.00001, help='Adam learning rate')
+    parser.add_argument('-search_depth', type=int, default=7, help='number of encoder/decoder levels to search/minimize')
+    parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=1.5, help='maximum number of layers to grow per level')
-    parser.add_argument('-k_structure', type=float, default=0.001, help='Structure minimization weighting fator')
+    parser.add_argument('-k_structure', type=float, default=0.0, help='Structure minimization weighting fator')
     parser.add_argument('-target_structure', type=float, default=0.5, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=False)
 
@@ -368,7 +454,7 @@ def Test(args):
     import torchvision.transforms as transforms
     import torch.optim as optim
 
-    #torch.autograd.set_detect_anomaly(True)
+    torch.autograd.set_detect_anomaly(True)
 
     creds = ReadDictJson(args.credentails)
     if not creds:
@@ -435,6 +521,8 @@ def Test(args):
         channel_multiple=args.channel_multiple,
         batch_norm=args.batch_norm)
 
+    #segment = UNet(n_channels=3, n_classes=class_dictionary['classes'], bilinear=True)
+
     #I think that setting device here eliminates the need to sepcificy device in Network2D
     segment.to(device)
 
@@ -451,7 +539,7 @@ def Test(args):
 
     # Define a Loss function and optimizer
     target_structure = torch.as_tensor(args.target_structure, dtype=torch.float32)
-    class_weight = torch.Tensor([0.01,0.35,1.0, 2.0])
+    class_weight = torch.Tensor([0.1,0.35,0.9, 1.0])
     if args.cuda:
         target_structure = target_structure.cuda()
         class_weight = class_weight.cuda()

@@ -112,7 +112,7 @@ class Cell(nn.Module):
                  out_channels, 
                  in1_channels, 
                  in2_channels = 0,
-                 batch_norm=True, 
+                 batch_norm=False, 
                  relu=True,
                  kernel_size=3, 
                  stride=1, 
@@ -259,7 +259,7 @@ class Cell(nn.Module):
             for i, l in enumerate(self.cnn):
                 x = self.cnn[i](x)
                 x = self.NormGausBasis(i,self.depth, x)
-                y = y+x # Residual connection
+                y = y+x # Apply structure weight
         # Frozen structure
         else:
             for i, l in enumerate(self.cnn):

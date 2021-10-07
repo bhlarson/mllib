@@ -123,7 +123,8 @@ class Cell(nn.Module):
                  padding_mode='zeros',
                  residual=True,
                  is_cuda=False,
-                 feature_threshold=0.01):
+                 feature_threshold=0.01,
+                 search_structure=True):
                 
         super(Cell, self).__init__()
         self.steps = steps
@@ -157,7 +158,7 @@ class Cell(nn.Module):
         self.total_trainable_weights = model_weights(self)
         self.cnn_step_weights = model_weights(self.cnn[0])
         self.dimension_weights = self.cnn_step_weights/self.out_channels
-        self.search_structure = True
+        self.search_structure = search_structure
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -180,7 +181,7 @@ class Cell(nn.Module):
 
     def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None):
 
-        # Reduce channels 
+        # Reduce channels
         if in1_channel_mask is not None or in2_channel_mask is not None:
 
             if in1_channel_mask is not None:
@@ -202,7 +203,7 @@ class Cell(nn.Module):
 
         else: # Do not reduce input channels.  
             in_channel_mask = torch.ones((self.in1_channels+self.in2_channels), dtype=torch.int32)
-
+        
         # Fix convolution depth
         cnn = torch.nn.ModuleList()
         if self.depth.item() < 1:
@@ -211,11 +212,9 @@ class Cell(nn.Module):
             cnn_depth = round(self.depth.item())
         else:
             cnn_depth = self.steps
-
-        for i in range(cnn_depth):
-            cnn.append(self.cnn[i])
+        print('cell_depth {}/{} = {}'.format(cnn_depth, round(self.depth.item()),cnn_depth/round(self.depth.item())))
+        self.cnn = self.cnn[0:cnn_depth]
         self.steps = cnn_depth
-        self.cnn = cnn
 
         # Drop minimized dimensions      
         dimension_weights = torch.squeeze(torch.linalg.norm(self.conv1x1.weight,dim=1))
@@ -225,19 +224,14 @@ class Cell(nn.Module):
         print('dimension_threshold {}/{} = {}'.format(num_out_channels, self.out_channels, num_out_channels/self.out_channels))
 
         self.conv_size.ApplyStructure(in_channel_mask=in_channel_mask, out_channel_mask=out_channel_mask)
-        #self.conv_size.weight.data = self.conv_size.weight[:, dimension_threshold!=0]
 
         for i, cnn in enumerate(self.cnn):
             cnn.ApplyStructure(in_channel_mask=out_channel_mask, out_channel_mask=out_channel_mask)
-            #cnn.conv.bias.data = cnn.conv.bias[dimension_threshold!=0]
-            #cnn.conv.weight.data = cnn.conv.weight[:, dimension_threshold!=0]
 
         # Apply structure to conv1x1
         self.conv1x1.bias.data = self.conv1x1.bias.data[out_channel_mask!=0]
         self.conv1x1.weight.data = self.conv1x1.weight.data[:,out_channel_mask!=0]
         self.conv1x1.weight.data = self.conv1x1.weight.data[out_channel_mask!=0]
-
-        self.search_structure = False
         self.out_channels = len(out_channel_mask[out_channel_mask!=0])
 
         return out_channel_mask
@@ -281,11 +275,11 @@ class Cell(nn.Module):
         if self.is_cuda:
             architecture_weights = architecture_weights.cuda()
 
-        layer_weight = torch.sum(self.dimension_weights*self.tanh(torch.squeeze(torch.linalg.norm(self.conv1x1.weight,dim=1))))
+        layer_weight = self.dimension_weights*torch.sum(torch.erf(torch.squeeze(torch.linalg.norm(self.conv1x1.weight,dim=1))))
 
         for i, l in enumerate(self.cnn):
             x = self.sigmoid(self.depth-i) * layer_weight
-            architecture_weights = architecture_weights+x
+            architecture_weights += x
 
         return architecture_weights, self.total_trainable_weights
     

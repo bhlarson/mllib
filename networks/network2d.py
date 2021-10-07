@@ -26,10 +26,11 @@ from utils.similarity import similarity, jaccard
 from torch.utils.tensorboard import SummaryWriter
 
 class Network2d(nn.Module):
-    def __init__(self, out_channels, source_channels=3, initial_channels=64, is_cuda=True, search_depth=7, max_cell_steps=6, channel_multiple=1.5, batch_norm=True, cell=Cell):
+    def __init__(self, out_channels, source_channels=3, initial_channels=64, is_cuda=True, min_search_depth=3, max_search_depth=7, max_cell_steps=6, channel_multiple=1.5, batch_norm=True, cell=Cell, search_structure=True):
         super(Network2d, self).__init__()
 
-        self.search_depth = search_depth
+        self.max_search_depth = max_search_depth
+        self.min_search_depth = min_search_depth
         self.out_channels = out_channels
         self.source_channels = source_channels
         self.initial_channels = initial_channels
@@ -37,33 +38,34 @@ class Network2d(nn.Module):
         self.cell = cell
         self.max_cell_steps = max_cell_steps
         self.channel_multiple = channel_multiple
-        self.depth = torch.nn.Parameter(torch.ones(1)*search_depth) # Initial depth parameter = search_depth
+        self.depth = torch.nn.Parameter(torch.ones(1)*self.max_search_depth) # Initial depth parameter = max_search_depth
         self.batch_norm = batch_norm
 
         self.encode_decode = torch.nn.ModuleList()
         self.upsample = torch.nn.ModuleList()
         self.final_conv = torch.nn.ModuleList()
+        self.search_structure = search_structure
 
         encoder_channels = self.initial_channels
         prev_encoder_chanels = self.source_channels
         feedforward_chanels = []
 
-        for i in range(self.search_depth-1):
-            self.encode_decode.append(self.cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda, batch_norm=self.batch_norm))
+        for i in range(self.max_search_depth-1):
+            self.encode_decode.append(self.cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda, batch_norm=self.batch_norm, search_structure=self.search_structure))
             feedforward_chanels.append(encoder_channels)
             prev_encoder_chanels = encoder_channels
             encoder_channels = int(self.channel_multiple*encoder_channels)
 
-        self.encode_decode.append(self.cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda, batch_norm=self.batch_norm))
+        self.encode_decode.append(self.cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda, batch_norm=self.batch_norm, search_structure=self.search_structure))
 
-        for i in range(self.search_depth-1):
+        for i in range(self.max_search_depth-1):
             self.upsample.append(nn.ConvTranspose2d(encoder_channels, encoder_channels, 2, stride=2))
 
             prev_encoder_chanels = encoder_channels
             encoder_channels = int(encoder_channels/self.channel_multiple)
-            self.encode_decode.append(self.cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, feedforward_chanels[-(i+1)], is_cuda=self.is_cuda, batch_norm=self.batch_norm))       
+            self.encode_decode.append(self.cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, feedforward_chanels[-(i+1)], is_cuda=self.is_cuda, batch_norm=self.batch_norm, search_structure=self.search_structure))       
 
-        self.encode_decode.append(self.cell(self.max_cell_steps, out_channels, encoder_channels, is_cuda=self.is_cuda, batch_norm=self.batch_norm))
+        self.encode_decode.append(self.cell(self.max_cell_steps, out_channels, encoder_channels, is_cuda=self.is_cuda, batch_norm=self.batch_norm, search_structure=self.search_structure))
         self.pool = nn.MaxPool2d(2, 2)
         self.sigmoid = nn.Sigmoid()
 
@@ -78,11 +80,28 @@ class Network2d(nn.Module):
             den = den + self.GaussianBasis(j,a,r)
         return torch.mul(torch.exp(-1*torch.square(r*(i-a)))/den, x)
 
+    def depth_forward(self, x, depth):
+        feed_forward = []
+        for i in range(depth-1):
+            x = self.encode_decode[i](x)
+            feed_forward.append(x)
+            x = self.pool(x)
+
+
+        # Feed-through
+        x = self.encode_decode[depth-1](x)
+        decode_depth = 2*self.max_search_depth-depth
+        for i in range(depth-1):
+            x = self.upsample[i](x)
+            x = self.encode_decode[i+decode_depth](x, feed_forward[-(i+1)])
+
+        x = self.encode_decode[-1](x) # Size to output
+        return x
+
     def forward(self, x):
-        #y = torch.zeros(self.search_depth)
 
         feed_forward = []
-        for i in range(self.search_depth-1):
+        for i in range(self.max_search_depth-1):
             x = self.encode_decode[i](x)
             feed_forward.append(x)
             x = self.pool(x)
@@ -90,12 +109,12 @@ class Network2d(nn.Module):
 
 
         # Feed-through
-        x = self.encode_decode[self.search_depth-1](x)
+        x = self.encode_decode[self.max_search_depth-1](x)
         x = x*self.sigmoid(self.depth-i)
 
-        for i in range(self.search_depth-1):
+        for i in range(self.max_search_depth-1):
             x = self.upsample[i](x)
-            x = self.encode_decode[i+self.search_depth](x, feed_forward[-(i+1)])
+            x = self.encode_decode[i+self.max_search_depth](x, feed_forward[-(i+1)])
             x = x*self.sigmoid(self.depth-i)
 
         x = self.encode_decode[-1](x) # Size to output
@@ -114,7 +133,8 @@ class Network2d(nn.Module):
             if len(out_channels) == conv.out_channels:
                 conv.bias.data = conv.bias[out_channels!=0]
                 conv.weight.data = conv.weight[out_channels!=0]
-
+                
+                print('ConvTranspose2d depth {}/{} = {}'.format(len(in_channels[in_channels!=0]), len(out_channels), len(in_channels[in_channels!=0])/len(out_channels)))
                 conv.out_channels = len(out_channels)
             else:
                 raise ValueError("len(out_channels)={} must be equal to conv.out_channels={}".format(len(out_channels), conv.out_channels))
@@ -124,12 +144,14 @@ class Network2d(nn.Module):
         print('ApplyStructure')
 
         depth = round(self.depth.item())
+        new_depth = depth
         if depth <=1:
             new_depth = 1
-        elif depth < self.search_depth:
+        elif depth < self.max_search_depth:
             new_depth = depth
         else:
-            new_depth = self.search_depth
+            new_depth = self.max_search_depth
+        print('network depth {}/{} = {}'.format(new_depth, depth, new_depth/depth))
 
         encoder_channel_mask = None
         feedforward_channel_mask = []
@@ -145,10 +167,10 @@ class Network2d(nn.Module):
         new_encode_decode.append(self.encode_decode[new_depth-1])
 
         for i in range(new_depth-1):
-            iUpsample = i+self.search_depth-new_depth
+            iUpsample = i+self.max_search_depth-new_depth
             self.ApplyStructureConvTranspose2d(self.upsample[iUpsample], encoder_channel_mask, encoder_channel_mask) # Remove same input and output channels
             new_upsample.append(self.upsample[iUpsample])
-            iEncDec = i+2*self.search_depth-new_depth
+            iEncDec = i+2*self.max_search_depth-new_depth
             encoder_channel_mask = self.encode_decode[iEncDec].ApplyStructure(encoder_channel_mask, feedforward_channel_mask[-(i+1)])
             new_encode_decode.append(self.encode_decode[iEncDec])
 
@@ -157,7 +179,7 @@ class Network2d(nn.Module):
 
         self.encode_decode = new_encode_decode
         self.upsample = new_upsample
-        self.search_depth = new_depth
+        self.max_search_depth = new_depth
 
         return encoder_channel_mask
 
@@ -174,22 +196,22 @@ class Network2d(nn.Module):
             architecture_weights = architecture_weights.cuda()
             total_trainable_weights = total_trainable_weights.cuda()
 
-        for j in range(self.search_depth-1):
+        for j in range(self.max_search_depth-1):
             
             encode_architecture_weights, step_total_trainable_weights = self.encode_decode[j].ArchitectureWeights()
             total_trainable_weights += step_total_trainable_weights
             decode_architecture_weights, step_total_trainable_weights = self.encode_decode[-(j+2)].ArchitectureWeights()
             total_trainable_weights += step_total_trainable_weights
-            resize_architecture_weights = torch.tensor(model_weights(self.upsample[j]))
+            #total_trainable_weights += torch.tensor(model_weights(self.upsample[j])) # Don't include until accounting is correct
 
             # Sigmoid weightingof architecture weighting to prune model depth
-            layer_weights = encode_architecture_weights+decode_architecture_weights+resize_architecture_weights
+            layer_weights = encode_architecture_weights+decode_architecture_weights
             #architecture_weights += layer_weights
             depth_weighted_architecture_weight = layer_weights*self.sigmoid(self.depth-j)
             architecture_weights += depth_weighted_architecture_weight
 
 
-        encode_architecture_weights, step_total_trainable_weights = self.encode_decode[self.search_depth].ArchitectureWeights()
+        encode_architecture_weights, step_total_trainable_weights = self.encode_decode[self.max_search_depth].ArchitectureWeights()
         architecture_weights += encode_architecture_weights
         total_trainable_weights += step_total_trainable_weights
 
@@ -417,26 +439,29 @@ def parse_arguments():
 
     parser.add_argument('-batch_size', type=int, default=3, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
-    parser.add_argument('-model_src', type=str, default=None)
-    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_640x640_20210927.pt')
+    #parser.add_argument('-model_src', type=str, default='segmin/segment_nas_640x640_prune_20211005.pt')
+    parser.add_argument('-model_src', type=str, default='segmin/segment_nas_640x640_prune_20211006.pt')
+    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_640x640_prune_test02.pt')
     parser.add_argument('-test_results', type=str, default='segmin/test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
     parser.add_argument('-width', type=int, default=640, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')
     parser.add_argument('-fast', type=bool, default=False, help='Fast debug run')
-    parser.add_argument('-learning_rate', type=float, default=0.00001, help='Adam learning rate')
-    parser.add_argument('-search_depth', type=int, default=7, help='number of encoder/decoder levels to search/minimize')
+    parser.add_argument('-learning_rate', type=float, default=0.0001, help='Adam learning rate')
+    parser.add_argument('-max_search_depth', type=int, default=7, help='number of encoder/decoder levels to search/minimize')
+    parser.add_argument('-min_search_depth', type=int, default=3, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=1.5, help='maximum number of layers to grow per level')
-    parser.add_argument('-k_structure', type=float, default=0.0, help='Structure minimization weighting fator')
-    parser.add_argument('-target_structure', type=float, default=0.5, help='Structure minimization weighting fator')
+    parser.add_argument('-k_structure', type=float, default=1.0e-5, help='Structure minimization weighting fator')
+    parser.add_argument('-target_structure', type=float, default=0.125, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=False)
 
-    parser.add_argument('-prune', type=bool, default=False)
+    parser.add_argument('-prune', type=bool, default=True)
     parser.add_argument('-train', type=bool, default=True)
     parser.add_argument('-test', type=bool, default=True)
     parser.add_argument('-infer', type=bool, default=True)
+    parser.add_argument('-search_structure', type=bool, default=True)
 
     parser.add_argument('-test_dir', type=str, default='/store/test/nasseg')
     parser.add_argument('-tensorboard_dir', type=str, default='/store/test/nassegtb')
@@ -447,7 +472,7 @@ def parse_arguments():
 
 # Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
 def Test(args):
-    print('Cell Test')
+    print('Network2D Test')
 
     import os
     import torchvision
@@ -516,10 +541,12 @@ def Test(args):
     # Create classifier
     segment = Network2d(class_dictionary['classes'], 
         is_cuda=args.cuda, 
-        search_depth=args.search_depth, 
+        max_search_depth=args.max_search_depth,
+        min_search_depth=args.min_search_depth, 
         max_cell_steps=args.max_cell_steps, 
         channel_multiple=args.channel_multiple,
-        batch_norm=args.batch_norm)
+        batch_norm=args.batch_norm,
+        search_structure=args.search_structure)
 
     #segment = UNet(n_channels=3, n_classes=class_dictionary['classes'], bilinear=True)
 
@@ -539,7 +566,7 @@ def Test(args):
 
     # Define a Loss function and optimizer
     target_structure = torch.as_tensor(args.target_structure, dtype=torch.float32)
-    class_weight = torch.Tensor([0.1,0.35,0.9, 1.0])
+    class_weight = torch.Tensor([0.25,0.5, 1.0, 1.0])
     if args.cuda:
         target_structure = target_structure.cuda()
         class_weight = class_weight.cuda()
@@ -684,7 +711,8 @@ def Test(args):
             'imflags': args.imflags,
             'fast': args.fast,
             'learning_rate': args.learning_rate,
-            'search_depth': args.search_depth,
+            'max_search_depth': args.max_search_depth,
+            'min_search_depth': args.min_search_depth,
             'max_cell_steps': args.max_cell_steps,
             'channel_multiple': args.channel_multiple,
             'k_structure': args.k_structure,

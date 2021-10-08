@@ -67,6 +67,7 @@ On the development workstation:
 - Install [microk8s kubernetes](https://microk8s.io/docs)
 ```console
 sudo snap install microk8s --classic
+sudo snap install microk8s --channel=1.22.2/stable --classic
 sudo usermod -a -G microk8s $USER
 sudo chown -f -R $USER ~/.kube
 su - $USER

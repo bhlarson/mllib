@@ -14,7 +14,17 @@ from utils.torch_util import count_parameters, model_stats, model_weights
 # Inner neural architecture cell repetition structure
 # Process: Con2d, optional batch norm, optional ReLu
 
+def GaussianBasis(i, depth, r=1.0):
+    return torch.exp(-1*torch.square(r*(i-depth)))
 
+def NormGausBasis(len, i, depth, r=1.0, is_cuda=True):
+        den = torch.nn.Parameter(torch.zeros(1))
+        if is_cuda:
+            den = den.cuda()
+
+        for j in range(len):
+            den = den + GaussianBasis(j,depth,r)
+        return torch.exp(-1*torch.square(r*(i-depth)))/den
 
 class ConvBR(nn.Module):
     def __init__(self, 
@@ -168,16 +178,6 @@ class Cell(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-    def GaussianBasis(self, i, a, r=1.0):
-        return torch.exp(-1*torch.square(r*(i-a)))
-
-    def NormGausBasis(self, i, a, x, r=1.0):
-        den = torch.nn.Parameter(torch.zeros(1))
-        if x.is_cuda:
-            den = den.cuda()
-        for j, l in enumerate(self.cnn):
-            den = den + self.GaussianBasis(j,a,r)
-        return torch.mul(torch.exp(-1*torch.square(r*(i-a)))/den, x)
 
     def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None):
 
@@ -252,7 +252,7 @@ class Cell(nn.Module):
             y = torch.zeros_like(x)
             for i, l in enumerate(self.cnn):
                 x = self.cnn[i](x)
-                x = self.NormGausBasis(i,self.depth, x)
+                x = x*NormGausBasis(len(self.cnn), i, self.depth, self.is_cuda)
                 y = y+x # Apply structure weight
         # Frozen structure
         else:

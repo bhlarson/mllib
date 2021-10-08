@@ -3,6 +3,7 @@ import os
 import sys
 import copy
 import io
+import json
 import numpy as np
 import torch
 import torch.nn as nn
@@ -16,7 +17,7 @@ from datetime import datetime
 from sklearn.metrics import confusion_matrix
 
 sys.path.insert(0, os.path.abspath(''))
-from networks.cell2d import Cell
+from networks.cell2d import Cell, NormGausBasis
 from utils.torch_util import count_parameters, model_stats, model_weights
 from utils.jsonutil import ReadDictJson
 from utils.s3 import s3store, Connect
@@ -69,56 +70,59 @@ class Network2d(nn.Module):
         self.pool = nn.MaxPool2d(2, 2)
         self.sigmoid = nn.Sigmoid()
 
-    def GaussianBasis(self, i, a, r=1.0):
-        return torch.exp(-1*torch.square(r*(i-a)))
-
-    def NormGausBasis(self, i, a, x, r=1.0):
-        den = torch.nn.Parameter(torch.zeros(1))
-        if x.is_cuda:
-            den = den.cuda()
-        for j, l in enumerate(self.encode_decode):
-            den = den + self.GaussianBasis(j,a,r)
-        return torch.mul(torch.exp(-1*torch.square(r*(i-a)))/den, x)
-
-    def depth_forward(self, x, depth):
+    def forward_depth(self, x, depth):
         feed_forward = []
         for i in range(depth-1):
             x = self.encode_decode[i](x)
             feed_forward.append(x)
             x = self.pool(x)
 
-
         # Feed-through
         x = self.encode_decode[depth-1](x)
-        decode_depth = 2*self.max_search_depth-depth
+        decode_depth = len(self.encode_decode)-depth
+        upsaple_depth = self.max_search_depth-depth
         for i in range(depth-1):
-            x = self.upsample[i](x)
-            x = self.encode_decode[i+decode_depth](x, feed_forward[-(i+1)])
+            x = self.upsample[upsaple_depth+i](x)
+            x = self.encode_decode[decode_depth+i](x, feed_forward[-(i+1)])
 
         x = self.encode_decode[-1](x) # Size to output
         return x
 
     def forward(self, x):
 
-        feed_forward = []
-        for i in range(self.max_search_depth-1):
-            x = self.encode_decode[i](x)
-            feed_forward.append(x)
-            x = self.pool(x)
-            x = x*self.sigmoid(self.depth-i)
+        # feed_forward = []
+        # for i in range(self.max_search_depth-1):
+        #     x = self.encode_decode[i](x)
+        #     feed_forward.append(x)
+        #     x = self.pool(x)
+        #     x = x*self.sigmoid(self.depth-i)
 
 
-        # Feed-through
-        x = self.encode_decode[self.max_search_depth-1](x)
-        x = x*self.sigmoid(self.depth-i)
+        # # Feed-through
+        # x = self.encode_decode[self.max_search_depth-1](x)
+        # x = x*self.sigmoid(self.depth-i)
 
-        for i in range(self.max_search_depth-1):
-            x = self.upsample[i](x)
-            x = self.encode_decode[i+self.max_search_depth](x, feed_forward[-(i+1)])
-            x = x*self.sigmoid(self.depth-i)
+        # for i in range(self.max_search_depth-1):
+        #     x = self.upsample[i](x)
+        #     x = self.encode_decode[i+self.max_search_depth](x, feed_forward[-(i+1)])
+        #     x = x*self.sigmoid(self.depth-i)
 
-        x = self.encode_decode[-1](x) # Size to output
-        return x
+        # x = self.encode_decode[-1](x) # Size to output
+
+        if self.search_structure:
+            y = None
+            search_range = self.max_search_depth-self.min_search_depth
+            for i in range(search_range):
+                xi = self.forward_depth(x, self.min_search_depth+i)
+                xi = xi*NormGausBasis(search_range, i+self.min_search_depth, self.depth, self.is_cuda)
+                if y is None:
+                    y=xi
+                else:
+                    y = y+xi
+        else:
+            y = self.forward_depth(x, self.max_search_depth)
+
+        return y
 
     def ApplyStructureConvTranspose2d(self, conv, in_channels=None, out_channels=None):
 
@@ -437,27 +441,27 @@ def parse_arguments():
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=3, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=2, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
     #parser.add_argument('-model_src', type=str, default='segmin/segment_nas_640x640_prune_20211005.pt')
     parser.add_argument('-model_src', type=str, default='segmin/segment_nas_640x640_prune_20211006.pt')
-    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_640x640_prune_test02.pt')
+    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_640x640_20211008.pt')
     parser.add_argument('-test_results', type=str, default='segmin/test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
     parser.add_argument('-width', type=int, default=640, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')
     parser.add_argument('-fast', type=bool, default=False, help='Fast debug run')
-    parser.add_argument('-learning_rate', type=float, default=0.0001, help='Adam learning rate')
+    parser.add_argument('-learning_rate', type=float, default=1.0e-4, help='Adam learning rate')
     parser.add_argument('-max_search_depth', type=int, default=7, help='number of encoder/decoder levels to search/minimize')
-    parser.add_argument('-min_search_depth', type=int, default=3, help='number of encoder/decoder levels to search/minimize')
+    parser.add_argument('-min_search_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=1.5, help='maximum number of layers to grow per level')
-    parser.add_argument('-k_structure', type=float, default=1.0e-5, help='Structure minimization weighting fator')
-    parser.add_argument('-target_structure', type=float, default=0.125, help='Structure minimization weighting fator')
+    parser.add_argument('-k_structure', type=float, default=1.0e-4, help='Structure minimization weighting fator')
+    parser.add_argument('-target_structure', type=float, default=0.25, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=False)
 
-    parser.add_argument('-prune', type=bool, default=True)
+    parser.add_argument('-prune', type=bool, default=False)
     parser.add_argument('-train', type=bool, default=True)
     parser.add_argument('-test', type=bool, default=True)
     parser.add_argument('-infer', type=bool, default=True)
@@ -465,6 +469,7 @@ def parse_arguments():
 
     parser.add_argument('-test_dir', type=str, default='/store/test/nasseg')
     parser.add_argument('-tensorboard_dir', type=str, default='/store/test/nassegtb')
+    parser.add_argument('-class_weight', type=json.loads, default='[0.01,0.1, 0.3, 1.0]', help='Loss class weight ') 
     
 
     args = parser.parse_args()
@@ -555,7 +560,7 @@ def Test(args):
 
     if(args.model_src and args.model_src != ''):
         model_buffer = io.BytesIO(s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_src )))
-        segment.load_state_dict(torch.load(model_buffer))
+        segment.load_state_dict(torch.load(model_buffer), strict=False)
 
     total_parameters = count_parameters(segment)
 
@@ -566,7 +571,7 @@ def Test(args):
 
     # Define a Loss function and optimizer
     target_structure = torch.as_tensor(args.target_structure, dtype=torch.float32)
-    class_weight = torch.Tensor([0.25,0.5, 1.0, 1.0])
+    class_weight = torch.Tensor(args.class_weight)
     if args.cuda:
         target_structure = target_structure.cuda()
         class_weight = class_weight.cuda()
@@ -717,6 +722,8 @@ def Test(args):
             'channel_multiple': args.channel_multiple,
             'k_structure': args.k_structure,
             'batch_norm': args.batch_norm,
+            'search_structure': args.search_structure,
+            'class_weight': args.class_weight,
         }
 
         results = {'class similarity':{}, 'config':config, 'image':[]}

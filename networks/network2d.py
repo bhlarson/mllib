@@ -26,9 +26,37 @@ from utils.similarity import similarity, jaccard
 # from segment.display import DrawFeatures
 from torch.utils.tensorboard import SummaryWriter
 
+DefaultMaxDepth = 7
 class Network2d(nn.Module):
-    def __init__(self, out_channels, source_channels=3, initial_channels=64, is_cuda=True, min_search_depth=3, max_search_depth=7, max_cell_steps=6, channel_multiple=1.5, batch_norm=True, cell=Cell, search_structure=True):
+    def __init__(self, 
+                 out_channels=1, 
+                 source_channels=3, 
+                 initial_channels=64, 
+                 is_cuda=True, 
+                 min_search_depth=3, 
+                 max_search_depth=DefaultMaxDepth, 
+                 max_cell_steps=6, 
+                 channel_multiple=1.5, 
+                 batch_norm=True, 
+                 cell=Cell, 
+                 search_structure=True,
+                 depth = float(DefaultMaxDepth),
+                 definition=None):
         super(Network2d, self).__init__()
+
+        if definition is not None:
+            out_channels = definition['out_channels']
+            source_channels = definition['source_channels']
+            initial_channels = definition['initial_channels']
+            is_cuda = definition['is_cuda']
+            min_search_depth = definition['min_search_depth']
+            max_search_depth = definition['max_search_depth']
+            max_cell_steps = definition['max_cell_steps']
+            channel_multiple = definition['channel_multiple']
+            batch_norm = definition['batch_norm']
+            search_structure = definition['search_structure']
+            depth = definition['depth']
+
 
         self.max_search_depth = max_search_depth
         self.min_search_depth = min_search_depth
@@ -39,7 +67,7 @@ class Network2d(nn.Module):
         self.cell = cell
         self.max_cell_steps = max_cell_steps
         self.channel_multiple = channel_multiple
-        self.depth = torch.nn.Parameter(torch.ones(1)*self.max_search_depth) # Initial depth parameter = max_search_depth
+        self.depth = torch.nn.Parameter(torch.tensor(depth, dtype=torch.float)) # Initial depth parameter = max_search_depth
         self.batch_norm = batch_norm
 
         self.encode_decode = torch.nn.ModuleList()
@@ -52,23 +80,82 @@ class Network2d(nn.Module):
         feedforward_chanels = []
 
         for i in range(self.max_search_depth-1):
-            self.encode_decode.append(self.cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda, batch_norm=self.batch_norm, search_structure=self.search_structure))
+            if definition is not None and len(definition['encode_decode']) > i:
+                cell = self.cell(definition=definition['encode_decode'][i])
+            else:
+                cell = self.cell(self.max_cell_steps, 
+                             encoder_channels, 
+                             prev_encoder_chanels, 
+                             is_cuda=self.is_cuda, 
+                             batch_norm=self.batch_norm, 
+                             search_structure=self.search_structure, 
+                             depth=self.max_cell_steps)
+            self.encode_decode.append(cell)
+
             feedforward_chanels.append(encoder_channels)
             prev_encoder_chanels = encoder_channels
             encoder_channels = int(self.channel_multiple*encoder_channels)
 
-        self.encode_decode.append(self.cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, is_cuda=self.is_cuda, batch_norm=self.batch_norm, search_structure=self.search_structure))
+        cell = self.cell(self.max_cell_steps, 
+                         encoder_channels, 
+                         prev_encoder_chanels, 
+                         is_cuda=self.is_cuda, 
+                         batch_norm=self.batch_norm, 
+                         search_structure=self.search_structure,
+                         depth=self.max_cell_steps)
+        self.encode_decode.append(cell)
 
         for i in range(self.max_search_depth-1):
             self.upsample.append(nn.ConvTranspose2d(encoder_channels, encoder_channels, 2, stride=2))
 
             prev_encoder_chanels = encoder_channels
             encoder_channels = int(encoder_channels/self.channel_multiple)
-            self.encode_decode.append(self.cell(self.max_cell_steps, encoder_channels, prev_encoder_chanels, feedforward_chanels[-(i+1)], is_cuda=self.is_cuda, batch_norm=self.batch_norm, search_structure=self.search_structure))       
+            cell = self.cell(self.max_cell_steps, 
+                             encoder_channels, 
+                             prev_encoder_chanels, 
+                             feedforward_chanels[-(i+1)], 
+                             is_cuda=self.is_cuda, 
+                             batch_norm=self.batch_norm, 
+                             search_structure=self.search_structure,
+                             depth=self.max_cell_steps)
+            self.encode_decode.append(cell)       
 
-        self.encode_decode.append(self.cell(self.max_cell_steps, out_channels, encoder_channels, is_cuda=self.is_cuda, batch_norm=self.batch_norm, search_structure=self.search_structure))
+        cell = self.cell(self.max_cell_steps, 
+                         out_channels, 
+                         encoder_channels, 
+                         is_cuda=self.is_cuda, 
+                         batch_norm=self.batch_norm, 
+                         search_structure=self.search_structure,
+                         depth=self.max_cell_steps)
+        self.encode_decode.append(cell)
+
         self.pool = nn.MaxPool2d(2, 2)
         self.sigmoid = nn.Sigmoid()
+
+    def definition(self):
+        definition_dict = {
+            'out_channels': self.out_channels,
+            'source_channels': self.source_channels,
+            'initial_channels': self.initial_channels,
+            'is_cuda': self.is_cuda,
+            'min_search_depth': self.min_search_depth,
+            'max_search_depth': self.max_search_depth,
+            'max_cell_steps': self.max_cell_steps,
+            'channel_multiple': self.channel_multiple,
+            'batch_norm': self.batch_norm,
+            'search_structure': self.search_structure,
+            'depth': self.depth.item(),
+            'encode_decode': [],
+        }
+
+        for ed in self.encode_decode:
+            definition_dict['encode_decode'].append(ed.definition())
+
+        architecture_weights, total_trainable_weights = self.ArchitectureWeights()
+        definition_dict['architecture_weights']= architecture_weights.item()
+        definition_dict['total_trainable_weights']= total_trainable_weights.item()
+
+        return definition_dict
 
     def forward_depth(self, x, depth):
         feed_forward = []
@@ -111,7 +198,7 @@ class Network2d(nn.Module):
 
         if self.search_structure:
             y = None
-            search_range = self.max_search_depth-self.min_search_depth
+            search_range = self.max_search_depth-self.min_search_depth+1
             for i in range(search_range):
                 xi = self.forward_depth(x, self.min_search_depth+i)
                 xi = xi*NormGausBasis(search_range, i+self.min_search_depth, self.depth, self.is_cuda)
@@ -147,15 +234,16 @@ class Network2d(nn.Module):
     def ApplyStructure(self):
         print('ApplyStructure')
 
+
         depth = round(self.depth.item())
         new_depth = depth
-        if depth <=1:
-            new_depth = 1
+        if depth <=self.min_search_depth:
+            new_depth = self.min_search_depth
         elif depth < self.max_search_depth:
             new_depth = depth
         else:
             new_depth = self.max_search_depth
-        print('network depth {}/{} = {}'.format(new_depth, depth, new_depth/depth))
+        print('network depth {}/{} = {}'.format(new_depth, self.max_search_depth, new_depth/self.max_search_depth))
 
         encoder_channel_mask = None
         feedforward_channel_mask = []
@@ -441,11 +529,11 @@ def parse_arguments():
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=2, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=1, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
     #parser.add_argument('-model_src', type=str, default='segmin/segment_nas_640x640_prune_20211005.pt')
-    parser.add_argument('-model_src', type=str, default='segmin/segment_nas_640x640_prune_20211006.pt')
-    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_640x640_20211008.pt')
+    parser.add_argument('-model_src', type=str,  default='segmin/segment_nas_640x640_20211009')
+    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_640x640_20211011')
     parser.add_argument('-test_results', type=str, default='segmin/test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
@@ -458,7 +546,7 @@ def parse_arguments():
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=1.5, help='maximum number of layers to grow per level')
     parser.add_argument('-k_structure', type=float, default=1.0e-4, help='Structure minimization weighting fator')
-    parser.add_argument('-target_structure', type=float, default=0.25, help='Structure minimization weighting fator')
+    parser.add_argument('-target_structure', type=float, default=0.01, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=False)
 
     parser.add_argument('-prune', type=bool, default=False)
@@ -469,11 +557,22 @@ def parse_arguments():
 
     parser.add_argument('-test_dir', type=str, default='/store/test/nasseg')
     parser.add_argument('-tensorboard_dir', type=str, default='/store/test/nassegtb')
-    parser.add_argument('-class_weight', type=json.loads, default='[0.01,0.1, 0.3, 1.0]', help='Loss class weight ') 
+    parser.add_argument('-class_weight', type=json.loads, default='[1.0,1.0, 1.0, 1.0]', help='Loss class weight ') 
     
 
     args = parser.parse_args()
     return args
+
+def MakeNetwork2d(classes, args):
+    return Network2d(classes, 
+            is_cuda=args.cuda, 
+            max_search_depth=args.max_search_depth,
+            min_search_depth=args.min_search_depth, 
+            max_cell_steps=args.max_cell_steps, 
+            channel_multiple=args.channel_multiple,
+            batch_norm=args.batch_norm,
+            search_structure=args.search_structure)
+
 
 # Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
 def Test(args):
@@ -543,24 +642,32 @@ def Test(args):
         ]),
     }'''
 
-    # Create classifier
-    segment = Network2d(class_dictionary['classes'], 
-        is_cuda=args.cuda, 
-        max_search_depth=args.max_search_depth,
-        min_search_depth=args.min_search_depth, 
-        max_cell_steps=args.max_cell_steps, 
-        channel_multiple=args.channel_multiple,
-        batch_norm=args.batch_norm,
-        search_structure=args.search_structure)
 
     #segment = UNet(n_channels=3, n_classes=class_dictionary['classes'], bilinear=True)
 
-    #I think that setting device here eliminates the need to sepcificy device in Network2D
-    segment.to(device)
+
 
     if(args.model_src and args.model_src != ''):
-        model_buffer = io.BytesIO(s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_src )))
-        segment.load_state_dict(torch.load(model_buffer), strict=False)
+        modeldict = s3.GetDict(s3def['sets']['model']['bucket'], '{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_src ))
+        modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_src ))
+
+        if modeldict is not None:
+            segment = Network2d(definition=modeldict)
+        else:
+            print('Unable to load model definition {}/{}/{}. Creating default model.'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_src))
+            segment = MakeNetwork2d(class_dictionary['classes'], args)
+
+        if modelObj is not None:
+            segment.load_state_dict(torch.load(io.BytesIO(modelObj)))
+        else:
+            print('Failed to load model_src {}/{}/{}.  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_src))
+            return
+    else:
+        # Create classifier
+        segment = MakeNetwork2d(class_dictionary['classes'], args)
+
+    #I think that setting device here eliminates the need to sepcificy device in Network2D
+    segment.to(device)
 
     total_parameters = count_parameters(segment)
 
@@ -620,15 +727,17 @@ def Test(args):
                         epoch + 1, i + 1, running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
                     running_loss = 0.0
 
-                    image = np.squeeze(inputs.cpu().permute(0, 2, 3, 1).numpy())
-                    label = np.around(np.squeeze(labels.cpu().numpy())).astype('uint8')
-                    segmentation = torch.argmax(outputs, 1)
-                    segmentation = np.squeeze(segmentation.cpu().numpy()).astype('uint8')
+                    images = inputs.cpu().permute(0, 2, 3, 1).numpy()
+                    labels = np.around(labels.cpu().numpy()).astype('uint8')
+                    segmentations = torch.argmax(outputs, 1)
+                    segmentations = segmentations.cpu().numpy().astype('uint8')
 
                     for j in range(1):
-
-                        iman = trainingset.coco.MergeIman(image[0], label[0], mean[0].item(), stdev[0].item())
-                        imseg = trainingset.coco.MergeIman(image[0], segmentation[0], mean[0].item(), stdev[0].item())
+                        image = np.squeeze(images[j])
+                        label = np.squeeze(labels[j])
+                        segmentation = np.squeeze(segmentations[j])
+                        iman = trainingset.coco.MergeIman(image, label, mean[j].item(), stdev[j].item())
+                        imseg = trainingset.coco.MergeIman(image, segmentation, mean[j].item(), stdev[j].item())
 
                         iman = cv2.putText(iman, 'Annotation',(10,25), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),1,cv2.LINE_AA)
                         imseg = cv2.putText(imseg, 'Segmentation',(10,25), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),1,cv2.LINE_AA)
@@ -642,14 +751,16 @@ def Test(args):
                 if i % iSave == iSave-1:    # print every 20 mini-batches
                     out_buffer = io.BytesIO()
                     torch.save(segment.state_dict(), out_buffer)
-                    s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_dest ), out_buffer)
+                    s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_dest ), out_buffer)  
+                    s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_dest ), segment.definition())
 
                 if args.fast:
                     break
 
             out_buffer = io.BytesIO()
             torch.save(segment.state_dict(), out_buffer)
-            s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_dest ), out_buffer)
+            s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_dest ), out_buffer)
+            s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_dest ), segment.definition())
 
         if args.test:
             running_loss = 0.0
@@ -738,7 +849,7 @@ def Test(args):
                 objTypes[objType['trainId']]['id'] = objType['trainId']
 
         for i in objTypes:
-            results['class similaCocoDatasetrity'][i]={'intersection':0, 'union':0}
+            results['class similarity'][i]={'intersection':0, 'union':0}
 
         testset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
             image_paths=args.val_image_path,

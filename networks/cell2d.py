@@ -118,9 +118,9 @@ class ConvBR(nn.Module):
 # batchNorm: true/false
 class Cell(nn.Module):
     def __init__(self,
-                 steps,
-                 out_channels, 
-                 in1_channels, 
+                 steps=1,
+                 out_channels=1, 
+                 in1_channels=3, 
                  in2_channels = 0,
                  batch_norm=False, 
                  relu=True,
@@ -134,24 +134,59 @@ class Cell(nn.Module):
                  residual=True,
                  is_cuda=False,
                  feature_threshold=0.01,
-                 search_structure=True):
+                 search_structure=True,
+                 depth=1,
+                 definition=None):
                 
         super(Cell, self).__init__()
-        self.steps = steps
-        self.relu = relu
-        self.residual = residual
-        self.cnn = torch.nn.ModuleList()
-        self.is_cuda = is_cuda
 
-        #self.depth = torch.nn.Parameter(torch.ones(1)*float(steps)/2.0)
-        self.depth = nn.Parameter(torch.ones(1)*self.steps)
+        if definition is not None:
+            steps=definition['steps']
+            out_channels=definition['out_channels']
+            in1_channels=definition['in1_channels']
+            in2_channels = definition['in2_channels']
+            batch_norm=definition['batch_norm']
+            relu=definition['relu']
+            kernel_size=definition['kernel_size']
+            stride=definition['stride']
+            padding=definition['padding']
+            dilation=definition['dilation']
+            groups=definition['groups']
+            bias=definition['bias']
+            padding_mode=definition['padding_mode']
+            residual=definition['residual']
+            is_cuda=definition['is_cuda']
+            feature_threshold=definition['feature_threshold']
+            search_structure=definition['search_structure']
+            depth=definition['depth']
+
+        self.steps = steps
+        self.out_channels = out_channels
+        self.in1_channels = in1_channels
+        self.in2_channels = in2_channels
+        self.batch_norm = batch_norm
+        self.relu = relu
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.groups = groups
+        self.bias = bias
+        self.padding_mode = padding_mode
+        self.residual = residual
+        self.is_cuda = is_cuda
+        self.feature_threshold = feature_threshold
+        self.search_structure = search_structure
+        self.depth = nn.Parameter(torch.tensor(depth, dtype=torch.float))
+
+        self.cnn = torch.nn.ModuleList()
 
         # First convolution uses in1_channels+in2_channels is input chanels. 
         # Remaining convoutions uses out_channels as chanels
-        self.in1_channels = in1_channels
-        self.in2_channels = in2_channels
-        self.out_channels = out_channels
-        self.feature_threshold = feature_threshold
+
+
+
+
 
         self.conv_size = ConvBR(self.in1_channels+self.in2_channels, self.out_channels, batch_norm, relu, kernel_size, stride, dilation, groups, bias, padding_mode)
 
@@ -168,7 +203,34 @@ class Cell(nn.Module):
         self.total_trainable_weights = model_weights(self)
         self.cnn_step_weights = model_weights(self.cnn[0])
         self.dimension_weights = self.cnn_step_weights/self.out_channels
-        self.search_structure = search_structure
+
+
+    def definition(self):
+        definition_dict = {
+            'steps': self.steps,
+            'out_channels': self.out_channels, 
+            'in1_channels': self.in1_channels, 
+            'in2_channels': self.in2_channels,
+            'batch_norm': self.batch_norm,
+            'relu': self.relu,
+            'kernel_size': self.kernel_size,
+            'stride': self.stride,
+            'padding': self.padding,
+            'dilation': self.dilation,
+            'groups': self.groups,
+            'bias': self.bias,
+            'padding_mode': self.padding_mode,
+            'residual': self.residual,
+            'is_cuda': self.is_cuda,
+            'feature_threshold': self.feature_threshold,
+            'search_structure': self.search_structure,
+            'depth': self.depth.item(),
+            'total_trainable_weights': self.total_trainable_weights,
+            'cnn_step_weights': self.cnn_step_weights,
+            'dimension_weights': self.dimension_weights,
+        }
+
+        return definition_dict
 
     def _initialize_weights(self):
         for m in self.modules():

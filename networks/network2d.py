@@ -497,7 +497,7 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
     ignore_index: int
 
     def __init__(self, weight: Optional[torch.Tensor] = None, size_average=None, ignore_index: int = -100,
-                 prune=None, reduction: str = 'mean', k_structure=0.0, target_structure=1.0, class_weight=None) -> None:
+                 prune=None, reduction: str = 'mean', k_structure=0.0, target_structure=1.0, class_weight=None, search_structure=True) -> None:
         super(TotalLoss, self).__init__(weight, size_average, prune, reduction)
         self.ignore_index = ignore_index
         self.reduction = reduction
@@ -507,6 +507,7 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
         self.mseloss = nn.MSELoss()
         self.class_weight = class_weight
         self.cross_entropy_loss = nn.CrossEntropyLoss(weight=self.class_weight, ignore_index=self.ignore_index, reduction=self.reduction)
+        self.search_structure = search_structure
 
 
     def forward(self, input: torch.Tensor, target: torch.Tensor, network) -> torch.Tensor:
@@ -521,8 +522,9 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
         arcitecture_reduction = architecture_weights/total_trainable_weights
         architecture_loss = self.mseloss(arcitecture_reduction,self.target_structure)
 
-        total_loss = loss + self.k_structure*architecture_loss
-        #total_loss = loss
+        total_loss = loss
+        if self.search_structure:
+            total_loss += self.k_structure*architecture_loss
         return total_loss,  loss, arcitecture_reduction
         #return total_loss,  loss, loss
 
@@ -542,9 +544,8 @@ def parse_arguments():
 
     parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=1, help='Training epochs')
-    #parser.add_argument('-model_src', type=str, default='segmin/segment_nas_640x640_prune_20211005.pt')
-    parser.add_argument('-model_src', type=str,  default='segmin/segment_nas_prune_640x640_20211012')
-    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_prune_640x640_20211012_01')
+    parser.add_argument('-model_src', type=str,  default='segmin/segment_nas_640x640_20211011')
+    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_prune_640x640_20211012')
     parser.add_argument('-test_results', type=str, default='segmin/test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
@@ -560,7 +561,7 @@ def parse_arguments():
     parser.add_argument('-target_structure', type=float, default=0.01, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=False)
 
-    parser.add_argument('-prune', type=bool, default=False)
+    parser.add_argument('-prune', type=bool, default=True)
     parser.add_argument('-train', type=bool, default=True)
     parser.add_argument('-test', type=bool, default=True)
     parser.add_argument('-infer', type=bool, default=True)
@@ -629,7 +630,7 @@ def Test(args):
             imflags=args.imflags, 
             astype='float32')
 
-        trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=3, pin_memory=pin_memory)
+        trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=1, pin_memory=pin_memory)
 
     if args.test:
         valset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
@@ -640,7 +641,7 @@ def Test(args):
             imflags=args.imflags, 
             astype='float32',
             enable_transform=False)
-        valloader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size, shuffle=False, num_workers=3, pin_memory=pin_memory)
+        valloader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size, shuffle=False, num_workers=1, pin_memory=pin_memory)
 
     '''transform = {
         'train': transforms.Compose([
@@ -699,7 +700,7 @@ def Test(args):
     if args.cuda:
         target_structure = target_structure.cuda()
         class_weight = class_weight.cuda()
-    criterion = TotalLoss(k_structure=args.k_structure, target_structure=target_structure, class_weight=class_weight)
+    criterion = TotalLoss(k_structure=args.k_structure, target_structure=target_structure, class_weight=class_weight, search_structure=args.search_structure)
     #optimizer = optim.SGD(segment.parameters(), lr=0.001, momentum=0.9)
     optimizer = optim.Adam(segment.parameters(), lr= args.learning_rate)
 

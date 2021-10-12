@@ -96,37 +96,48 @@ class Network2d(nn.Module):
             prev_encoder_chanels = encoder_channels
             encoder_channels = int(self.channel_multiple*encoder_channels)
 
-        cell = self.cell(self.max_cell_steps, 
-                         encoder_channels, 
-                         prev_encoder_chanels, 
-                         is_cuda=self.is_cuda, 
-                         batch_norm=self.batch_norm, 
-                         search_structure=self.search_structure,
-                         depth=self.max_cell_steps)
+        if definition is not None and len(definition['encode_decode']) > i:
+            cell = self.cell(definition=definition['encode_decode'][self.max_search_depth-1])
+        else:
+            cell = self.cell(self.max_cell_steps, 
+                            encoder_channels, 
+                            prev_encoder_chanels, 
+                            is_cuda=self.is_cuda, 
+                            batch_norm=self.batch_norm, 
+                            search_structure=self.search_structure,
+                            depth=self.max_cell_steps)
         self.encode_decode.append(cell)
 
         for i in range(self.max_search_depth-1):
-            self.upsample.append(nn.ConvTranspose2d(encoder_channels, encoder_channels, 2, stride=2))
 
-            prev_encoder_chanels = encoder_channels
-            encoder_channels = int(encoder_channels/self.channel_multiple)
-            cell = self.cell(self.max_cell_steps, 
-                             encoder_channels, 
-                             prev_encoder_chanels, 
-                             feedforward_chanels[-(i+1)], 
-                             is_cuda=self.is_cuda, 
-                             batch_norm=self.batch_norm, 
-                             search_structure=self.search_structure,
-                             depth=self.max_cell_steps)
+            if definition is not None and len(definition['encode_decode']) > i:
+                encoder_channels = definition['encode_decode'][self.max_search_depth+i]['in1_channels']
+                self.upsample.append(nn.ConvTranspose2d(encoder_channels, encoder_channels, 2, stride=2))
+                cell = self.cell(definition=definition['encode_decode'][self.max_search_depth+i])
+            else:
+                self.upsample.append(nn.ConvTranspose2d(encoder_channels, encoder_channels, 2, stride=2))
+                prev_encoder_chanels = encoder_channels
+                encoder_channels = int(encoder_channels/self.channel_multiple)
+                cell = self.cell(self.max_cell_steps, 
+                                encoder_channels, 
+                                prev_encoder_chanels, 
+                                feedforward_chanels[-(i+1)], 
+                                is_cuda=self.is_cuda, 
+                                batch_norm=self.batch_norm, 
+                                search_structure=self.search_structure,
+                                depth=self.max_cell_steps)
             self.encode_decode.append(cell)       
 
-        cell = self.cell(self.max_cell_steps, 
-                         out_channels, 
-                         encoder_channels, 
-                         is_cuda=self.is_cuda, 
-                         batch_norm=self.batch_norm, 
-                         search_structure=self.search_structure,
-                         depth=self.max_cell_steps)
+        if definition is not None and len(definition['encode_decode']) > i:
+            cell = self.cell(definition=definition['encode_decode'][-1])
+        else:
+            cell = self.cell(self.max_cell_steps, 
+                            out_channels, 
+                            encoder_channels, 
+                            is_cuda=self.is_cuda, 
+                            batch_norm=self.batch_norm, 
+                            search_structure=self.search_structure,
+                            depth=self.max_cell_steps)
         self.encode_decode.append(cell)
 
         self.pool = nn.MaxPool2d(2, 2)
@@ -201,7 +212,7 @@ class Network2d(nn.Module):
             search_range = self.max_search_depth-self.min_search_depth+1
             for i in range(search_range):
                 xi = self.forward_depth(x, self.min_search_depth+i)
-                xi = xi*NormGausBasis(search_range, i+self.min_search_depth, self.depth, self.is_cuda)
+                xi = xi*NormGausBasis(search_range, i, self.depth.item()-self.min_search_depth)
                 if y is None:
                     y=xi
                 else:
@@ -529,11 +540,11 @@ def parse_arguments():
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=1, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=1, help='Training epochs')
     #parser.add_argument('-model_src', type=str, default='segmin/segment_nas_640x640_prune_20211005.pt')
-    parser.add_argument('-model_src', type=str,  default='segmin/segment_nas_640x640_20211009')
-    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_640x640_20211011')
+    parser.add_argument('-model_src', type=str,  default='segmin/segment_nas_prune_640x640_20211012')
+    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_prune_640x640_20211012_01')
     parser.add_argument('-test_results', type=str, default='segmin/test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
@@ -541,8 +552,8 @@ def parse_arguments():
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')
     parser.add_argument('-fast', type=bool, default=False, help='Fast debug run')
     parser.add_argument('-learning_rate', type=float, default=1.0e-4, help='Adam learning rate')
-    parser.add_argument('-max_search_depth', type=int, default=7, help='number of encoder/decoder levels to search/minimize')
-    parser.add_argument('-min_search_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
+    parser.add_argument('-max_search_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
+    parser.add_argument('-min_search_depth', type=int, default=3, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=1.5, help='maximum number of layers to grow per level')
     parser.add_argument('-k_structure', type=float, default=1.0e-4, help='Structure minimization weighting fator')
@@ -553,7 +564,7 @@ def parse_arguments():
     parser.add_argument('-train', type=bool, default=True)
     parser.add_argument('-test', type=bool, default=True)
     parser.add_argument('-infer', type=bool, default=True)
-    parser.add_argument('-search_structure', type=bool, default=True)
+    parser.add_argument('-search_structure', type=bool, default=False)
 
     parser.add_argument('-test_dir', type=str, default='/store/test/nasseg')
     parser.add_argument('-tensorboard_dir', type=str, default='/store/test/nassegtb')
@@ -573,6 +584,11 @@ def MakeNetwork2d(classes, args):
             batch_norm=args.batch_norm,
             search_structure=args.search_structure)
 
+def save(model, s3, s3def, args):
+    out_buffer = io.BytesIO()
+    torch.save(model.state_dict(), out_buffer)
+    s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_dest ), out_buffer)
+    s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_dest ), model.definition())
 
 # Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
 def Test(args):
@@ -613,7 +629,7 @@ def Test(args):
             imflags=args.imflags, 
             astype='float32')
 
-        trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=pin_memory)
+        trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=3, pin_memory=pin_memory)
 
     if args.test:
         valset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
@@ -624,7 +640,7 @@ def Test(args):
             imflags=args.imflags, 
             astype='float32',
             enable_transform=False)
-        valloader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
+        valloader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size, shuffle=False, num_workers=3, pin_memory=pin_memory)
 
     '''transform = {
         'train': transforms.Compose([
@@ -674,6 +690,7 @@ def Test(args):
     if args.prune:
         segment.ApplyStructure()
         reduced_parameters = count_parameters(segment)
+        save(segment, s3, s3def, args)
         print('Reduced parameters {}/{} = {}'.format(reduced_parameters, total_parameters, reduced_parameters/total_parameters))
 
     # Define a Loss function and optimizer
@@ -749,18 +766,13 @@ def Test(args):
                 #print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.4f}, norm_depth_loss: {:0.3f}, cell_depths: {}'.format(epoch + 1, i + 1, cross_entropy_loss, dims_norm, norm_depth_loss, cell_depths))
                 iSave = 2000
                 if i % iSave == iSave-1:    # print every 20 mini-batches
-                    out_buffer = io.BytesIO()
-                    torch.save(segment.state_dict(), out_buffer)
-                    s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_dest ), out_buffer)  
-                    s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_dest ), segment.definition())
+                    save(segment, s3, s3def, args)
 
                 if args.fast:
                     break
 
-            out_buffer = io.BytesIO()
-            torch.save(segment.state_dict(), out_buffer)
-            s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_dest ), out_buffer)
-            s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_dest ), segment.definition())
+            save(segment, s3, s3def, args)
+
 
         if args.test:
             running_loss = 0.0

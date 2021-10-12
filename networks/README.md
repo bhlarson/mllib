@@ -10,8 +10,9 @@
 [Efficientnet](https://arxiv.org/pdf/1905.11946.pdf)
 [Source](https://github.com/tensorflow/tpu/tree/master/models/official/efficientnet)
 
-
-
+```console
+tensorboard --logdir /store/test/nassegtb --bind_all
+```
 
 # Notes:
 

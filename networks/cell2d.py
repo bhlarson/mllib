@@ -1,6 +1,7 @@
 import math
 import os
 import sys
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,16 +16,17 @@ from utils.torch_util import count_parameters, model_stats, model_weights
 # Process: Con2d, optional batch norm, optional ReLu
 
 def GaussianBasis(i, depth, r=1.0):
-    return torch.exp(-1*torch.square(r*(i-depth)))
+    return math.exp(-1*(r*(i-depth))**2)
 
-def NormGausBasis(len, i, depth, r=1.0, is_cuda=True):
-        den = torch.nn.Parameter(torch.zeros(1))
-        if is_cuda:
-            den = den.cuda()
-
+def NormGausBasis(len, i, depth, r=1.0):
+        den = 0.0
+        num = 0.0
         for j in range(len):
-            den = den + GaussianBasis(j,depth,r)
-        return torch.exp(-1*torch.square(r*(i-depth)))/den
+            bias = GaussianBasis(j,depth,r)
+            if j==i:
+                num=bias
+            den = den + bias
+        return num/den
 
 class ConvBR(nn.Module):
     def __init__(self, 
@@ -274,7 +276,7 @@ class Cell(nn.Module):
             cnn_depth = round(self.depth.item())
         else:
             cnn_depth = self.steps
-        print('cell_depth {}/{} = {}'.format(cnn_depth, round(self.depth.item()),cnn_depth/round(self.depth.item())))
+        print('cell_depth {}/{} = {}'.format(cnn_depth, self.steps,cnn_depth/self.steps))
         self.cnn = self.cnn[0:cnn_depth]
         self.steps = cnn_depth
 
@@ -314,7 +316,7 @@ class Cell(nn.Module):
             y = torch.zeros_like(x)
             for i, l in enumerate(self.cnn):
                 x = self.cnn[i](x)
-                x = x*NormGausBasis(len(self.cnn), i, self.depth, self.is_cuda)
+                x = x*NormGausBasis(len(self.cnn), i, self.depth.item())
                 y = y+x # Apply structure weight
         # Frozen structure
         else:

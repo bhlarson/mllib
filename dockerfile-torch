@@ -40,6 +40,7 @@ RUN pip3 --no-cache-dir install \
         configparser \
         pycocotools==2.0.1 \
         prettytable \
+        onnx==1.9.0 \
         sklearn
 
 # Tutorial dependencies

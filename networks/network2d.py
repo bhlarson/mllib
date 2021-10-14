@@ -324,88 +324,6 @@ class Network2d(nn.Module):
 
         return architecture_weights, total_trainable_weights
 
-class Down(nn.Module):
-    """Downscaling with maxpool then double conv"""
-
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.maxpool_conv = nn.Sequential(
-            nn.MaxPool2d(2),
-            Cell(2, out_channels, in_channels)
-        )
-
-    def forward(self, x):
-        return self.maxpool_conv(x)
-
-
-class Up(nn.Module):
-    """Upscaling then double conv"""
-
-    def __init__(self, in_channels, out_channels, bilinear=True):
-        super().__init__()
-
-        # if bilinear, use the normal convolutions to reduce the number of channels
-        if bilinear:
-            self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-            self.conv = Cell(2, out_channels, in_channels)
-        else:
-            self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
-            self.conv = Cell(2, out_channels, in_channels)
-
-    def forward(self, x1, x2):
-        x1 = self.up(x1)
-        # input is CHW
-        diffY = x2.size()[2] - x1.size()[2]
-        diffX = x2.size()[3] - x1.size()[3]
-
-        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
-                        diffY // 2, diffY - diffY // 2])
-        # if you have padding issues, see
-        # https://github.com/HaiyongJiang/U-Net-Pytorch-Unstructured-Buggy/commit/0e854509c2cea854e247a9c615f175f76fbb2e3a
-        # https://github.com/xiaopeng-liao/Pytorch-UNet/commit/8ebac70e633bac59fc22bb5195e513d5832fb3bd
-        x = torch.cat([x2, x1], dim=1)
-        return self.conv(x)
-
-
-class OutConv(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(OutConv, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-
-    def forward(self, x):
-        return self.conv(x)
-class UNet(nn.Module):
-    def __init__(self, n_channels, n_classes, bilinear=True):
-        super(UNet, self).__init__()
-        self.n_channels = n_channels
-        self.n_classes = n_classes
-        self.bilinear = bilinear
-
-        self.inc = Cell(2, 64, n_channels)
-        self.down1 = Down(64, 128)
-        self.down2 = Down(128, 256)
-        self.down3 = Down(256, 512)
-        factor = 2 if bilinear else 1
-        self.down4 = Down(512, 1024 // factor)
-        self.up1 = Up(1024, 512 // factor, bilinear)
-        self.up2 = Up(512, 256 // factor, bilinear)
-        self.up3 = Up(256, 128 // factor, bilinear)
-        self.up4 = Up(128, 64, bilinear)
-        self.outc = OutConv(64, n_classes)
-
-    def forward(self, x):
-        x1 = self.inc(x)
-        x2 = self.down1(x1)
-        x3 = self.down2(x2)
-        x4 = self.down3(x3)
-        x5 = self.down4(x4)
-        x = self.up1(x5, x4)
-        x = self.up2(x, x3)
-        x = self.up3(x, x2)
-        x = self.up4(x, x1)
-        logits = self.outc(x)
-        return logits
-
 class TotalLoss(torch.nn.modules.loss._WeightedLoss):
     # https://github.com/JunMa11/SegLoss
     """This criterion combines :class:`~torch.nn.LogSoftmax` and :class:`~torch.nn.NLLLoss` in one single class.
@@ -543,15 +461,14 @@ def parse_arguments():
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
     parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=1, help='Training epochs')
-    parser.add_argument('-model_src', type=str,  default='segmin/segment_nas_640x640_20211011')
+    parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
+    parser.add_argument('-model_src', type=str,  default='segmin/segment_nas_prune_640x640_20211012')
     parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_prune_640x640_20211012')
     parser.add_argument('-test_results', type=str, default='segmin/test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
     parser.add_argument('-width', type=int, default=640, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')
-    parser.add_argument('-fast', type=bool, default=False, help='Fast debug run')
     parser.add_argument('-learning_rate', type=float, default=1.0e-4, help='Adam learning rate')
     parser.add_argument('-max_search_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-min_search_depth', type=int, default=3, help='number of encoder/decoder levels to search/minimize')
@@ -561,11 +478,13 @@ def parse_arguments():
     parser.add_argument('-target_structure', type=float, default=0.01, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=False)
 
-    parser.add_argument('-prune', type=bool, default=True)
-    parser.add_argument('-train', type=bool, default=True)
-    parser.add_argument('-test', type=bool, default=True)
+    parser.add_argument('-fast', type=bool, default=False, help='Fast debug run')
+    parser.add_argument('-prune', type=bool, default=False)
+    parser.add_argument('-train', type=bool, default=False)
+    parser.add_argument('-test', type=bool, default=False)
     parser.add_argument('-infer', type=bool, default=True)
-    parser.add_argument('-search_structure', type=bool, default=False)
+    parser.add_argument('-search_structure', type=bool, default=True)
+    parser.add_argument('-onnx', type=bool, default=False)
 
     parser.add_argument('-test_dir', type=str, default='/store/test/nasseg')
     parser.add_argument('-tensorboard_dir', type=str, default='/store/test/nassegtb')
@@ -590,6 +509,29 @@ def save(model, s3, s3def, args):
     torch.save(model.state_dict(), out_buffer)
     s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_dest ), out_buffer)
     s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_dest ), model.definition())
+
+    if args.onnx:
+        import torch.onnx as torch_onnx
+
+        dummy_input = torch.randn(1, 3, args.height, args.width, device='cuda')
+        input_names = ["image"]
+        output_names = ["segmentation"]
+        output_filename = '{}/{}.onnx'.format(args.test_dir, args.model_dest)
+        dynamic_axes = {input_names[0] : {0 : 'batch_size'},    # variable length axes
+                                output_names[0] : {0 : 'batch_size'}}
+        torch.onnx.export(model,               # model being run
+                  dummy_input,                         # model input (or a tuple for multiple inputs)
+                  output_filename,   # where to save the model (can be a file or file-like object)
+                  export_params=True,        # store the trained parameter weights inside the model file
+                  do_constant_folding=True,  # whether to execute constant folding for optimization
+                  input_names = input_names,   # the model's input names
+                  output_names = output_names, # the model's output names
+                  dynamic_axes=dynamic_axes)
+
+        succeeded = s3.PutFile(s3def['sets']['model']['bucket'], output_filename, s3def['sets']['model']['prefix'] )
+        if succeeded:
+            os.remove(output_filename)
+
 
 # Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
 def Test(args):
@@ -630,7 +572,7 @@ def Test(args):
             imflags=args.imflags, 
             astype='float32')
 
-        trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=1, pin_memory=pin_memory)
+        trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=pin_memory)
 
     if args.test:
         valset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
@@ -641,7 +583,7 @@ def Test(args):
             imflags=args.imflags, 
             astype='float32',
             enable_transform=False)
-        valloader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size, shuffle=False, num_workers=1, pin_memory=pin_memory)
+        valloader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
 
     '''transform = {
         'train': transforms.Compose([

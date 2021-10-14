@@ -16,7 +16,7 @@ from utils.torch_util import count_parameters, model_stats, model_weights
 # Process: Con2d, optional batch norm, optional ReLu
 
 def GaussianBasis(i, depth, r=1.0):
-    return math.exp(-1*(r*(i-depth))**2)
+    return torch.exp(-1*(r*(i-depth))*(r*(i-depth))) # torch.square not supported by torch.onnx
 
 def NormGausBasis(len, i, depth, r=1.0):
         den = 0.0
@@ -316,7 +316,7 @@ class Cell(nn.Module):
             y = torch.zeros_like(x)
             for i, l in enumerate(self.cnn):
                 x = self.cnn[i](x)
-                x = x*NormGausBasis(len(self.cnn), i, self.depth.item())
+                x = x*NormGausBasis(len(self.cnn), i, self.depth)
                 y = y+x # Apply structure weight
         # Frozen structure
         else:

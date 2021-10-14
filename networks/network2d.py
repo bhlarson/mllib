@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import onnx
 from collections import namedtuple
 from collections import OrderedDict
 from typing import Callable, Optional
@@ -212,7 +213,7 @@ class Network2d(nn.Module):
             search_range = self.max_search_depth-self.min_search_depth+1
             for i in range(search_range):
                 xi = self.forward_depth(x, self.min_search_depth+i)
-                xi = xi*NormGausBasis(search_range, i, self.depth.item()-self.min_search_depth)
+                xi = xi*NormGausBasis(search_range, i, self.depth-self.min_search_depth)
                 if y is None:
                     y=xi
                 else:
@@ -460,11 +461,12 @@ def parse_arguments():
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
-    parser.add_argument('-model_src', type=str,  default='segmin/segment_nas_prune_640x640_20211012')
-    parser.add_argument('-model_dest', type=str, default='segmin/segment_nas_prune_640x640_20211012')
-    parser.add_argument('-test_results', type=str, default='segmin/test_results.json')
+    parser.add_argument('-model_class', type=str,  default='segmin')
+    parser.add_argument('-model_src', type=str,  default='segment_nas_prune_640x640_20211012')
+    parser.add_argument('-model_dest', type=str, default='segment_nas_prune_640x640_20211014')
+    parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
     parser.add_argument('-width', type=int, default=640, help='Batch image width')
@@ -479,12 +481,12 @@ def parse_arguments():
     parser.add_argument('-batch_norm', type=bool, default=False)
 
     parser.add_argument('-fast', type=bool, default=False, help='Fast debug run')
-    parser.add_argument('-prune', type=bool, default=False)
-    parser.add_argument('-train', type=bool, default=False)
-    parser.add_argument('-test', type=bool, default=False)
+    parser.add_argument('-prune', type=bool, default=True)
+    parser.add_argument('-train', type=bool, default=True)
+    parser.add_argument('-test', type=bool, default=True)
     parser.add_argument('-infer', type=bool, default=True)
-    parser.add_argument('-search_structure', type=bool, default=True)
-    parser.add_argument('-onnx', type=bool, default=False)
+    parser.add_argument('-search_structure', type=bool, default=False)
+    parser.add_argument('-onnx', type=bool, default=True)
 
     parser.add_argument('-test_dir', type=str, default='/store/test/nasseg')
     parser.add_argument('-tensorboard_dir', type=str, default='/store/test/nassegtb')
@@ -507,18 +509,21 @@ def MakeNetwork2d(classes, args):
 def save(model, s3, s3def, args):
     out_buffer = io.BytesIO()
     torch.save(model.state_dict(), out_buffer)
-    s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_dest ), out_buffer)
-    s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_dest ), model.definition())
+    s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), out_buffer)
+    s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), model.definition())
 
     if args.onnx:
         import torch.onnx as torch_onnx
 
-        dummy_input = torch.randn(1, 3, args.height, args.width, device='cuda')
+        dummy_input = torch.randn(args.batch_size, 3, args.height, args.width, device='cuda')
         input_names = ["image"]
         output_names = ["segmentation"]
-        output_filename = '{}/{}.onnx'.format(args.test_dir, args.model_dest)
+        oudput_dir = '{}/{}'.format(args.test_dir,args.model_class)
+        output_filename = '{}/{}.onnx'.format(oudput_dir, args.model_dest)
         dynamic_axes = {input_names[0] : {0 : 'batch_size'},    # variable length axes
                                 output_names[0] : {0 : 'batch_size'}}
+
+        os.makedirs(oudput_dir, exist_ok=True)
         torch.onnx.export(model,               # model being run
                   dummy_input,                         # model input (or a tuple for multiple inputs)
                   output_filename,   # where to save the model (can be a file or file-like object)
@@ -528,7 +533,7 @@ def save(model, s3, s3def, args):
                   output_names = output_names, # the model's output names
                   dynamic_axes=dynamic_axes)
 
-        succeeded = s3.PutFile(s3def['sets']['model']['bucket'], output_filename, s3def['sets']['model']['prefix'] )
+        succeeded = s3.PutFile(s3def['sets']['model']['bucket'], output_filename, '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class) )
         if succeeded:
             os.remove(output_filename)
 
@@ -607,22 +612,23 @@ def Test(args):
 
 
     if(args.model_src and args.model_src != ''):
-        modeldict = s3.GetDict(s3def['sets']['model']['bucket'], '{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_src ))
-        modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_src ))
+        modeldict = s3.GetDict(s3def['sets']['model']['bucket'], '{}/{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
+        modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
 
         if modeldict is not None:
             segment = Network2d(definition=modeldict)
         else:
-            print('Unable to load model definition {}/{}/{}. Creating default model.'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_src))
+            print('Unable to load model definition {}/{}/{}/{}. Creating default model.'.format(
+                s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
             segment = MakeNetwork2d(class_dictionary['classes'], args)
 
         if modelObj is not None:
             segment.load_state_dict(torch.load(io.BytesIO(modelObj)))
         else:
-            print('Failed to load model_src {}/{}/{}.  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_src))
+            print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
             return
     else:
-        # Create classifier
+        # Create Default segmenter
         segment = MakeNetwork2d(class_dictionary['classes'], args)
 
     #I think that setting device here eliminates the need to sepcificy device in Network2D
@@ -754,23 +760,24 @@ def Test(args):
         if args.fast:
             break
 
-
     if args.infer:
         config = {
             'name': 'network2d.Test',
             'batch_size': args.batch_size,
             'trainingset': '{}/{}'.format(s3def['sets']['dataset']['bucket'], args.trainingset),
             'validationset': '{}/{}'.format(s3def['sets']['dataset']['bucket'], args.validationset),
-            'model_src': '{}/{}/{}'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_src),
-            'model_dest': '{}/{}/{}'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_dest),
+            'model_src': '{}/{}/{}/{}'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src),
+            'model_dest': '{}/{}/{}/{}'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_dest),
             'height': args.height,
             'width': args.width,
             'cuda': args.cuda,
+            'fast': args.fast,
+            'prune': args.prune,
             'train': args.train,
             'test': args.test,
-            'prune': args.prune,
-            'prune': args.prune,
             'infer': args.infer,
+            'search_structure': args.search_structure,
+            'onnx': args.onnx,
             'test_dir': args.test_dir,
             'tensorboard_dir': args.tensorboard_dir,
             'train_image_path': args.train_image_path,
@@ -780,7 +787,7 @@ def Test(args):
             'epochs': args.epochs,
             'cuda': args.cuda,
             'imflags': args.imflags,
-            'fast': args.fast,
+
             'learning_rate': args.learning_rate,
             'max_search_depth': args.max_search_depth,
             'min_search_depth': args.min_search_depth,
@@ -788,7 +795,7 @@ def Test(args):
             'channel_multiple': args.channel_multiple,
             'k_structure': args.k_structure,
             'batch_norm': args.batch_norm,
-            'search_structure': args.search_structure,
+
             'class_weight': args.class_weight,
         }
 
@@ -897,16 +904,16 @@ def Test(args):
 
         # If there is a way to lock this object between read and write, it would prevent the possability of loosing data
         training_data = s3.GetDict(s3def['sets']['model']['bucket'], 
-            '{}/{}'.format(s3def['sets']['model']['prefix'], args.test_results))
+            '{}/{}/{}'.format(s3def['sets']['model']['prefix'], args.model_class, args.test_results))
         if training_data is None:
             training_data = []
         training_data.append(test_summary)
         s3.PutDict(s3def['sets']['model']['bucket'], 
-            '{}/{}'.format(s3def['sets']['model']['prefix'], args.test_results),
+            '{}/{}/{}'.format(s3def['sets']['model']['prefix'], args.model_class, args.test_results),
             training_data)
 
         test_url = s3.GetUrl(s3def['sets']['model']['bucket'], 
-            '{}/{}'.format(s3def['sets']['model']['prefix'], args.test_results))
+            '{}/{}/{}'.format(s3def['sets']['model']['prefix'], args.model_class, args.test_results))
 
         print("Test results {}".format(test_url))
 

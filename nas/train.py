@@ -114,9 +114,8 @@ def main(args):
 
     print('Start training')
 
-    creds = ReadDictJson(args.credentails)
-    s3_creds = next(filter(lambda d: d.get('name') == args.s3_name, creds), None)
-    s3 = Connect(s3_creds)
+    s3, creds, s3_creds = Connect(args.credentails, args.s3_name)
+
     s3_index = s3.GetDict(s3_creds['index']['bucket'],s3_creds['index']['prefix'] )
     dataset_dfn = next(filter(lambda d: d.get('name') == args.dataset, s3_index['sets']['dataset']['datasets']), None)
     dataset_index = s3.GetDict(dataset_dfn['bucket'],dataset_dfn['prefix'] )

@@ -23,20 +23,23 @@
 **/obj
 **/secrets.dev.yaml
 **/values.dev.yaml
-README.md
+**/*.zip
+**/*.tgz
 
 # ignore .git and .cache folders
 **/.cache
-airflow
-classify
-containers
-deeplab
-is
-model*
-saved_model
-TrainingSet
-
-creds.json
+.ipynb_checkpoints/
+.vscode/
+airflow/
+argo/
+classify/
+cvat/
+containers/
+dataset/
+img/
+jupyter/
+triton/
+trt/
 
 
 # ignore all *.crt files in all folders, including build root

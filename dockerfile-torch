@@ -2,7 +2,6 @@ FROM nvcr.io/nvidia/pytorch:20.12-py3
 LABEL maintainer="Brad Larson"
 
 RUN echo 'alias py=python' >> ~/.bashrc
-RUN apt-get update
 
 # RUN apt-get install -y libsm6 libxext6 ffmpeg # required by opencv-python==4.4.0.42
 RUN apt-get update -y && apt-get upgrade -y && apt-get autoremove -y && \
@@ -25,7 +24,6 @@ RUN pip3 --no-cache-dir install \
         minio==7.0.2 \
         tqdm==4.56.0 \
         natsort==7.0.1 \
-        ptvsd \
         debugpy \
         path \
         matplotlib\
@@ -40,7 +38,9 @@ RUN pip3 --no-cache-dir install \
         configparser \
         pycocotools==2.0.1 \
         prettytable \
-        onnx==1.9.0 \
+        onnx \
+        onnxruntime \
+        pycuda \
         sklearn
 
 # Tutorial dependencies

@@ -1,0 +1,11 @@
+{
+    "version":0.1,
+    "dirs":[],
+    "collect":[],
+    "whl":[],
+    "dockerbuild":[
+        {"name":"dockerfile-torch-train", "dockerfile":"dockerfile-torch-train", "context":"."},
+        {"name":"dockerfile-py", "dockerfile":"dockerfile-py", "context":"."},
+        {"name":"dockerfile-triton", "dockerfile":"dockerfile-triton", "context":"."}
+    ]
+}

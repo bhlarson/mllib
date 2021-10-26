@@ -185,7 +185,7 @@ def unet_model(classes, input_shape, learning_rate=0.0001, weights='imagenet', c
   model = tf.keras.Model(inputs=inputs, outputs=[x], name='UnetSegmentation')
 
 
-  # How do I output both logits and argmax operation is computed by the GPU?
+  # How do I output both logits and argmax operation so argmax is computed by the GPU?
   #seg = tf.argmax(logits, axis=-1, name='segmentation')
   #model = tf.keras.Model(inputs=inputs, outputs=[x, seg], name='UnetSegmentation')
 

@@ -1,0 +1,56 @@
+
+FROM pytorch/pytorch:1.9.0-cuda11.1-cudnn8-runtime
+#FROM nvcr.io/nvidia/pytorch:20.12-py3
+LABEL maintainer="Brad Larson"
+
+ENV TZ=America/Los_Angeles
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+#RUN apt-get update -y && apt-get upgrade -y && apt-get autoremove -y && \
+#RUN apt-get update -y && \
+#    apt-get install -y libgl1-mesa-glx && \
+RUN  apt-get update -y && apt-get install --no-install-recommends build-essential libopencv-dev wget less udev sudo -y
+#RUN  apt-get update -y
+#RUN  apt-get install --no-install-recommends wget -y
+#RUN  apt-get install --no-install-recommends less -y
+#RUN  apt-get install --no-install-recommends udev -y
+#RUN  apt-get install --no-install-recommends sudo -y
+
+RUN pip3 install --upgrade pip
+RUN pip3 --no-cache-dir install \
+        opencv-python \
+        minio \
+        tqdm \
+        natsort \
+        debugpy \
+        path \
+        matplotlib\
+        torch \
+        torchvision \
+        tensorboard \
+        tensorboardX \
+        scipy \
+        scikit-image \
+        wget \
+        prettytable \
+        sklearn
+
+RUN pip3 --no-cache-dir install pycocotools==2.0.2
+
+RUN echo 'alias py=python' >> ~/.bashrc
+
+COPY README.md /app/README.md
+COPY datasets /app/datasets/
+COPY networks /app/networks/
+COPY segment /app/segment/
+COPY utils /app/utils/
+COPY creds.json /app/creds.json
+
+WORKDIR /app
+ENV LANG C.UTF-8
+# port 6006 exposes tensorboard
+EXPOSE 6006 
+# port 3000 exposes debugger
+EXPOSE 3000
+
+# Launch training
+ENTRYPOINT ["python", "networks/network2d.py"]

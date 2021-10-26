@@ -67,12 +67,17 @@ On the development workstation:
 - Install [microk8s kubernetes](https://microk8s.io/docs)
 ```console
 sudo snap install microk8s --classic
-sudo snap install microk8s --channel=1.22.2/stable --classic
+sudo snap install microk8s --channel=1.22/stable --classic
 sudo usermod -a -G microk8s $USER
 sudo chown -f -R $USER ~/.kube
 su - $USER
 microk8s status --wait-ready
-microk8s enable dns gpu helm3 storage registry
+microk8s enable dns gpu helm3 storage registry rbac ingress metallb:10.64.140.43-10.64.140.143
+sudo snap install kubectl --classic
+cd $HOME
+mkdir .kube
+cd .kube
+microk8s config > config
 ```
 - Install [Visual Studio Code](https://code.visualstudio.com/)
 - In Visual Studio Code, install Python Remote Development, Jupyter, Json, and Getlens extensions

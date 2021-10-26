@@ -21,12 +21,7 @@ def parse_arguments():
 
 def Test(args):
 
-    creds = ReadDictJson(args.credentails)
-    if not creds:
-        print('Failed to load credentials file {}. Exiting'.format(args.credentails))
-        return False
-    s3def = creds['s3'][0]
-    s3 = Connect(s3def)
+     s3, creds, s3def = Connect(args.credentails)
 
     s = requests.session()
     login_json = {"username": "bhlarson", "password": "264_Unstable"}                                                                                                                                          

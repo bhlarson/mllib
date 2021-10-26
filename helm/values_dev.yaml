@@ -1,0 +1,5 @@
+objectstore:
+  name: mlstore
+  size: 100Gi
+  hostPath:
+    path: /store/mlstore

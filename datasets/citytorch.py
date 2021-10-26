@@ -125,9 +125,8 @@ def parse_arguments():
 def Test(args):
     print('CityDataset Test')
 
-    creds = ReadDictJson(args.credentails)
-    s3_creds = next(filter(lambda d: d.get('name') == args.s3_name, creds['s3']), None)
-    s3 = Connect(s3_creds)
+    s3, creds, s3_creds = Connect(args.credentails, args.s3_name)
+
     s3_index = s3.GetDict(s3_creds['index']['bucket'],s3_creds['index']['prefix'] )
     dataset = s3_index['sets']['dataset']
 

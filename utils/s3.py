@@ -10,6 +10,8 @@ from minio import Minio
 import urllib3
 import certifi
 
+from .jsonutil import ReadDictJson
+
 def remove_prefix(text, prefix):
     return text[text.startswith(prefix) and len(prefix):]
 
@@ -411,17 +413,24 @@ class s3store:
 
         return success
 
-def Connect(creds):
+def Connect(credentials_filename='creds.json', s3_name='store'):
+
+    creds = ReadDictJson(credentials_filename)
+    if not creds:
+        print('Failed to load credentials file {}. Exiting'.format(args.credentails))
+        return False
+
+    s3_creds = next(filter(lambda d: d.get('name') == s3_name, creds['s3']), None)
     
-    s3 = s3store(creds['address'], 
-                 creds['access key'], 
-                 creds['secret key'],
-                 tls=creds['tls'],
-                 cert_verify=creds['cert verify'],
-                 cert_path=creds['cert path'],
+    s3 = s3store(s3_creds['address'], 
+                 s3_creds['access key'], 
+                 s3_creds['secret key'],
+                 tls=s3_creds['tls'],
+                 cert_verify=s3_creds['cert verify'],
+                 cert_path=s3_creds['cert path'],
                 )
     buckets = s3.ListBuckets()
     if not (len(buckets) >= 0) :
         s3 = None
-        print('Failed connect to {}'.format(creds['address']))
-    return s3
+        print('Failed connect to {}'.format(s3_creds['address']))
+    return s3, creds, s3_creds

@@ -320,12 +320,7 @@ class CocoDataset(Dataset):
 
 def Test(args):
 
-    creds = ReadDictJson(args.credentails)
-    if not creds:
-        print('Failed to load credentials file {}. Exiting'.format(args.credentails))
-        return False
-    s3def = creds['s3'][0]
-    s3 = Connect(s3def)
+    s3, creds, s3def = Connect(args.credentails)
 
     if args.test_iterator:
         coco = CocoStore(s3, s3def['sets']['dataset']['bucket'], args.dataset, args.image_path, args.class_dict, imflags=args.imflags)

@@ -1,6 +1,8 @@
 From mllib:
 ```console
-helm create helm/mllib
+helm upgrade --install --namespace ml --create-namespace --values helm/values_dev.yaml mllib helm/mllib
+helm uninstall mllib -n ml
+
 ```
 Edit k8s/mllib/values.yaml
 From mllib:

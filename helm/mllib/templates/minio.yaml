@@ -37,6 +37,20 @@ spec:
 ---
 
 apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    app: {{.Values.objectstore.name}}
+  name: {{.Values.objectstore.credentials.name}}
+stringData:
+  accesskey: {{.Values.objectstore.credentials.access_key}}
+  secretkey: {{.Values.objectstore.credentials.secret_key}}
+type: Opaque
+
+---
+
+
+apiVersion: v1
 kind: Service
 metadata:
   name: {{.Values.objectstore.name}}
@@ -95,9 +109,9 @@ spec:
         env:
         # Minio access key and secret key
         - name: MINIO_ACCESS_KEY
-          value: "admin"
+          value: {{.Values.objectstore.credentials.access_key}}
         - name: MINIO_SECRET_KEY
-          value: "mlstoreadmin"
+          value: {{.Values.objectstore.credentials.secret_key}}
         ports:
         - containerPort: 9000
           hostPort: 9000
@@ -107,3 +121,15 @@ spec:
         volumeMounts:
         - name: storage # must match the volume name, above
           mountPath: "/data"
+        livenessProbe:
+          httpGet:
+            path: /minio/health/live
+            port: 9000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /minio/health/ready
+            port: 9000
+          initialDelaySeconds: 5
+          periodSeconds: 10

@@ -30,13 +30,16 @@ TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
 parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
-parser.add_argument('-savedmodelname', type=str, default="2021-02-24-10-28-35-cocoseg", help='Saved model name')
-parser.add_argument('-targetname', type=str, default="model", help='Final model wiout extension')
+parser.add_argument('-savedmodelname', type=str, default="segmin", help='Path in S3 model')
+parser.add_argument('-targetname', type=str, default="segment_nas_prune_640x640_20211015", help='Final model wiout extension')
 parser.add_argument('-workdir', type=str, default="trt", help='Working directory')
-parser.add_argument('-onnxname', type=str, default="model.onnx", help='Working directory')
+parser.add_argument('-onnxname', type=str, default="segment_nas_prune_640x640_20211015.onnx", help='Onnx file name')
 parser.add_argument('-workspace_memory', type=int, default=4096, help='trtexec workspace size in megabytes')
-parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.')  
+parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.') 
+parser.add_argument('-image_size', type=json.loads, default='[512 640]', help='Image size') 
 parser.add_argument('-fp16',  default=True, help='If set, Generate FP16 model.')
+
+
 
 class INT8Calibrator(trt.IInt8EntropyCalibrator2):
 
@@ -182,8 +185,8 @@ def main(args):
                  s3def['access key'], 
                  s3def['secret key'], 
                  tls=s3def['tls'], 
-                 cert_verify=s3def['cert_verify'], 
-                 cert_path=s3def['cert_path']
+                 cert_verify=s3def['cert verify'], 
+                 cert_path=s3def['cert path']
                  )
 
     workdir = '{}/{}'.format(args.workdir, args.savedmodelname)
@@ -202,6 +205,7 @@ def main(args):
     for input in inputs:
         dim1 = input.type.tensor_type.shape.dim[0]
         dim1.dim_value = args.batch_size
+        input.type.tensor_type.shape.dim[2:3] = args.image_size
 
     fixedfile = '{}/fixed-{}'.format(workdir, args.onnxname)
     onnx.save_model(onnx_model, fixedfile)
@@ -238,7 +242,7 @@ def main(args):
         shutil.rmtree(args.workdir, ignore_errors=True) 
 
     # trtcmd = "trtexec --onnx=/store/dmp/cl/store/mllib/model/2021-02-19-20-51-59-cocoseg/model.onnx --saveEngine=/store/dmp/cl/store/mllib/model/2021-02-19-20-51-59-cocoseg/model.trt  --explicitBatch --workspace=4096 --verbose  2>&1 | tee trtexe.log"
-    print('onnx-trt complete return {}'.format(failed))
+    print('onnx-trt complete')
     return failed
 
 if __name__ == '__main__':

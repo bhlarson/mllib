@@ -2,5 +2,15 @@ objectstore:
   name: mlstore
   nodePort: 31992
   size: 900Gi
+  credentials:
+    name: minio-creds
+    access_key: admin
+    secret_key: mlstoreadmin
   hostPath:
     path: /nvmestore/mlstore
+
+workflow_server:
+  name: argo-server
+  s3:
+    bucket: workflows
+    insecure: true

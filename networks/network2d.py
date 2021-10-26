@@ -8,7 +8,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import onnx
 from collections import namedtuple
 from collections import OrderedDict
 from typing import Callable, Optional
@@ -452,6 +451,7 @@ def parse_arguments():
 
     parser.add_argument('-debug', action='store_true',help='Wait for debuggee attach')   
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
+    parser.add_argument('-fast', action='store_true', help='Fast run with a few iterations')
 
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 
@@ -461,11 +461,11 @@ def parse_arguments():
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=2, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=4, help='Training epochs')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='segment_nas_prune_640x640_20211012')
-    parser.add_argument('-model_dest', type=str, default='segment_nas_prune_640x640_20211014')
+    parser.add_argument('-model_src', type=str,  default='segment_nas_prune_640x640_20211015_02')
+    parser.add_argument('-model_dest', type=str, default='segment_nas_prune_640x640_20211015_03')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
@@ -480,8 +480,7 @@ def parse_arguments():
     parser.add_argument('-target_structure', type=float, default=0.01, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=False)
 
-    parser.add_argument('-fast', type=bool, default=False, help='Fast debug run')
-    parser.add_argument('-prune', type=bool, default=True)
+    parser.add_argument('-prune', type=bool, default=False)
     parser.add_argument('-train', type=bool, default=True)
     parser.add_argument('-test', type=bool, default=True)
     parser.add_argument('-infer', type=bool, default=True)
@@ -549,12 +548,7 @@ def Test(args):
 
     torch.autograd.set_detect_anomaly(True)
 
-    creds = ReadDictJson(args.credentails)
-    if not creds:
-        print('Failed to load credentials file {}. Exiting'.format(args.credentails))
-        return False
-    s3def = creds['s3'][0]
-    s3 = Connect(s3def)
+    s3, creds, s3def = Connect(args.credentails)
 
     class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.class_dict)
     if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0):
@@ -589,26 +583,6 @@ def Test(args):
             astype='float32',
             enable_transform=False)
         valloader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
-
-    '''transform = {
-        'train': transforms.Compose([
-            transforms.CenterCrop(500),
-            #transforms.Grayscale(num_output_channels=3),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-        ]),
-        'val': transforms.Compose([
-            transforms.CenterCrop(500),
-            #transforms.Grayscale(num_output_channels=3),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-        ]),
-    }'''
-
-
-    #segment = UNet(n_channels=3, n_classes=class_dictionary['classes'], bilinear=True)
-
 
 
     if(args.model_src and args.model_src != ''):
@@ -761,43 +735,13 @@ def Test(args):
             break
 
     if args.infer:
-        config = {
-            'name': 'network2d.Test',
-            'batch_size': args.batch_size,
-            'trainingset': '{}/{}'.format(s3def['sets']['dataset']['bucket'], args.trainingset),
-            'validationset': '{}/{}'.format(s3def['sets']['dataset']['bucket'], args.validationset),
-            'model_src': '{}/{}/{}/{}'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src),
-            'model_dest': '{}/{}/{}/{}'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_dest),
-            'height': args.height,
-            'width': args.width,
-            'cuda': args.cuda,
-            'fast': args.fast,
-            'prune': args.prune,
-            'train': args.train,
-            'test': args.test,
-            'infer': args.infer,
-            'search_structure': args.search_structure,
-            'onnx': args.onnx,
-            'test_dir': args.test_dir,
-            'tensorboard_dir': args.tensorboard_dir,
-            'train_image_path': args.train_image_path,
-            'val_image_path': args.val_image_path,
-            'class_dict': args.class_dict,
-            'batch_size': args.batch_size,
-            'epochs': args.epochs,
-            'cuda': args.cuda,
-            'imflags': args.imflags,
+        config = copy.deepcopy(args.__dict__)
+        config['name']='network2d.Test',
+        config['trainingset']= '{}/{}'.format(s3def['sets']['dataset']['bucket'], args.trainingset),
+        config['validationset']= '{}/{}'.format(s3def['sets']['dataset']['bucket'], args.validationset),
+        config['model_src']= '{}/{}/{}/{}'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src),
+        config['model_dest']= '{}/{}/{}/{}'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_dest),
 
-            'learning_rate': args.learning_rate,
-            'max_search_depth': args.max_search_depth,
-            'min_search_depth': args.min_search_depth,
-            'max_cell_steps': args.max_cell_steps,
-            'channel_multiple': args.channel_multiple,
-            'k_structure': args.k_structure,
-            'batch_norm': args.batch_norm,
-
-            'class_weight': args.class_weight,
-        }
 
         results = {'class similarity':{}, 'config':config, 'image':[]}
 
@@ -855,7 +799,7 @@ def Test(args):
 
             imagesimilarity, results['class similarity'], unique = jaccard(labels, segmentation, objTypes, results['class similarity'])
 
-            confusion = confusion_matrix(labels.flatten(),segmentation.flatten(), range(class_dictionary['classes']))
+            confusion = confusion_matrix(labels.flatten(),segmentation.flatten(), labels=range(class_dictionary['classes']))
             if total_confusion is None:
                 total_confusion = confusion
             else:

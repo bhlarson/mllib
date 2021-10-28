@@ -169,6 +169,19 @@ class CocoStore:
         img = (img*ann).astype(np.uint8)
         return img
 
+    def DisplayImAn(self, img, ann, seg, mean, stdev):
+
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        iman = self.MergeIman(img, ann, mean, stdev)
+        imseg = self.MergeIman(img, seg, mean, stdev)
+
+        iman = cv2.putText(iman, 'Segmentation',(10,25), font, 1,(255,255,255),1,cv2.LINE_AA)
+        imseg = cv2.putText(imseg, 'TensorRT',(10,25), font, 1,(255,255,255),1,cv2.LINE_AA)
+
+        im = cv2.hconcat([iman, imseg])
+        #im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
+        return im
+
 class CocoDataset(Dataset):
     def __init__(self, s3, bucket, dataset_desc, image_paths, class_dictionary, 
         height=640, 

@@ -1,5 +1,6 @@
 import copy
 import numpy as np
+from sklearn.metrics import confusion_matrix
 
 def similarity(intersection, union):
     if union > 0:
@@ -60,6 +61,17 @@ def jaccard(annotation, segmentation, iTypes, typeSimilarity):
     iou['image'] = similarity(intersections, unions)
          
     return iou, typeSimilarity, unique
+
+def confusionmatrix(labels, segmentaiton, classes, total_confusion = None):
+
+    confusion = confusion_matrix(labels.flatten(),segmentaiton.flatten())
+
+    if total_confusion is None:
+        total_confusion = confusion
+    else:
+        total_confusion += confusion
+        
+    return confusion, total_confusion
 
 def eval_records(fie, objTypes, records, resultsPath):
 

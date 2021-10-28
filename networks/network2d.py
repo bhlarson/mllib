@@ -415,7 +415,7 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
     ignore_index: int
 
     def __init__(self, weight: Optional[torch.Tensor] = None, size_average=None, ignore_index: int = -100,
-                 prune=None, reduction: str = 'mean', k_structure=0.0, target_structure=1.0, class_weight=None, search_structure=True) -> None:
+                 prune=None, reduction: str = 'mean', k_structure=0.0, target_structure=torch.as_tensor([1.0], dtype=torch.float32), class_weight=None, search_structure=True) -> None:
         super(TotalLoss, self).__init__(weight, size_average, prune, reduction)
         self.ignore_index = ignore_index
         self.reduction = reduction
@@ -430,8 +430,6 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
 
     def forward(self, input: torch.Tensor, target: torch.Tensor, network) -> torch.Tensor:
         assert self.weight is None or isinstance(self.weight, torch.Tensor)
-        loss = F.cross_entropy(input, target.long(), weight=self.weight,reduction=self.reduction)
-        #loss = F.cross_entropy(input, target.long(), weight=self.class_weight)
         loss = self.cross_entropy_loss(input, target.long())
 
         dims = []
@@ -444,7 +442,7 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
         if self.search_structure:
             total_loss += self.k_structure*architecture_loss
         return total_loss,  loss, arcitecture_reduction
-        #return total_loss,  loss, loss
+ 
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
@@ -461,19 +459,19 @@ def parse_arguments():
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=2, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=4, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=5, help='Training epochs')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='segment_nas_prune_640x640_20211015_02')
-    parser.add_argument('-model_dest', type=str, default='segment_nas_prune_640x640_20211015_03')
+    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20211028')
+    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20211028_01')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
-    parser.add_argument('-height', type=int, default=640, help='Batch image height')
-    parser.add_argument('-width', type=int, default=640, help='Batch image width')
+    parser.add_argument('-height', type=int, default=480, help='Batch image height')
+    parser.add_argument('-width', type=int, default=512, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')
     parser.add_argument('-learning_rate', type=float, default=1.0e-4, help='Adam learning rate')
     parser.add_argument('-max_search_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
-    parser.add_argument('-min_search_depth', type=int, default=3, help='number of encoder/decoder levels to search/minimize')
+    parser.add_argument('-min_search_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=1.5, help='maximum number of layers to grow per level')
     parser.add_argument('-k_structure', type=float, default=1.0e-4, help='Structure minimization weighting fator')
@@ -488,7 +486,8 @@ def parse_arguments():
     parser.add_argument('-onnx', type=bool, default=True)
 
     parser.add_argument('-test_dir', type=str, default='/store/test/nasseg')
-    parser.add_argument('-tensorboard_dir', type=str, default='/store/test/nassegtb')
+    parser.add_argument('-tensorboard_dir', type=str, default='/store/test/nassegtb', 
+        help='to launch the tensorboard server, in the console, enter: tensorboard --logdir /store/test/nassegtb --bind_all')
     parser.add_argument('-class_weight', type=json.loads, default='[1.0,1.0, 1.0, 1.0]', help='Loss class weight ') 
     
 
@@ -569,7 +568,8 @@ def Test(args):
             height=args.height, 
             width=args.width, 
             imflags=args.imflags, 
-            astype='float32')
+            astype='float32', 
+            enable_transform=False)
 
         trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=pin_memory)
 
@@ -617,7 +617,7 @@ def Test(args):
         print('Reduced parameters {}/{} = {}'.format(reduced_parameters, total_parameters, reduced_parameters/total_parameters))
 
     # Define a Loss function and optimizer
-    target_structure = torch.as_tensor(args.target_structure, dtype=torch.float32)
+    target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32)
     class_weight = torch.Tensor(args.class_weight)
     if args.cuda:
         target_structure = target_structure.cuda()

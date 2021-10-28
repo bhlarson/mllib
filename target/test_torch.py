@@ -13,14 +13,13 @@ import tensorrt as trt
 import pycuda.driver as cuda
 import pycuda.autoinit
 from datetime import datetime
-from sklearn.metrics import confusion_matrix
 
 #sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath('')), '..')))
 sys.path.insert(0, os.path.abspath(''))
 #from segment.display import DrawFeatures, WritePredictions
 from utils.s3 import s3store, Connect
 from utils.jsonutil import WriteDictJson, ReadDictJson
-from utils.similarity import jaccard, similarity
+from utils.similarity import jaccard, similarity, confusionmatrix
 from datasets.cocostore import CocoDataset
 
 def parse_arguments():
@@ -43,7 +42,7 @@ def parse_arguments():
     parser.add_argument('-tests_json', type=str, default='tests.json', help='Test Archive')
 
     parser.add_argument('-trainingset_dir', type=str, default='/store/test/coco', help='Path training set tfrecord')
-    parser.add_argument('-test_dir', type=str, default='./test/segnas',help='Directory to store training model')
+    parser.add_argument('-test_dir', type=str, default='/store/test/nasseg',help='Directory to store training model')
 
     parser.add_argument('--trainingset', type=str, default='2021-02-22-14-17-19-cocoseg', help='training set')
     parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.')
@@ -108,7 +107,7 @@ def main(args):
     #print('Load trt model {}/{} to {}'.format(s3def['sets']['model']['bucket'], modelobjname, modelfilename))
     engine_obj = s3.GetObject(s3def['sets']['model']['bucket'], modelobjname)
 
-    #accuracy = tf.keras.metrics.Accuracy()
+    os.makedirs(args.test_dir)
 
     print("Begin inferences")
     dtSum = 0.0
@@ -162,46 +161,23 @@ def main(args):
 
             initial = datetime.now()
             logitstft = predict(image.numpy())
-            segmentationtrt = np.argmax(logitstft, axis=3)
             dt = (datetime.now()-initial).total_seconds()
             dtSum += dt
             imageTime = dt/config['batch_size']
 
+            seg = np.argmax(logitstft, axis=3).astype('uint8')
             image = image.cpu().permute(0, 2, 3, 1).numpy() # Convert image to [batch, chanel, height, width]
             labels = labels.numpy()
             for j in range(config['batch_size']):
 
-                img = np.squeeze(image[j])
-                ann = np.squeeze(labels[j])
-                seg = np.squeeze(segmentationtrt[j])
+                im_bgr = valset.coco.DisplayImAn(image[j], labels[j], seg[j], mean[j].item(), stdev[j].item())
+                cv2.imwrite('{}/{}{:04d}.png'.format(args.test_dir, 'seg', step*config['batch_size']+j), im_bgr)
 
-                font = cv2.FONT_HERSHEY_SIMPLEX
-
-                iman = trainingset.coco.MergeIman(img, ann, mean[j].item(), stdev[j].item())
-                imseg = trainingset.coco.MergeIman(img, seg, mean[j].item(), stdev[j].item())
-
-                iman = cv2.putText(iman, 'Segmentation',(10,25), font, 1,(255,255,255),1,cv2.LINE_AA)
-                imtrtseg = cv2.putText(imtrtseg, 'TensorRT',(10,25), font, 1,(255,255,255),1,cv2.LINE_AA)
-
-                im = cv2.hconcat([iman, imtrtseg])
-                im_bgr = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
-                cv2.imwrite('{}/{}{:03d}{:03d}.png'.format(args.test_dir, 'seg', i, j), im_bgr)
-
-
-                #accuracy.update_state(ann,seg)
-                #seg_accuracy = accuracy.result().numpy()
-
-                #accuracySum += seg_accuracy
-                imagesimilarity, results['class similarity'], unique = jaccard(ann, seg, objTypes, results['class similarity'])
-
-                confusion = confusion_matrix(ann.flatten(),seg.flatten(), range(class_dictionary['classes']))
-                if total_confusion is None:
-                    total_confusion = confusion
-                else:
-                    total_confusion += confusion
+                imagesimilarity, results['class similarity'], unique = jaccard(labels[j], seg[j], objTypes, results['class similarity'])
+                confusion, total_confusion = confusionmatrix(labels[j], seg[j], range(class_dictionary['classes']), total_confusion)  
                         
-
-                results['image'].append({'dt':imageTime,'similarity':imagesimilarity, 'accuracy':0.0, 'confusion':confusion.tolist()})
+                tqdm.write('dt:{} similarity: {}'.format(imageTime, imagesimilarity['image']))
+                results['image'].append({'dt':imageTime,'similarity':imagesimilarity, 'confusion':confusion.tolist()})
     except Exception as e:
         print("Error: test exception {} step {}".format(e, step))
         numsteps = step

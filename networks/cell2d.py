@@ -364,7 +364,7 @@ class Classify(nn.Module):
     def ApplyStructure(self):
         in_channel_mask = None
         for cell in self.cells:
-            in_channel_mask = cell.ApplyStructure(in_channel_mask=in_channel_mask)
+            in_channel_mask = cell.ApplyStructure(in1_channel_mask=in_channel_mask)
 
         # Remove pruned weights from fc1
         if in_channel_mask is not None:
@@ -528,7 +528,6 @@ def parse_arguments():
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
     parser.add_argument('-epochs', type=int, default=1, help='Training epochs')
     parser.add_argument('-model', type=str, default='model')
-    parser.add_argument('-prune', action='store_true', help='Compress network')
     parser.add_argument('-cuda', type=bool, default=True)
 
     parser.add_argument('-train', type=bool, default=True)

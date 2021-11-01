@@ -16,7 +16,7 @@ from datetime import datetime
 from tqdm import tqdm
 
 sys.path.insert(0, os.path.abspath(''))
-from utils.s3 import s3store
+from utils.s3 import s3store, Connect
 from utils.jsonutil import WriteDictJson
 
 def parse_arguments():
@@ -196,21 +196,7 @@ def WriteRecords(s3def, s3, args):
 
 def main(args):
 
-    creds = {}
-    with open(args.credentails) as json_file:
-        creds = json.load(json_file)
-    if not creds:
-        print('Failed to load credentials file {}. Exiting'.format(args.credentails))
-        return
-
-    s3def = creds['s3'][0]
-    s3 = s3store(s3def['address'], 
-                 s3def['access key'], 
-                 s3def['secret key'], 
-                 tls=s3def['tls'], 
-                 cert_verify=s3def['cert_verify'], 
-                 cert_path=s3def['cert_path']
-                 )
+    s3, creds, s3def = Connect(args.credentails)
 
     if not os.path.exists(args.record_dir):
         os.makedirs(args.record_dir)

@@ -462,8 +462,8 @@ def parse_arguments():
     parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=5, help='Training epochs')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20211028')
-    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20211028_01')
+    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20211028_01')
+    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20211029_00')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
@@ -569,7 +569,7 @@ def Test(args):
             width=args.width, 
             imflags=args.imflags, 
             astype='float32', 
-            enable_transform=False)
+            enable_transform=True)
 
         trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=pin_memory)
 

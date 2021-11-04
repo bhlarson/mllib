@@ -462,8 +462,8 @@ def parse_arguments():
     parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=5, help='Training epochs')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20211028_01')
-    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20211029_00')
+    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20211029_00')
+    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20211101_00')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
@@ -480,7 +480,6 @@ def parse_arguments():
 
     parser.add_argument('-prune', type=bool, default=False)
     parser.add_argument('-train', type=bool, default=True)
-    parser.add_argument('-test', type=bool, default=True)
     parser.add_argument('-infer', type=bool, default=True)
     parser.add_argument('-search_structure', type=bool, default=False)
     parser.add_argument('-onnx', type=bool, default=True)
@@ -506,35 +505,49 @@ def MakeNetwork2d(classes, args):
 
 def save(model, s3, s3def, args):
     out_buffer = io.BytesIO()
+    model.zero_grad(set_to_none=True)
     torch.save(model.state_dict(), out_buffer)
     s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), out_buffer)
     s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), model.definition())
 
-    if args.onnx:
-        import torch.onnx as torch_onnx
+def onnx(model, s3, s3def, args):
+    import torch.onnx as torch_onnx
 
-        dummy_input = torch.randn(args.batch_size, 3, args.height, args.width, device='cuda')
-        input_names = ["image"]
-        output_names = ["segmentation"]
-        oudput_dir = '{}/{}'.format(args.test_dir,args.model_class)
-        output_filename = '{}/{}.onnx'.format(oudput_dir, args.model_dest)
-        dynamic_axes = {input_names[0] : {0 : 'batch_size'},    # variable length axes
-                                output_names[0] : {0 : 'batch_size'}}
+    dummy_input = torch.randn(args.batch_size, 3, args.height, args.width, device='cuda')
+    input_names = ["image"]
+    output_names = ["segmentation"]
+    oudput_dir = '{}/{}'.format(args.test_dir,args.model_class)
+    output_filename = '{}/{}.onnx'.format(oudput_dir, args.model_dest)
+    dynamic_axes = {input_names[0] : {0 : 'batch_size'},    # variable length axes
+                            output_names[0] : {0 : 'batch_size'}}
 
-        os.makedirs(oudput_dir, exist_ok=True)
-        torch.onnx.export(model,               # model being run
-                  dummy_input,                         # model input (or a tuple for multiple inputs)
-                  output_filename,   # where to save the model (can be a file or file-like object)
-                  export_params=True,        # store the trained parameter weights inside the model file
-                  do_constant_folding=True,  # whether to execute constant folding for optimization
-                  input_names = input_names,   # the model's input names
-                  output_names = output_names, # the model's output names
-                  dynamic_axes=dynamic_axes)
+    os.makedirs(oudput_dir, exist_ok=True)
+    torch.onnx.export(model,               # model being run
+                dummy_input,                         # model input (or a tuple for multiple inputs)
+                output_filename,   # where to save the model (can be a file or file-like object)
+                export_params=True,        # store the trained parameter weights inside the model file
+                do_constant_folding=True,  # whether to execute constant folding for optimization
+                input_names = input_names,   # the model's input names
+                output_names = output_names, # the model's output names
+                dynamic_axes=dynamic_axes,
+                opset_version=11)
 
-        succeeded = s3.PutFile(s3def['sets']['model']['bucket'], output_filename, '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class) )
-        if succeeded:
-            os.remove(output_filename)
+    succeeded = s3.PutFile(s3def['sets']['model']['bucket'], output_filename, '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class) )
+    if succeeded:
+        os.remove(output_filename)
 
+def InferLoss(inputs, labels, args, model, criterion, optimizer):
+    if args.cuda:
+        inputs = inputs.cuda()
+        labels = labels.cuda()
+
+    # zero the parameter gradients
+    model.zero_grad(set_to_none=True)
+    outputs = model(inputs)
+
+    loss, cross_entropy_loss, architecture_loss  = criterion(outputs, labels, model)
+
+    return outputs, loss, cross_entropy_loss, architecture_loss
 
 # Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
 def Test(args):
@@ -561,6 +574,7 @@ def Test(args):
         device = "cuda"
         pin_memory = True
 
+    test_freq = 20
     if args.train:
         trainingset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.trainingset, 
             image_paths=args.train_image_path,
@@ -571,9 +585,9 @@ def Test(args):
             astype='float32', 
             enable_transform=True)
 
+        train_batches=int(trainingset.__len__()/args.batch_size)
         trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=pin_memory)
 
-    if args.test:
         valset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
             image_paths=args.val_image_path,
             class_dictionary=class_dictionary, 
@@ -582,8 +596,9 @@ def Test(args):
             imflags=args.imflags, 
             astype='float32',
             enable_transform=False)
+        test_batches=int(valset.__len__()/args.batch_size)
         valloader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
-
+        test_freq = int(math.ceil(train_batches/test_batches))
 
     if(args.model_src and args.model_src != ''):
         modeldict = s3.GetDict(s3def['sets']['model']['bucket'], '{}/{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
@@ -618,7 +633,18 @@ def Test(args):
 
     # Define a Loss function and optimizer
     target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32)
-    class_weight = torch.Tensor(args.class_weight)
+    if args.class_weight is not None:
+        if len(args.class_weight) == class_dictionary['classes']:
+            class_weight = torch.Tensor(args.class_weight)
+        else:
+            print('Parameter error: class weight array length={} must equal number of classes.  Exiting'.format(len(args.class_weight, class_dictionary['classes'])))
+            return
+
+        if args.cuda:
+            class_weight = class_weight.cuda()
+    else:
+        class_weight = None
+
     if args.cuda:
         target_structure = target_structure.cuda()
         class_weight = class_weight.cuda()
@@ -628,43 +654,36 @@ def Test(args):
 
     # Train
     for epoch in tqdm(range(args.epochs), desc="Train epochs"):  # loop over the dataset multiple times
-
+        iVal = iter(valloader)
         if args.train:
             running_loss = 0.0
             for i, data in tqdm(enumerate(trainloader), total=trainingset.__len__()/args.batch_size, desc="Train steps"):
                 # get the inputs; data is a list of [inputs, labels]
                 inputs, labels, mean, stdev = data
 
-                if args.cuda:
-                    inputs = inputs.cuda()
-                    labels = labels.cuda()
+                outputs, loss, cross_entropy_loss, architecture_loss = InferLoss(inputs, labels, args, segment, criterion, optimizer)
 
-                # zero the parameter gradients
-                optimizer.zero_grad()
-
-                # forward + backward + optimize
-                outputs = segment(inputs)
-                # loss, cross_entropy_loss, dims_norm, all_dims, norm_depth_loss, cell_depths  = criterion(outputs, labels, segment)
-                loss, cross_entropy_loss, architecture_loss  = criterion(outputs, labels, segment)
                 loss.backward()
                 optimizer.step()
 
                 # print statistics
-                running_loss += cross_entropy_loss.item()
+                running_loss += loss.item()
 
                 writer.add_scalar('loss/train', loss, i)
                 writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, i)
                 writer.add_scalar('architecture_loss/train', architecture_loss, i)
 
-                iDisplay = 20
-                if i % iDisplay == iDisplay-1:    # print every 20 mini-batches
-                    running_loss /=iDisplay
+                if i % test_freq == test_freq-1:    # Save image and run test
 
-                    weight_std, weight_mean, bias_std, bias_mean = model_stats(segment)
-                    #print('[%d, %d] cross_entropy_loss: %.3f dims_norm: %.3f' % (epoch + 1, i + 1, cross_entropy_loss, dims_norm))
-                    #print('[{}, {:05d}] cross_entropy_loss: {:0.5f} dims_norm: {:0.3f}, dims: {}'.format(epoch + 1, i + 1, running_loss, dims_norm, all_dims))
-                    tqdm.write('Train [{}, {:06}] cross_entropy_loss: {:0.5e} architecture_loss: {:0.5e} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(
-                        epoch + 1, i + 1, running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
+                    data = next(iVal)
+                    inputs, labels, mean, stdev = data
+                    outputs, loss, cross_entropy_loss, architecture_loss = InferLoss(inputs, labels, args, segment, criterion, optimizer)
+
+                    writer.add_scalar('loss/test', loss, int((i+1)/test_freq-1))
+
+                    running_loss /=test_freq
+
+                    tqdm.write('Train [{}, {:06}] cross_entropy_loss: {:0.5e}'.format(epoch + 1, i + 1, running_loss))
                     running_loss = 0.0
 
                     images = inputs.cpu().permute(0, 2, 3, 1).numpy()
@@ -685,54 +704,16 @@ def Test(args):
                         imanseg = cv2.cvtColor(imanseg, cv2.COLOR_BGR2RGB)
 
                         writer.add_image('segment', imanseg, 0,dataformats='HWC')
-                                    
-                #print('[{}, {:05d}] cross_entropy_loss: {:0.3f} dims_norm: {:0.4f}, norm_depth_loss: {:0.3f}, cell_depths: {}'.format(epoch + 1, i + 1, cross_entropy_loss, dims_norm, norm_depth_loss, cell_depths))
+
                 iSave = 2000
                 if i % iSave == iSave-1:    # print every 20 mini-batches
                     save(segment, s3, s3def, args)
 
-                if args.fast:
+                if args.fast and i+1 >= test_freq:
                     break
 
             save(segment, s3, s3def, args)
 
-
-        if args.test:
-            running_loss = 0.0
-            with torch.no_grad():
-                for i, data in tqdm(enumerate(valloader), total=valset.__len__()/args.batch_size, desc="Test steps"):
-                    # get the inputs; data is a list of [inputs, labels]
-                    inputs, labels, mean, stdev = data
-                    if args.cuda:
-                        inputs = inputs.cuda()
-                        labels = labels.cuda()
-
-                    # forward + backward + optimize
-                    outputs = segment(inputs)
-                    loss, cross_entropy_loss, architecture_loss  = criterion(outputs, labels, segment)
-
-                    writer.add_scalar('loss/test', loss, i)
-                    writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, i)
-                    writer.add_scalar('architecture_loss/test', architecture_loss, i)
-
-                    # print statistics
-                    running_loss += cross_entropy_loss.item()
-
-                    if i % 20 == 19:    # print every 2000 mini-batches
-                        running_loss /=20
-
-                        weight_std, weight_mean, bias_std, bias_mean = model_stats(segment)
-                        tqdm.write('Test cross_entropy_loss: {:0.5e} architecture_loss: {:0.5e} weight [m:{:0.3f} std:{:0.5f}] bias [m:{:0.3f} std:{:0.5f}]'.format(
-                            running_loss, architecture_loss.item(), weight_std, weight_mean, bias_std, bias_mean))
-                        running_loss = 0.0
-                    
-                    #print('[{}, {:05d}] cross_entropy_loss: {:0.3f}'.format(epoch + 1, i + 1, cross_entropy_loss))
-
-                    if args.fast:
-                        break
-
-        if args.fast:
-            break
 
     if args.infer:
         config = copy.deepcopy(args.__dict__)
@@ -766,49 +747,54 @@ def Test(args):
             astype='float32',
             enable_transform=False)
 
-        testloader = torch.utils.data.DataLoader(testset, batch_size=1, shuffle=False, num_workers=0, pin_memory=pin_memory)
-
+        infer_batch_size=2
+        testloader = torch.utils.data.DataLoader(testset, batch_size=infer_batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
         dtSum = 0.0
         total_confusion = None
         os.makedirs(args.test_dir, exist_ok=True)
         for i, data in tqdm(enumerate(testloader), total=testset.__len__(), desc="Inference steps"): # try https://pypi.org/project/enlighten/ rather than tqdm to include progress & log messages
-            image, labels, mean, stdev = data
+            images, labels, mean, stdev = data
             if args.cuda:
-                image = image.cuda()
-                labels = labels.cuda()
+                images = images.cuda()
 
             initial = datetime.now()
-            segmentation = torch.argmax(segment(image), 1)
-            imageTime = dt = (datetime.now()-initial).total_seconds()
+            outputs = segment(images)
+            segmentations = torch.argmax(outputs, 1)
+            imageTime = dt = (datetime.now()-initial).total_seconds()/infer_batch_size
             dtSum += dt
 
-            image = np.squeeze(image.cpu().permute(0, 2, 3, 1).numpy())
+            images = np.squeeze(images.cpu().permute(0, 2, 3, 1).numpy())
             labels = np.around(np.squeeze(labels.cpu().numpy())).astype('uint8')
-            segmentation = np.squeeze(segmentation.cpu().numpy()).astype('uint8')
+            segmentations = np.squeeze(segmentations.cpu().numpy()).astype('uint8')
             mean = np.squeeze(mean.numpy())
             stdev = np.squeeze(stdev.numpy())
 
-            iman = testset.coco.MergeIman(image, labels, mean, stdev)
-            imseg = testset.coco.MergeIman(image, segmentation, mean, stdev)
+            for j in range(infer_batch_size):
+                image = np.squeeze(images[j])
+                label = np.squeeze(labels[j])
+                segmentation = np.squeeze(segmentations[j])
+                iman = testset.coco.MergeIman(image, label, mean[j].item(), stdev[j].item())
+                imseg = testset.coco.MergeIman(image, segmentation, mean[j].item(), stdev[j].item())
 
-            iman = cv2.putText(iman, 'Annotation',(10,25), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),1,cv2.LINE_AA)
-            imseg = cv2.putText(imseg, 'Segmentation',(10,25), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),1,cv2.LINE_AA)
+                iman = cv2.putText(iman, 'Annotation',(10,25), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),1,cv2.LINE_AA)
+                imseg = cv2.putText(imseg, 'Segmentation',(10,25), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),1,cv2.LINE_AA)
+                imanseg = cv2.hconcat([iman, imseg])
+                imanseg = cv2.cvtColor(imanseg, cv2.COLOR_BGR2RGB)
 
-            im = cv2.hconcat([iman, imseg])
-            cv2.imwrite('{}/{}{:04d}.png'.format(args.test_dir, 'seg', i), im)
+                cv2.imwrite('{}/{}{:04d}.png'.format(args.test_dir, 'seg', infer_batch_size*i+j), imanseg)
 
-            imagesimilarity, results['class similarity'], unique = jaccard(labels, segmentation, objTypes, results['class similarity'])
+                imagesimilarity, results['class similarity'], unique = jaccard(label, segmentation, objTypes, results['class similarity'])
 
-            confusion = confusion_matrix(labels.flatten(),segmentation.flatten(), labels=range(class_dictionary['classes']))
-            if total_confusion is None:
-                total_confusion = confusion
-            else:
-                total_confusion += confusion
+                confusion = confusion_matrix(label.flatten(),segmentation.flatten(), labels=range(class_dictionary['classes']))
+                if total_confusion is None:
+                    total_confusion = confusion
+                else:
+                    total_confusion += confusion
                         
 
             results['image'].append({'dt':imageTime,'similarity':imagesimilarity, 'confusion':confusion.tolist()})
 
-            if args.fast and i >= 24:
+            if args.fast and i+1 >= test_freq:
                 break
 
 

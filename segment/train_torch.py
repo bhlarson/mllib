@@ -50,8 +50,8 @@ def parse_arguments():
     parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=4, help='Training epochs')
     parser.add_argument('-model_class', type=str,  default='deeplabv3')
-    parser.add_argument('-model_src', type=str,  default='segment_deeplabv3_512x442_20211030_04')
-    parser.add_argument('-model_dest', type=str, default='segment_deeplabv3_512x442_20211101_00')
+    parser.add_argument('-model_src', type=str,  default='segment_deeplabv3_512x442_20211102_00')
+    parser.add_argument('-model_dest', type=str, default='segment_deeplabv3_512x442_20211103_00')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
@@ -67,8 +67,8 @@ def parse_arguments():
     parser.add_argument('-batch_norm', type=bool, default=False)
 
     parser.add_argument('-prune', type=bool, default=False)
-    parser.add_argument('-train', type=bool, default=True)
-    parser.add_argument('-infer', type=bool, default=True)
+    parser.add_argument('-train', type=bool, default=False)
+    parser.add_argument('-infer', type=bool, default=False)
     parser.add_argument('-onnx', type=bool, default=True)
 
     parser.add_argument('-test_dir', type=str, default='/store/test/seg')
@@ -82,6 +82,7 @@ def parse_arguments():
 
 def save(model, s3, s3def, args):
     out_buffer = io.BytesIO()
+    model.zero_grad(set_to_none=True)
     torch.save(model.state_dict(), out_buffer)
     s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), out_buffer)
 
@@ -215,9 +216,10 @@ def main(args):
 
 
     # Train
-    for epoch in tqdm(range(args.epochs), desc="Train epochs"):  # loop over the dataset multiple times
-        iVal = iter(valloader)
-        if args.train:
+    if args.train:
+        for epoch in tqdm(range(args.epochs), desc="Train epochs"):  # loop over the dataset multiple times
+            iVal = iter(valloader)
+
             running_loss = 0.0
             for i, data in tqdm(enumerate(trainloader), total=trainingset.__len__()/args.batch_size, desc="Train steps"):
                 # get the inputs; data is a list of [inputs, labels]
@@ -237,7 +239,6 @@ def main(args):
 
                     data = next(iVal)
                     inputs, labels, mean, stdev = data
-
                     outputs, loss = InferLoss(inputs, labels, args, segment, cross_entropy_loss, optimizer)
 
                     writer.add_scalar('loss/test', loss, int((i+1)/test_freq-1))
@@ -273,12 +274,8 @@ def main(args):
                 if args.fast and i+1 >= test_freq:
                     break
 
-            save(segment, s3, s3def, args)
+        save(segment, s3, s3def, args)
 
-    # Free GPU memory
-    segment.zero_grad(set_to_none=True)
-    #loss = None
-    #optimizer = None
 
     if args.infer:
         config = copy.deepcopy(args.__dict__)
@@ -287,7 +284,6 @@ def main(args):
         config['validationset']= '{}/{}'.format(s3def['sets']['dataset']['bucket'], args.validationset),
         config['model_src']= '{}/{}/{}/{}'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src),
         config['model_dest']= '{}/{}/{}/{}'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_dest),
-
 
         results = {'class similarity':{}, 'config':config, 'image':[]}
 
@@ -313,11 +309,13 @@ def main(args):
             enable_transform=False)
 
         infer_batch_size=2 # pytorch/vision:v0.10.0 deeplabv3_resnet50 fails with batch_size=1
-        testloader = torch.utils.data.DataLoader(testset, batch_size=2, shuffle=False, num_workers=0, pin_memory=pin_memory)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=infer_batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
         dtSum = 0.0
         total_confusion = None
-        os.makedirs(args.test_dir, exist_ok=True)
-        for i, data in tqdm(enumerate(testloader), total=testset.__len__(), desc="Inference steps"): # try https://pypi.org/project/enlighten/ rather than tqdm to include progress & log messages
+        oudput_dir = '{}/{}'.format(args.test_dir,args.model_class)
+        os.makedirs(oudput_dir, exist_ok=True)
+
+        for i, data in tqdm(enumerate(testloader), total=int(testset.__len__()/infer_batch_size), desc="Inference steps"): # try https://pypi.org/project/enlighten/ rather than tqdm to include progress & log messages
             images, labels, mean, stdev = data
             if args.cuda:
                 images = images.cuda()
@@ -341,15 +339,15 @@ def main(args):
                 image = np.squeeze(images[j])
                 label = np.squeeze(labels[j])
                 segmentation = np.squeeze(segmentations[j])
-                iman = trainingset.coco.MergeIman(image, label, mean[j].item(), stdev[j].item())
-                imseg = trainingset.coco.MergeIman(image, segmentation, mean[j].item(), stdev[j].item())
+                iman = testset.coco.MergeIman(image, label, mean[j].item(), stdev[j].item())
+                imseg = testset.coco.MergeIman(image, segmentation, mean[j].item(), stdev[j].item())
 
                 iman = cv2.putText(iman, 'Annotation',(10,25), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),1,cv2.LINE_AA)
                 imseg = cv2.putText(imseg, 'Segmentation',(10,25), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),1,cv2.LINE_AA)
                 imanseg = cv2.hconcat([iman, imseg])
-                imanseg = cv2.cvtColor(imanseg, cv2.COLOR_BGR2RGB)
+                #imanseg = cv2.cvtColor(imanseg, cv2.COLOR_BGR2RGB)
 
-                cv2.imwrite('{}/{}{:04d}.png'.format(args.test_dir, 'seg', infer_batch_size*i+j), imanseg)
+                cv2.imwrite('{}/{}{:04d}.png'.format(oudput_dir, 'seg', infer_batch_size*i+j), imanseg)
 
                 imagesimilarity, results['class similarity'], unique = jaccard(label, segmentation, objTypes, results['class similarity'])
 

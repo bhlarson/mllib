@@ -64,7 +64,7 @@ def jaccard(annotation, segmentation, iTypes, typeSimilarity):
 
 def confusionmatrix(labels, segmentaiton, classes, total_confusion = None):
 
-    confusion = confusion_matrix(labels.flatten(),segmentaiton.flatten())
+    confusion = confusion_matrix(labels.flatten(),segmentaiton.flatten(), labels=classes)
 
     if total_confusion is None:
         total_confusion = confusion

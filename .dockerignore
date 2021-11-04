@@ -40,6 +40,8 @@ img/
 jupyter/
 triton/
 trt/
+dataset/
+record/
 
 
 # ignore all *.crt files in all folders, including build root

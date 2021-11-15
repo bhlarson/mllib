@@ -429,8 +429,17 @@ def Connect(credentials_filename='creds.json', s3_name='store'):
                  cert_verify=s3_creds['cert verify'],
                  cert_path=s3_creds['cert path'],
                 )
+                
     buckets = s3.ListBuckets()
     if not (len(buckets) >= 0) :
         s3 = None
         print('Failed connect to {}'.format(s3_creds['address']))
-    return s3, creds, s3_creds
+
+    s3safe = s3_creds
+    del s3safe['access key']
+    del s3safe['secret key']
+    del s3safe['tls']
+    del s3safe['cert verify']
+    del s3safe['cert path']
+    
+    return s3, creds, s3safe

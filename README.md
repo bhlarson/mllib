@@ -9,7 +9,6 @@ Mllib image segmetation using the unet network and trained using the coco datase
 ![Image Segmentation](img/segtrt4355000.png)
 
 
-
 mllib is currently a sandbox to explore ideas and techniques.  As such, it is a useful location 
 to experiment with new techniques.  It is not a stable repository with consistent interfaces.
 

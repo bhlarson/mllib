@@ -17,53 +17,46 @@ from segment.display import WritePredictions
 from networks.unet import unet_model
 
 sys.path.append('utils')
-from s3 import s3store
+from s3 import s3store, Connect
 from jsonutil import WriteDictJson, ReadDictJson
 from loadmodel import LoadModel
-from similarity import jaccard, similarity
+from metrics import jaccard, similarity
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
-parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
-parser.add_argument('-min', action='store_true', help='If set, minimum training to generate output.')
-parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps.')
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
+    parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
+    parser.add_argument('-debug_address', type=int, default='0.0.0.0', help='Debug port')
+    parser.add_argument('-fast', action='store_true', help='If set, minimum training to generate output.')
+    parser.add_argument('-min_steps', type=int, default=5, help='Number of fast steps.')
 
-parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
+    parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 
-parser.add_argument('-initialmodel', type=str, default='2021-02-24-10-28-35-cocoseg', help='Initial model.  Empty string if no initial model')
-parser.add_argument('-tests_json', type=str, default='tests.json', help='Test Archive')
+    parser.add_argument('-initialmodel', type=str, default='2021-02-24-10-28-35-cocoseg', help='Initial model.  Empty string if no initial model')
+    parser.add_argument('-tests_json', type=str, default='tests.json', help='Test Archive')
 
-parser.add_argument('-trainingset_dir', type=str, default='/store/training/coco', help='Path training set tfrecord')
-parser.add_argument('-trainingset', type=str, default='coco', help='training set')
+    parser.add_argument('-trainingset_dir', type=str, default='/store/training/coco', help='Path training set tfrecord')
+    parser.add_argument('-trainingset', type=str, default='coco', help='training set')
 
-parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.')              
+    parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.')              
 
-parser.add_argument("-strategy", type=str, default='onedevice', help="Replication strategy. 'mirrored', 'onedevice' now supported ")
-parser.add_argument("-devices", type=json.loads, default=["/gpu:0"],  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
+    parser.add_argument("-strategy", type=str, default='onedevice', help="Replication strategy. 'mirrored', 'onedevice' now supported ")
+    parser.add_argument("-devices", type=json.loads, default=["/gpu:0"],  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
 
-parser.add_argument('-training_crop', type=json.loads, default='[480, 512]', help='Training crop size [height, width]')
-parser.add_argument('-train_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB')
-parser.add_argument('-channel_order', type=str, default='channels_last', choices=['channels_first', 'channels_last'], help='Channels_last = NHWC, Tensorflow default, channels_first=NCHW')
+    parser.add_argument('-training_crop', type=json.loads, default='[480, 512]', help='Training crop size [height, width]')
+    parser.add_argument('-train_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB')
+    parser.add_argument('-channel_order', type=str, default='channels_last', choices=['channels_first', 'channels_last'], help='Channels_last = NHWC, Tensorflow default, channels_first=NCHW')
 
-parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to fcn savedmodel.')
+    parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to fcn savedmodel.')
+
+    args = parser.parse_args()
+    return args
 
 def main(args):
     print('Start test')
 
-    creds = ReadDictJson(args.credentails)
-    if not creds:
-        print('Failed to load credentials file {}. Exiting'.format(args.credentails))
-        return False
-
-    s3def = creds['s3'][0]
-    s3 = s3store(s3def['address'], 
-                 s3def['access key'], 
-                 s3def['secret key'], 
-                 tls=s3def['tls'], 
-                 cert_verify=s3def['cert_verify'], 
-                 cert_path=s3def['cert_path']
-                 )
+    s3, creds, s3def = Connect(args.credentails)
 
     trainingset = '{}/{}/'.format(s3def['sets']['trainingset']['prefix'] , args.trainingset)
     print('Load training set {}/{} to {}'.format(s3def['sets']['trainingset']['bucket'],trainingset,args.trainingset_dir ))
@@ -100,7 +93,7 @@ def main(args):
         'clean' : True,
         'test_archive': trainingset,
         'run_archive': '{}{}/'.format(trainingset, args.initialmodel),
-        'min':args.min,
+        'fast':args.fast,
     }
 
     trainingsetDescriptionFile = '{}/description.json'.format(args.trainingset_dir)
@@ -156,7 +149,7 @@ def main(args):
         iterator = iter(val_dataset)
         numsteps = int(validationsetdec['length']/config['batch_size'])
 
-        if(config['min']):
+        if(config['fast']):
             numsteps=min(args.min_steps, numsteps)
 
         try:
@@ -248,18 +241,11 @@ def main(args):
 if __name__ == '__main__':
   args, unparsed = parser.parse_known_args()
   
-  if args.debug:
-      print("Wait for debugger attach")
-      import ptvsd
-      # https://code.visualstudio.com/docs/python/debugging#_remote-debugging
-      # Launch applicaiton on remote computer: 
-      # > python3 -m ptvsd -host 10.150.41.30 -port 3000 -wait fcn/train.py
-      # Allow other computers to attach to ptvsd at this IP address and port.
-      ptvsd.enable_attach(address=('0.0.0.0', args.debug_port), redirect_output=True)
-      # Pause the program until a remote debugger is attached
-
-      ptvsd.wait_for_attach()
-
-      print("Debugger attach")
+    if args.debug:
+        print("Wait for debugger attach")
+        import debugpy
+        debugpy.listen(address=(args.debug_address, args.debug_port))
+        debugpy.wait_for_client() # Pause the program until a remote debugger is attached
+        print("Debugger attached")
 
   main(args)

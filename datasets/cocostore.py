@@ -155,7 +155,7 @@ class CocoStore:
             print('CocoStore.__getitem__ idx {} invalid.  Must be >=0 and < CocoStore.len={}'.format(idx, self.len()))
             return None
 
-
+    # Display functions
     def ColorizeAnnotation(self, ann):
         annrgb = [cv2.LUT(ann, self.lut[:, i]) for i in range(3)]
         annrgb = np.dstack(annrgb) 
@@ -165,7 +165,8 @@ class CocoStore:
         if mean is not None and stDev is not None:
             img = (img*stDev) + mean
 
-        ann = self.ColorizeAnnotation(ann)
+        if self.class_dictionary is not None:
+            ann = self.ColorizeAnnotation(ann)
         img = (img*ann).astype(np.uint8)
         return img
 

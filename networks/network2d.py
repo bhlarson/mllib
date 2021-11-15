@@ -22,7 +22,8 @@ from utils.torch_util import count_parameters, model_stats, model_weights
 from utils.jsonutil import ReadDictJson
 from utils.s3 import s3store, Connect
 from datasets.cocostore import CocoDataset
-from utils.similarity import similarity, jaccard
+from utils.metrics import similarity, jaccard, DatasetResults
+#from utils.similarity import similarity, jaccard
 # from segment.display import DrawFeatures
 from torch.utils.tensorboard import SummaryWriter
 
@@ -449,6 +450,7 @@ def parse_arguments():
 
     parser.add_argument('-debug', action='store_true',help='Wait for debuggee attach')   
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
+    parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
     parser.add_argument('-fast', action='store_true', help='Fast run with a few iterations')
 
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
@@ -456,14 +458,16 @@ def parse_arguments():
     parser.add_argument('-trainingset', type=str, default='data/coco/annotations/instances_train2017.json', help='Coco dataset instance json file.')
     parser.add_argument('-validationset', type=str, default='data/coco/annotations/instances_val2017.json', help='Coco dataset instance json file.')
     parser.add_argument('-train_image_path', type=str, default='data/coco/train2017', help='Coco image path for dataset.')
+    parser.add_argument('-imStatistics', type=bool, default=False, help='Record individual image statistics')
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
     parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=5, help='Training epochs')
+    parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20211029_00')
-    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20211101_00')
+    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20211027')
+    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20211115_00')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
@@ -479,16 +483,17 @@ def parse_arguments():
     parser.add_argument('-batch_norm', type=bool, default=False)
 
     parser.add_argument('-prune', type=bool, default=False)
-    parser.add_argument('-train', type=bool, default=True)
+    parser.add_argument('-train', type=bool, default=False)
     parser.add_argument('-infer', type=bool, default=True)
     parser.add_argument('-search_structure', type=bool, default=False)
-    parser.add_argument('-onnx', type=bool, default=True)
+    parser.add_argument('-onnx', type=bool, default=False)
 
-    parser.add_argument('-test_dir', type=str, default='/store/test/nasseg')
+    parser.add_argument('-test_dir', type=str, default=None)
     parser.add_argument('-tensorboard_dir', type=str, default='/store/test/nassegtb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir /store/test/nassegtb --bind_all')
     parser.add_argument('-class_weight', type=json.loads, default='[1.0,1.0, 1.0, 1.0]', help='Loss class weight ') 
-    
+
+    parser.add_argument('-description', type=json.loads, default='{"description":"Neural architecture search segmentation"}', help='Test description')
 
     args = parser.parse_args()
     return args
@@ -554,8 +559,6 @@ def Test(args):
     print('Network2D Test')
 
     import os
-    import torchvision
-    import torchvision.transforms as transforms
     import torch.optim as optim
 
     torch.autograd.set_detect_anomaly(True)
@@ -653,9 +656,10 @@ def Test(args):
     optimizer = optim.Adam(segment.parameters(), lr= args.learning_rate)
 
     # Train
-    for epoch in tqdm(range(args.epochs), desc="Train epochs"):  # loop over the dataset multiple times
-        iVal = iter(valloader)
-        if args.train:
+    if args.train:
+        for epoch in tqdm(range(args.epochs), desc="Train epochs"):  # loop over the dataset multiple times
+            iVal = iter(valloader)
+
             running_loss = 0.0
             for i, data in tqdm(enumerate(trainloader), total=trainingset.__len__()/args.batch_size, desc="Train steps"):
                 # get the inputs; data is a list of [inputs, labels]
@@ -716,27 +720,10 @@ def Test(args):
 
 
     if args.infer:
-        config = copy.deepcopy(args.__dict__)
-        config['name']='network2d.Test',
-        config['trainingset']= '{}/{}'.format(s3def['sets']['dataset']['bucket'], args.trainingset),
-        config['validationset']= '{}/{}'.format(s3def['sets']['dataset']['bucket'], args.validationset),
-        config['model_src']= '{}/{}/{}/{}'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src),
-        config['model_dest']= '{}/{}/{}/{}'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_dest),
 
-
-        results = {'class similarity':{}, 'config':config, 'image':[]}
-
-        # Prepare datasets for similarity computation
-        objTypes = {}
-        for objType in class_dictionary['objects']:
-            if objType['trainId'] not in objTypes:
-                objTypes[objType['trainId']] = copy.deepcopy(objType)
-                # set name to category for objTypes and id to trainId
-                objTypes[objType['trainId']]['name'] = objType['category']
-                objTypes[objType['trainId']]['id'] = objType['trainId']
-
-        for i in objTypes:
-            results['class similarity'][i]={'intersection':0, 'union':0}
+        now = datetime.now()
+        date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
+        test_summary = {'date':date_time}
 
         testset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
             image_paths=args.val_image_path,
@@ -747,21 +734,27 @@ def Test(args):
             astype='float32',
             enable_transform=False)
 
-        infer_batch_size=2
-        testloader = torch.utils.data.DataLoader(testset, batch_size=infer_batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
-        dtSum = 0.0
-        total_confusion = None
-        os.makedirs(args.test_dir, exist_ok=True)
-        for i, data in tqdm(enumerate(testloader), total=testset.__len__(), desc="Inference steps"): # try https://pypi.org/project/enlighten/ rather than tqdm to include progress & log messages
+        testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
+
+        if args.test_dir is not None:
+            outputdir = '{}/{}'.format(args.test_dir,args.model_class)
+            os.makedirs(outputdir, exist_ok=True)
+        else:
+            outputdir = None
+
+        dsResults = DatasetResults(class_dictionary, args.batch_size, imStatistics=args.imStatistics, imgSave=outputdir)
+
+        for i, data in tqdm(enumerate(testloader), total=int(testset.__len__()/args.batch_size), desc="Inference steps"):
             images, labels, mean, stdev = data
             if args.cuda:
                 images = images.cuda()
 
             initial = datetime.now()
+
             outputs = segment(images)
             segmentations = torch.argmax(outputs, 1)
-            imageTime = dt = (datetime.now()-initial).total_seconds()/infer_batch_size
-            dtSum += dt
+            dt = (datetime.now()-initial).total_seconds()
+            imageTime = dt/args.batch_size
 
             images = np.squeeze(images.cpu().permute(0, 2, 3, 1).numpy())
             labels = np.around(np.squeeze(labels.cpu().numpy())).astype('uint8')
@@ -769,86 +762,26 @@ def Test(args):
             mean = np.squeeze(mean.numpy())
             stdev = np.squeeze(stdev.numpy())
 
-            for j in range(infer_batch_size):
-                image = np.squeeze(images[j])
-                label = np.squeeze(labels[j])
-                segmentation = np.squeeze(segmentations[j])
-                iman = testset.coco.MergeIman(image, label, mean[j].item(), stdev[j].item())
-                imseg = testset.coco.MergeIman(image, segmentation, mean[j].item(), stdev[j].item())
-
-                iman = cv2.putText(iman, 'Annotation',(10,25), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),1,cv2.LINE_AA)
-                imseg = cv2.putText(imseg, 'Segmentation',(10,25), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),1,cv2.LINE_AA)
-                imanseg = cv2.hconcat([iman, imseg])
-                imanseg = cv2.cvtColor(imanseg, cv2.COLOR_BGR2RGB)
-
-                cv2.imwrite('{}/{}{:04d}.png'.format(args.test_dir, 'seg', infer_batch_size*i+j), imanseg)
-
-                imagesimilarity, results['class similarity'], unique = jaccard(label, segmentation, objTypes, results['class similarity'])
-
-                confusion = confusion_matrix(label.flatten(),segmentation.flatten(), labels=range(class_dictionary['classes']))
-                if total_confusion is None:
-                    total_confusion = confusion
-                else:
-                    total_confusion += confusion
-                        
-
-            results['image'].append({'dt':imageTime,'similarity':imagesimilarity, 'confusion':confusion.tolist()})
+            dsResults.infer_results(i, images, labels, segmentations, mean, stdev, dt)
 
             if args.fast and i+1 >= test_freq:
                 break
 
-
-        num_images = len(testloader)
-        average_time = dtSum/num_images
-        sumIntersection = 0
-        sumUnion = 0
-        dataset_similarity = {}
-        for key in results['class similarity']:
-            intersection = results['class similarity'][key]['intersection']
-            sumIntersection += intersection
-            union = results['class similarity'][key]['union']
-            sumUnion += union
-            class_similarity = similarity(intersection, union)
-
-            # convert to int from int64 for json.dumps
-            dataset_similarity[key] = {'intersection':int(intersection) ,'union':int(union) , 'similarity':class_similarity}
-
-        results['class similarity'] = dataset_similarity
-        total_similarity = similarity(sumIntersection, sumUnion)
-
-        now = datetime.now()
-        date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
-        test_summary = {'date':date_time}
-        test_summary['objects'] = objTypes
-        test_summary['class_similarity']=dataset_similarity
-        test_summary['similarity']=total_similarity
-        test_summary['confusion']=total_confusion.tolist()
-        test_summary['images']=num_images
-        test_summary['image time']=average_time
-        test_summary['batch size']=args.batch_size
-        test_summary['test store'] =s3def['address']
-        test_summary['test bucket'] = s3def['sets']['trainingset']['bucket']
-        test_summary['config'] = results['config']
-        
-        print ("{}".format(test_summary))
+        test_summary['objects'] = dsResults.objTypes
+        test_summary['object store'] =s3def
+        test_summary['results'] = dsResults.Results()
+        test_summary['config'] = args.__dict__
 
         # If there is a way to lock this object between read and write, it would prevent the possability of loosing data
-        training_data = s3.GetDict(s3def['sets']['model']['bucket'], 
-            '{}/{}/{}'.format(s3def['sets']['model']['prefix'], args.model_class, args.test_results))
-        if training_data is None:
+        test_path = '{}/{}/{}'.format(s3def['sets']['test']['prefix'], args.model_type, args.test_results)
+        training_data = s3.GetDict(s3def['sets']['test']['bucket'], test_path)
+        if training_data is None or type(training_data) is not list:
             training_data = []
         training_data.append(test_summary)
-        s3.PutDict(s3def['sets']['model']['bucket'], 
-            '{}/{}/{}'.format(s3def['sets']['model']['prefix'], args.model_class, args.test_results),
-            training_data)
+        s3.PutDict(s3def['sets']['test']['bucket'], test_path, training_data)
 
-        test_url = s3.GetUrl(s3def['sets']['model']['bucket'], 
-            '{}/{}/{}'.format(s3def['sets']['model']['prefix'], args.model_class, args.test_results))
-
+        test_url = s3.GetUrl(s3def['sets']['test']['bucket'], test_path)
         print("Test results {}".format(test_url))
-
-    #from utils.similarity import similarity
-    #from segment.display import DrawFeatures
 
     print('Finished network2d Test')
 
@@ -882,7 +815,7 @@ if __name__ == '__main__':
         Connet to vscode "Python: Remote" configuration
         '''
 
-        debugpy.listen(address=('0.0.0.0', args.debug_port))
+        debugpy.listen(address=(args.debug_address, args.debug_port))
         # Pause the program until a remote debugger is attached
 
         debugpy.wait_for_client()

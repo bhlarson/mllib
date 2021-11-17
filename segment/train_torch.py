@@ -78,8 +78,8 @@ def parse_arguments():
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir /store/test/segtb --bind_all')
     parser.add_argument('-class_weight', type=json.loads, default=None, help='Loss class weight ') 
     
-    parser.add_argument('-description', type=json.loads, default='{description:Neural architecture search segmentaiton}', help='Test description')
-    parser.add_argument('-description', type=json.loads, default='{description:Neural architecture search segmentaiton}', help='Test description')
+    parser.add_argument('-description', type=json.loads, default='{"description":"Neural architecture search segmentaiton"}', help='Test description')
+
 
     args = parser.parse_args()
     return args

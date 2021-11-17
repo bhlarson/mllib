@@ -466,8 +466,8 @@ def parse_arguments():
     parser.add_argument('-epochs', type=int, default=5, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20211027')
-    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20211115_00')
+    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20211115_00')
+    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20211116_00')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
@@ -483,7 +483,7 @@ def parse_arguments():
     parser.add_argument('-batch_norm', type=bool, default=False)
 
     parser.add_argument('-prune', type=bool, default=False)
-    parser.add_argument('-train', type=bool, default=False)
+    parser.add_argument('-train', type=bool, default=True)
     parser.add_argument('-infer', type=bool, default=True)
     parser.add_argument('-search_structure', type=bool, default=False)
     parser.add_argument('-onnx', type=bool, default=False)
@@ -493,7 +493,7 @@ def parse_arguments():
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir /store/test/nassegtb --bind_all')
     parser.add_argument('-class_weight', type=json.loads, default='[1.0,1.0, 1.0, 1.0]', help='Loss class weight ') 
 
-    parser.add_argument('-description', type=json.loads, default='{"description":"Neural architecture search segmentation"}', help='Test description')
+    parser.add_argument('-description', type=json.loads, default='{"description":"NAS segmentation"}', help='Test description')
 
     args = parser.parse_args()
     return args

@@ -1,0 +1,18 @@
+{
+    "version":0.1,
+    "dirs":[
+        "containers"
+    ],
+    "collect":[
+    ],
+    "whl":[
+    ],
+    "dockerbuild":[
+        {"name":"dockerfile-torch-train", "dockerfile":"dockerfile-torch-train", "context":"."}
+    ],
+
+    "dockerpull":[
+    ],
+    "zip":[
+    ]
+}

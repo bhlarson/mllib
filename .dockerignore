@@ -33,11 +33,13 @@
 airflow/
 argo/
 classify/
+config/
 cvat/
 containers/
 dataset/
 img/
 jupyter/
+None/
 triton/
 trt/
 dataset/

@@ -1,0 +1,64 @@
+#!/usr/bin/python3
+
+import os
+import sys
+import shutil
+import subprocess
+import copy
+import io
+import json
+import tempfile
+from datetime import datetime
+
+
+sys.path.insert(0, os.path.abspath(''))
+from utils.jsonutil import WriteDictJson, ReadDictJson
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='Process arguments')
+
+    parser.add_argument('-debug', action='store_true',help='Wait for debuggee attach')   
+    parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
+    parser.add_argument('-debug_listen', type=str, default='0.0.0.0', help='Default, accept any client')
+    
+    parser.add_argument('-dev', action='store_true',help='Wait for debuggee attach')
+    parser.add_argument('-namespace', type=str, default='ml',help='Install namespace')
+    parser.add_argument('-version', type=str, default='latest', help='Version number')
+
+    args = parser.parse_args()
+
+    return args
+
+def cmd(command):
+    print('$ '+command)
+    initial = datetime.now()
+    result = subprocess.call(command, shell=True)
+    dt = (datetime.now()-initial).total_seconds()
+    print('Complete {}s: {}={}'.format(dt, result, command))
+    return result
+
+def main(args):
+    initial = datetime.now()
+    print("Install mllib version: {}".format(args.version))
+
+    cmdstr = "microk8s.helm3 upgrade mllib ./helm/mllib -i --create-namespace --namespace {} --set release={}".format(args.namespace, args.version)
+    if args.dev:
+        cmdstr = "{} -f helm/values_dev.yaml".format(cmdstr)
+
+    result = cmd(cmdstr)
+
+    dt = (datetime.now()-initial).total_seconds()
+    print("install complete succeeded=={} {}s".format(result==0,dt))
+
+if __name__ == '__main__':
+    import argparse
+    args = parse_arguments()
+
+    if args.debug:
+        print("Wait for debugger attach")
+        import debugpy
+        debugpy.listen(address=(args.debug_listen, args.debug_port))
+        debugpy.wait_for_client() # Pause the program until a remote debugger is attached
+        print("Debugger attached")
+
+    main(args)

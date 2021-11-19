@@ -53,8 +53,8 @@ def parse_arguments():
     parser.add_argument('-epochs', type=int, default=4, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='deeplabv3')
-    parser.add_argument('-model_src', type=str,  default='segment_deeplabv3_512x442_20211112_00')
-    parser.add_argument('-model_dest', type=str, default='segment_deeplabv3_512x442_20211113_00')
+    parser.add_argument('-model_src', type=str,  default='segment_deeplabv3_512x442_20211118_00')
+    parser.add_argument('-model_dest', type=str, default='segment_deeplabv3_512x442_20211118_01')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
@@ -71,14 +71,14 @@ def parse_arguments():
 
     parser.add_argument('-train', type=bool, default=True)
     parser.add_argument('-infer', type=bool, default=True)
-    parser.add_argument('-onnx', type=bool, default=True)
+    parser.add_argument('-onnx', type=bool, default=False)
 
     parser.add_argument('-test_dir', type=str, default=None)
     parser.add_argument('-tensorboard_dir', type=str, default='/store/test/segtb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir /store/test/segtb --bind_all')
     parser.add_argument('-class_weight', type=json.loads, default=None, help='Loss class weight ') 
     
-    parser.add_argument('-description', type=json.loads, default='{"description":"Neural architecture search segmentaiton"}', help='Test description')
+    parser.add_argument('-description', type=json.loads, default='{"description":"Deeplab V3 image segmentaiton"}', help='Test description')
 
 
     args = parser.parse_args()

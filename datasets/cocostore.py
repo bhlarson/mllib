@@ -311,7 +311,7 @@ class CocoDataset(Dataset):
 
     def __getitem__(self, idx):
         result = self.coco.__getitem__(idx)
-        if result is not None:
+        if result is not None and result['img'] is not None and result['ann'] is not None:
             image = result['img']
             label = result['ann']
 

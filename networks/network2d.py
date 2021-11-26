@@ -463,11 +463,11 @@ def parse_arguments():
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
     parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=5, help='Training epochs')
+    parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20211117_00')
-    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20211118_00')
+    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20211124_00')
+    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20211125_00')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
@@ -475,18 +475,18 @@ def parse_arguments():
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')
     parser.add_argument('-learning_rate', type=float, default=1.0e-4, help='Adam learning rate')
     parser.add_argument('-max_search_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
-    parser.add_argument('-min_search_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
+    parser.add_argument('-min_search_depth', type=int, default=2, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=1.5, help='maximum number of layers to grow per level')
     parser.add_argument('-k_structure', type=float, default=1.0e-4, help='Structure minimization weighting fator')
     parser.add_argument('-target_structure', type=float, default=0.01, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=False)
 
-    parser.add_argument('-prune', type=bool, default=False)
+    parser.add_argument('-prune', type=bool, default=True)
     parser.add_argument('-train', type=bool, default=True)
     parser.add_argument('-infer', type=bool, default=True)
     parser.add_argument('-search_structure', type=bool, default=True)
-    parser.add_argument('-onnx', type=bool, default=False)
+    parser.add_argument('-onnx', type=bool, default=True)
 
     parser.add_argument('-test_dir', type=str, default=None)
     parser.add_argument('-tensorboard_dir', type=str, default='/store/test/nassegtb', 
@@ -548,8 +548,9 @@ def InferLoss(inputs, labels, args, model, criterion, optimizer):
 
     # zero the parameter gradients
     model.zero_grad(set_to_none=True)
-    outputs = model(inputs)
 
+    #with torch.cuda.amp.autocast():
+    outputs = model(inputs)
     loss, cross_entropy_loss, architecture_loss  = criterion(outputs, labels, model)
 
     return outputs, loss, cross_entropy_loss, architecture_loss
@@ -756,13 +757,11 @@ def Test(args):
             dt = (datetime.now()-initial).total_seconds()
             imageTime = dt/args.batch_size
 
-            images = np.squeeze(images.cpu().permute(0, 2, 3, 1).numpy())
-            labels = np.around(np.squeeze(labels.cpu().numpy())).astype('uint8')
-            segmentations = np.squeeze(segmentations.cpu().numpy()).astype('uint8')
-            mean = np.squeeze(mean.numpy())
-            stdev = np.squeeze(stdev.numpy())
+            images = images.cpu().permute(0, 2, 3, 1).numpy()
+            labels = np.around(labels.cpu().numpy()).astype('uint8')
+            segmentations = segmentations.cpu().numpy().astype('uint8')
 
-            dsResults.infer_results(i, images, labels, segmentations, mean, stdev, dt)
+            dsResults.infer_results(i, images, labels, segmentations, mean.numpy(), stdev.numpy(), dt)
 
             if args.fast and i+1 >= test_freq:
                 break
@@ -782,6 +781,9 @@ def Test(args):
 
         test_url = s3.GetUrl(s3def['sets']['test']['bucket'], test_path)
         print("Test results {}".format(test_url))
+
+    if args.onnx:
+        onnx(segment, s3, s3def, args)
 
     print('Finished network2d Test')
 

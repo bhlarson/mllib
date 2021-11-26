@@ -16,69 +16,59 @@ from datetime import datetime
 
 #sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath('')), '..')))
 sys.path.insert(0, os.path.abspath(''))
-#from segment.display import DrawFeatures, WritePredictions
+from utils.jsonutil import ReadDictJson
 from utils.s3 import s3store, Connect
-from utils.jsonutil import WriteDictJson, ReadDictJson
-from utils.similarity import jaccard, similarity, confusionmatrix
+from datasets.cocostore import CocoDataset
+from utils.metrics import jaccard, similarity, confusionmatrix, DatasetResults
 from datasets.cocostore import CocoDataset
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
-    parser.add_argument('-min', action='store_true', help='If set, minimum training to generate output.')
-    parser.add_argument('-min_steps', type=int, default=5, help='Number of min steps.')
-
+    parser.add_argument('-fast', action='store_true', help='Fast run with a few iterations')
+    parser.add_argument('-fast_steps', type=int, default=5, help='Number of min steps.')
 
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
+    parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
+    parser.add_argument('-trtmodel', type=str, default='segment_nas_prune_640x640_20211015_03fp16.trt', help='TRT file name')
+
 
     parser.add_argument('-validationset', type=str, default='data/coco/annotations/instances_val2017.json', help='Coco dataset instance json file.')
     parser.add_argument('-train_image_path', type=str, default='data/coco/train2017', help='Coco image path for dataset.')
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
-    parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
+    parser.add_argument('-class_dict', type=str, default='model/deeplabv3/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-trtmodel', type=str, default='segment_nas_prune_640x640_20211015-fp16.trt', help='TRT file name')
     parser.add_argument('-tests_json', type=str, default='tests.json', help='Test Archive')
 
     parser.add_argument('-trainingset_dir', type=str, default='/store/test/coco', help='Path training set tfrecord')
-    parser.add_argument('-test_dir', type=str, default='/store/test/nasseg',help='Directory to store training model')
+    parser.add_argument('-test_dir', type=str, default='/store/test/segdeeplabv3',help='Directory to store training model')
 
     parser.add_argument('--trainingset', type=str, default='2021-02-22-14-17-19-cocoseg', help='training set')
     parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.')
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
     parser.add_argument('-width', type=int, default=640, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')       
-
-    parser.add_argument("-strategy", type=str, default='onedevice', help="Replication strategy. 'mirrored', 'onedevice' now supported ")
-    parser.add_argument("-devices", type=json.loads, default=["/gpu:0"],  help='GPUs to include for training.  e.g. None for all, [/cpu:0], ["/gpu:0", "/gpu:1"]')
-
-    parser.add_argument('-training_crop', type=json.loads, default='[640, 640]', help='Training crop size [height, width]')
-    parser.add_argument('-train_depth', type=int, default=3, help='Number of input colors.  1 for grayscale, 3 for RGB')
-    parser.add_argument('-channel_order', type=str, default='channels_first', choices=['channels_first', 'channels_last'], help='Channels_last = NHWC, Tensorflow default, channels_first=NCHW')
     parser.add_argument('-fp16', action='store_true', help='If set, Generate FP16 model.')
+    parser.add_argument('--description', type=str, default='', help='Test description')
 
-    parser.add_argument('-savedmodel', type=str, default='./saved_model', help='Path to fcn savedmodel.')
 
     args = parser.parse_args()
     return args
-
 
 def main(args):
     print('Start test')
 
     s3, creds, s3def = Connect(args.credentails)
-
     class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.class_dict)
-    trainingset = '{}/{}/'.format(s3def['sets']['trainingset']['prefix'] , args.trainingset)
-    print('Load training set {}/{} to {}'.format(s3def['sets']['trainingset']['bucket'],trainingset,args.trainingset_dir ))
 
     # Load dataset
-    config = copy.deepcopy(args.__dict__)
-    config['class_dictionary']= class_dictionary
-    config['test_archive'] = trainingset
 
-    valset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
+    now = datetime.now()
+    date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
+    test_summary = {'date':date_time}
+    testset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
         image_paths=args.val_image_path,
         class_dictionary=class_dictionary, 
         height=args.height, 
@@ -86,8 +76,19 @@ def main(args):
         imflags=args.imflags, 
         astype='float32',
         enable_transform=False)
-    valloader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=False)
 
+     testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
+
+    if args.test_dir is not None:
+        outputdir = '{}/{}'.format(args.test_dir,args.model_class)
+        os.makedirs(outputdir, exist_ok=True)
+    else:
+        outputdir = None
+
+    dsResults = DatasetResults(class_dictionary, args.batch_size, imStatistics=args.imStatistics, imgSave=outputdir)
+
+    step = 0
+    
     # Prepare datasets for similarity computation
     objTypes = {}
     for objType in class_dictionary['objects']:
@@ -97,42 +98,41 @@ def main(args):
             objTypes[objType['trainId']]['name'] = objType['category']
             objTypes[objType['trainId']]['id'] = objType['trainId']
 
-    results = {'class similarity':{}, 'config':config, 'image':[]}
+    results = {'class similarity':{}, 'config':args.__dict__, 'image':[]}
 
     for objType in objTypes:
         results['class similarity'][objType] = {'union':0, 'intersection':0}
 
     modelobjname = '{}/{}/{}'.format(s3def['sets']['model']['prefix'], args.model_class, args.trtmodel)
-    #modelfilename = '{}/{}/{}/{}'.format(args.test_dir, s3def['sets']['model']['prefix'], config['initialmodel'], config['trtmodel'])
+    modelfilename = '{}/{}/{}'.format(args.test_dir, s3def['sets']['model']['prefix'], config['trtmodel'])
     #print('Load trt model {}/{} to {}'.format(s3def['sets']['model']['bucket'], modelobjname, modelfilename))
-    engine_obj = s3.GetObject(s3def['sets']['model']['bucket'], modelobjname)
+    s3.GetFile(s3def['sets']['model']['bucket'], modelobjname, modelfilename)
+    #engine_obj = s3.GetObject(s3def['sets']['model']['bucket'], modelobjname)
 
-    os.makedirs(args.test_dir)
+    os.makedirs(args.test_dir, exist_ok=True)
 
     print("Begin inferences")
     dtSum = 0.0
     accuracySum = 0.0
     total_confusion = None
-    numsteps = valloader.__len__()
+    numsteps = valloader.__len__()/args.batch_size
 
     if(args.min):
         numsteps=min(args.min_steps, numsteps)
 
-    step = 0
     color_chanels=3
     try:
 
-        #f = open(modelfilename, "rb")
+        f = open(modelfilename, "rb")
         runtime = trt.Runtime(trt.Logger(trt.Logger.WARNING)) 
 
-        USE_FP16 = args.fp16
-        target_dtype = np.float16 if USE_FP16 else np.float32
-        dummy_input_batch = np.zeros((args.batch_size, color_chanels, args.width, args.height), dtype = np.float32) 
+        target_dtype = np.float16 if args.fp16 else np.float32
+        dummy_input_batch = np.zeros((args.batch_size, color_chanels, args.height, args.width), dtype = np.float32) 
 
-        engine = runtime.deserialize_cuda_engine(engine_obj)
+        engine = runtime.deserialize_cuda_engine(f.read())
         context = engine.create_execution_context()
 
-        output = np.empty([args.batch_size, args.width, args.height, class_dictionary['classes']], dtype = target_dtype)
+        output = np.empty([args.batch_size, class_dictionary['classes'], args.height, args.width], dtype = target_dtype)
         # Allocate device memory
         d_input = cuda.mem_alloc(args.batch_size * dummy_input_batch.nbytes)
         d_output = cuda.mem_alloc(args.batch_size * output.nbytes)
@@ -154,38 +154,40 @@ def main(args):
             return output
 
         predict(dummy_input_batch) # Run to load dependencies
-        predict(dummy_input_batch) # Run to load dependencies
 
-        for step, data in tqdm(enumerate(valloader), total=valloader.__len__(), desc="Inference steps"):
+        for step, data in tqdm(enumerate(valloader), total=numsteps, desc="Inference steps"):
             image, labels, mean, stdev = data
 
             initial = datetime.now()
             logitstft = predict(image.numpy())
             dt = (datetime.now()-initial).total_seconds()
             dtSum += dt
-            imageTime = dt/config['batch_size']
+            imageTime = dt/args.batch_size
 
-            seg = np.argmax(logitstft, axis=3).astype('uint8')
+            seg = np.argmax(logitstft, axis=1).astype('uint8')
             image = image.cpu().permute(0, 2, 3, 1).numpy() # Convert image to [batch, chanel, height, width]
             labels = labels.numpy()
-            for j in range(config['batch_size']):
+            for j in range(args['batch_size']):
 
                 im_bgr = valset.coco.DisplayImAn(image[j], labels[j], seg[j], mean[j].item(), stdev[j].item())
-                cv2.imwrite('{}/{}{:04d}.png'.format(args.test_dir, 'seg', step*config['batch_size']+j), im_bgr)
+                cv2.imwrite('{}/{}{:04d}.png'.format(args.test_dir, 'seg', step*args['batch_size']+j), im_bgr)
 
                 imagesimilarity, results['class similarity'], unique = jaccard(labels[j], seg[j], objTypes, results['class similarity'])
                 confusion, total_confusion = confusionmatrix(labels[j], seg[j], range(class_dictionary['classes']), total_confusion)  
                         
                 tqdm.write('dt:{} similarity: {}'.format(imageTime, imagesimilarity['image']))
                 results['image'].append({'dt':imageTime,'similarity':imagesimilarity, 'confusion':confusion.tolist()})
+
+            if step >= numsteps:
+                break
     except Exception as e:
         print("Error: test exception {} step {}".format(e, step))
         numsteps = step
 
-    num_images = numsteps*config['batch_size']
+    num_images = numsteps*args['batch_size']
     
     if numsteps > 0: 
-        num_images = numsteps*config['batch_size']
+        num_images = numsteps*args['batch_size']
         average_time = dtSum/num_images
         average_accuracy = accuracySum/num_images
     else:
@@ -213,6 +215,9 @@ def main(args):
     now = datetime.now()
     date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
     test_summary = {'date':date_time, 'model':modelobjname}
+    test_summary['config']=args.__dict__
+    test_summary['description']=args['description']
+    test_summary['model']='{}/{}'.format(s3def['sets']['model']['bucket'], modelobjname)
     test_summary['accuracy']=average_accuracy
     test_summary['class_similarity']=dataset_similarity
     test_summary['similarity']=total_similarity
@@ -222,7 +227,7 @@ def main(args):
         test_summary['confusion']=None
     test_summary['images']=num_images
     test_summary['image time']=average_time
-    test_summary['batch size']=config['batch_size']
+    test_summary['batch size']=args['batch_size']
     test_summary['test store'] =s3def['address']
     test_summary['test bucket'] = s3def['sets']['trainingset']['bucket']
     test_summary['results'] = results

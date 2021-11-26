@@ -39,7 +39,7 @@ RUN pip3 --no-cache-dir install \
         pycocotools==2.0.1 \
         prettytable \
         onnx \
-        onnxruntime \
+        onnxruntime-gpu \
         pycuda \
         sklearn
 

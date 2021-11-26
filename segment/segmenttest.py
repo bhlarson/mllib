@@ -10,6 +10,7 @@ import plotly
 import plotly.graph_objects as graph_obj
 import plotly.figure_factory as ff
 import plotly.express as px
+import natsort as ns
 
 sys.path.insert(0, os.path.abspath('.'))
 sys.path.insert(0, os.path.abspath('..'))
@@ -48,48 +49,53 @@ def PrepareResults(test_data):
     model_dict = {}
         
     for test in test_data:
+        if 'train' in test['config']:
+            if test['config']['train']:
+                model = test['config']['model_dest']
+            else:
+                model = test['config']['model_src']
+        elif 'model' in test['config']:
+            model = test['config']['model']
+        else:
+            model = None
+
         if 'name' in test:
             name = '{}: {}'.format(len(test_names)+1,test['name'])
-        elif 'model_src' in test['config']:
-            name = '{}: {}'.format(len(test_names)+1,test['config']['model_src'])
+        elif model is not None:
+            name = '{}: {}'.format(len(test_names)+1,model)
         else: 
             name = '{}: {}'.format(len(test_names)+1,test['date'])
         test_names.append(name)
 
-        if test['config']['train']:
-            model = test['config']['model_dest']
-        else:
-            model = test['config']['model_src']
+        if model:
+            description = ''
+            if 'description' in test['config']:
+                if 'description' in test['config']['description']:
+                    description = test['config']['description']['description']
 
-        description = ''
-        if 'description' in test['config']:
-            if 'description' in test['config']['description']:
-                description = test['config']['description']['description']
+            
+            test_overview = {
+                'date': test['date'],
+                'model type': test['config']['model_type'],
+                'model class': test['config']['model_class'],
+                'test images':test['results']['num images'],
+                'mean IoU':test['results']['mean intersection over union'], 
+                'inference time':test['results']['average time'],
+                'description': description
+                }
+            overview[name]=test_overview
 
-        
-        test_overview = {
-            'model type': test['config']['model_type'],
-            'model class': test['config']['model_class'],
-            'model': model,
-            'test date': test['date'],
-            'test images':test['results']['num images'],
-            'mean IoU':test['results']['mean intersection over union'], 
-            'inference time':test['results']['average time'],
-            'description': description
-            }
-        overview[name]=test_overview
+            similarity = {}
+            for object in test['objects']:
+                res = test['results']['similarity'][object]
+                if res:
+                    similarity[test['objects'][object]['name']] = res['similarity']
 
-        similarity = {}
-        for object in test['objects']:
-            res = test['results']['similarity'][object]
-            if res:
-                similarity[test['objects'][object]['name']] = res['similarity']
+            results[name] = {'objects':test['objects'], 'similarity':similarity, 'confusion':test['results']['confusion']}
 
-        results[name] = {'objects':test['objects'], 'similarity':similarity, 'confusion':test['results']['confusion']}
-
-        dict_key = '{} {}'.format(test['config']['model_type'], test['config']['model_class'])
-        if dict_key not in model_dict:
-            model_dict[dict_key] = []
+            dict_key = '{} {}'.format(test['config']['model_type'], test['config']['model_class'])
+            if dict_key not in model_dict:
+                model_dict[dict_key] = []
 
         model_dict[dict_key].append(test)
 
@@ -150,12 +156,12 @@ def UpdateConfusion(plot, data):
         for i in range(len(confusion_text)):
             plot.layout.annotations[i].text = confusion_text[i]
 
-def PlotModels(models):
+def PlotModelsData(models, sort=True):
     data = []
     x=[]
 
     columns = []
-    labels = {'x':'model', 'y':'similarity', 'title':''}
+    labels = {'x':'model', 'y':'similarity'}
 
     if len(models)>0:
 
@@ -166,10 +172,17 @@ def PlotModels(models):
 
         for model in models:
             results = model['results']
-            if model['config']['train']:
-                model_name = model['config']['model_dest']
+            
+            if 'train' in model['config'] and 'model_dest' in model['config'] and 'model_src' in model['config']:
+                if model['config']['train']:
+                    model_name = model['config']['model_dest']
+                else:
+                    model_name = model['config']['model_src']
+            elif 'model' in model['config']:
+                model_name = model['config']['model']
             else:
-                model_name = model['config']['model_src']
+                model_name = 'Unknown'
+
             x.append(model_name)
             row = []
             row.append(results['mean intersection over union'])
@@ -179,12 +192,37 @@ def PlotModels(models):
 
 
             data.append(row)
+
+    if sort:
+        combined = list(zip(x, data))
+        sort_index = ns.index_natsorted(x, alg=ns.PATH)
+        x = ns.order_by_index(x, sort_index)
+        data = ns.order_by_index(data, sort_index)
+
+    return data, columns, x, labels
+
+def PlotModels(models):
+
+    data, columns, x, labels = PlotModelsData(models)
             
     df = pd.DataFrame(data, columns =columns)
 
-    fig = px.line(df, x=x , y=columns , labels=labels)
+    dfi = px.data.iris()
+
+    fig = px.line(df, x=x , y=columns, title='Segmentation Models Plot' , labels=labels)
+    fig.update_layout(yaxis_title="Intersection / Union", legend_title="Object Type")
 
     return fig
+
+def UpdateModel(plot, models):
+
+    data, columns, x, labels = PlotModelsData(models)
+
+    with plot.batch_update():
+        for i, scatter in enumerate(plot.data):
+            scatter.x = x
+            scatter.y = np.array(data)[:,i]
+        
 
 #%%            
 def ClearOutput(b, output):
@@ -194,8 +232,10 @@ def ClearOutput(b, output):
 def SelectTest(change, output, select, display, results):
     with output:
         print('SelectTest change={}',format(change))
+
+        UpdateConfusion(display, results)
     
-        with display.batch_update():
+        '''with display.batch_update():
             
             c = np.array(results[select.value]['confusion'])
             norm_confusion = (c.T / c.astype(np.float).sum(axis=1)).T
@@ -204,7 +244,7 @@ def SelectTest(change, output, select, display, results):
             display.update_layout(yaxis_autorange="reversed")
             
             for i in range(len(confusion_text)):
-                display.layout.annotations[i].text = confusion_text[i]
+                display.layout.annotations[i].text = confusion_text[i]'''
 
 # %%
 def SelectModel(change, output, select, display, results):
@@ -242,13 +282,21 @@ def main(args):
         confusion_display.show()
 
     if len(model_dict) > 0:
-        model_key, model_values = list(model_dict.items())[0]
+        model_values = list(model_dict.values())[0]
         if len(model_values) > 0:
 
-            modelsplot = PlotModels(model_values)
+            modelsplot = PlotModels(list(model_dict.values())[0])
             models_display = graph_obj.FigureWidget(modelsplot)
             display(models_display)
             models_display.show()
+
+    if len(model_dict) > 1:
+        model_values = list(model_dict.values())[1]
+        if len(model_values) > 0:
+            UpdateModel(models_display, model_values)
+            display(models_display)
+            models_display.show()
+            
 
     test_select = widgets.Select(
         options=test_names,
@@ -266,7 +314,7 @@ def main(args):
         description='Model:',
         #rows=25,
     )
-    model_select.observe (lambda change:ModelsPlot(change, 
+    model_select.observe (lambda change:SelectModel(change, 
                                                     output=output, 
                                                     select=model_select, 
                                                     display=confusion_display, 

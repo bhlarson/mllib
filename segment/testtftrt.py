@@ -196,7 +196,7 @@ def main(args):
             engine = runtime.deserialize_cuda_engine(f.read())
             context = engine.create_execution_context()
 
-            output = np.empty([BATCH_SIZE, config['input_shape'][0], config['input_shape'][1], config['classes']], dtype = target_dtype)
+            output = np.empty([BATCH_SIZE, config['input_shape'][0], config['input_shape'][1], config['classes']], dtype = np.float32)
             # Allocate device memory
             d_input = cuda.mem_alloc(1 * dummy_input_batch.nbytes)
             d_output = cuda.mem_alloc(1 * output.nbytes)

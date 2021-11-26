@@ -7,7 +7,7 @@ import sys
 import json
 import shutil
 import numpy
-import onnx
+#import onnx
 import tensorrt as trt
 
 sys.path.insert(0, os.path.abspath(''))
@@ -27,18 +27,27 @@ def GB(val):
 
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 
-parser = argparse.ArgumentParser()
-parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')
-parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
-parser.add_argument('-savedmodelname', type=str, default="segmin", help='Path in S3 model')
-parser.add_argument('-targetname', type=str, default="segment_nas_prune_640x640_20211015", help='Final model wiout extension')
-parser.add_argument('-workdir', type=str, default="trt", help='Working directory')
-parser.add_argument('-onnxname', type=str, default="segment_nas_prune_640x640_20211015.onnx", help='Onnx file name')
-parser.add_argument('-workspace_memory', type=int, default=4096, help='trtexec workspace size in megabytes')
-parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.') 
-parser.add_argument('-image_size', type=json.loads, default='[512 640]', help='Image size') 
-parser.add_argument('-fp16',  default=True, help='If set, Generate FP16 model.')
+def parse_arguments():
+    import argparse
+    parser = argparse.ArgumentParser(description='Process arguments')
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-debug', action='store_true',help='Wait for debuggee attach')   
+    parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
+    parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
+
+    parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
+    parser.add_argument('-savedmodelname', type=str, default="segmin", help='Path in S3 model')
+    parser.add_argument('-targetname', type=str, default="segment_nas_512x442_20211125_00", help='Final model wiout extension')
+    parser.add_argument('-workdir', type=str, default="trt", help='Working directory')
+    parser.add_argument('-onnxname', type=str, default="segment_nas_512x442_20211125_00.onnx", help='Onnx file name')
+    parser.add_argument('-workspace_memory', type=int, default=4096, help='trtexec workspace size in megabytes')
+    parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.') 
+    parser.add_argument('-image_size', type=json.loads, default='[480, 512]', help='Image size') 
+    parser.add_argument('-precision',  type=str, default='fp32', choices=['int8', 'fp16', 'fp32'], help='Output model precision.')
+
+    args = parser.parse_args()
+    return args
 
 
 class INT8Calibrator(trt.IInt8EntropyCalibrator2):
@@ -93,7 +102,6 @@ class INT8Calibrator(trt.IInt8EntropyCalibrator2):
 
 
 def build_tensorrt_engine(onnx_file_path,
-                          engine_save_path,
                           precision_mode='fp32',
                           max_workspace_size=GB(1),  # in bytes
                           max_batch_size=1,
@@ -102,7 +110,6 @@ def build_tensorrt_engine(onnx_file_path,
                           int8_calibrator=None):
     """
     :param onnx_file_path:
-    :param engine_save_path:
     :param precision_mode:
     :param max_workspace_size: The maximum workspace size. The maximum GPU temporary memory which the engine can use at
     :param max_batch_size:
@@ -151,25 +158,24 @@ def build_tensorrt_engine(onnx_file_path,
     config.min_timing_iterations = min_timing_iterations
     config.avg_timing_iterations = avg_timing_iterations
     builder.max_batch_size = max_batch_size
+
+    profile = builder.create_optimization_profile()
+    profile.set_shape(network.get_input(0).name, 
+        (args.batch_size, 3, args.image_size[0], args.image_size[1]), 
+        (args.batch_size, 3, args.image_size[0], args.image_size[1]), 
+        (args.batch_size, 3, args.image_size[0], args.image_size[1]))
+    config.add_optimization_profile(profile)
+
     try:
         engine = builder.build_engine(network, config)
     except:
         print('Engine build unsuccessfully!')
-        return False
 
     if engine is None:
         print('Engine build unsuccessfully!')
-        return False
 
-    if not os.path.exists(os.path.dirname(engine_save_path)):
-        os.makedirs(os.path.dirname(engine_save_path))
+    return engine
 
-    serialized_engine = engine.serialize()
-    with open(engine_save_path, 'wb') as fout:
-        fout.write(serialized_engine)
-
-    print('Engine built successfully!')
-    return True
 
 def main(args):
     failed = False
@@ -191,75 +197,44 @@ def main(args):
 
     workdir = '{}/{}'.format(args.workdir, args.savedmodelname)
     inobj = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.savedmodelname, args.onnxname)
-    objpath = '{}/{}'.format(s3def['sets']['model']['prefix'],args.savedmodelname)
 
+    objpath = '{}/{}/{}{}.trt'.format(s3def['sets']['model']['prefix'],args.savedmodelname,args.targetname,args.precision)
     infile = '{}/{}'.format(workdir, args.onnxname)
 
     if not s3.GetFile(s3def['sets']['model']['bucket'], inobj, infile):
         print('Failed to load {}/{} to {}'.format(s3def['sets']['model']['bucket'], inobj, infile ))
-        failed = True
-        return failed
+        return True
 
-    onnx_model = onnx.load(infile)
-    inputs = onnx_model.graph.input
-    for input in inputs:
-        dim1 = input.type.tensor_type.shape.dim[0]
-        dim1.dim_value = args.batch_size
-        input.type.tensor_type.shape.dim[2:3] = args.image_size
+    #onnx_buffer = s3.GetObject(s3def['sets']['model']['bucket'], inobj)
+    #onnx_model = onnx.load_from_string(onnx_buffer)
+    #onnx.checker.check_model(onnx_model)
 
-    fixedfile = '{}/fixed-{}'.format(workdir, args.onnxname)
-    onnx.save_model(onnx_model, fixedfile)
+    engine = build_tensorrt_engine(infile,
+        precision_mode=args.precision,
+        max_workspace_size=GB(1),  # in bytes
+        max_batch_size=1,
+        min_timing_iterations=2,
+        avg_timing_iterations=2,
+        int8_calibrator=None)
 
-    targetname = args.targetname
-    params = ''
-    if args.fp16:
-        targetname += '-fp16'
-        params = '--fp16'
-    outfile = '{}/{}.trt'.format(workdir, targetname)
-    logfile = '{}/{}-trt.log'.format(workdir, targetname)
+    s3.PutObject(s3def['sets']['model']['bucket'], objpath, engine.serialize())
 
-    
-    # USE_FP16 = True
-    # May need to shut down all kernels and restart before this - otherwise you might get cuDNN initialization errors:
-    #if USE_FP16:
-    #    os.system("trtexec --onnx=resnet50_onnx_model.onnx --saveEngine=resnet_engine.trt  --explicitBatch --fp16")
-    #else:
-    #    os.system("trtexec --onnx=resnet50_onnx_model.onnx --saveEngine=resnet_engine.trt  --explicitBatch")
-
-
-    # engine = build_engine(fixedfile)
-
-    succeeded = build_tensorrt_engine(fixedfile,
-                            outfile,
-                            precision_mode='fp16',
-                            max_workspace_size=GB(1),  # in bytes
-                            max_batch_size=1,
-                            min_timing_iterations=2,
-                            avg_timing_iterations=2,
-                            int8_calibrator=None)
-
-    if s3.PutFile(s3def['sets']['model']['bucket'], outfile, objpath):
-        shutil.rmtree(args.workdir, ignore_errors=True) 
-
-    # trtcmd = "trtexec --onnx=/store/dmp/cl/store/mllib/model/2021-02-19-20-51-59-cocoseg/model.onnx --saveEngine=/store/dmp/cl/store/mllib/model/2021-02-19-20-51-59-cocoseg/model.trt  --explicitBatch --workspace=4096 --verbose  2>&1 | tee trtexe.log"
     print('onnx-trt complete')
-    return failed
+    return 0
+
 
 if __name__ == '__main__':
-  args, unparsed = parser.parse_known_args()
-  
-  if args.debug:
-      print("Wait for debugger attach")
-      import ptvsd
-      # https://code.visualstudio.com/docs/python/debugging#_remote-debugging
-      # Launch applicaiton on remote computer: 
-      # > python3 -m ptvsd --host 10.150.41.30 --port 3000 --wait fcn/train.py
-      # Allow other computers to attach to ptvsd at this IP address and port.
-      ptvsd.enable_attach(address=('0.0.0.0', 3000), redirect_output=True)
-      # Pause the program until a remote debugger is attached
+    args = parse_arguments()
 
-      ptvsd.wait_for_attach()
+    if args.debug:
+        print("Wait for debugger attach")
+        import debugpy
 
-      print("Debugger attach")
+        debugpy.listen(address=(args.debug_address, args.debug_port))
+        # Pause the program until a remote debugger is attached
 
-  main(args)
+        debugpy.wait_for_client()
+        print("Debugger attached")
+
+    result = main(args)
+    sys.exit(result)

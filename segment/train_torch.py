@@ -45,8 +45,7 @@ def parse_arguments():
     parser.add_argument('-trainingset', type=str, default='data/coco/annotations/instances_train2017.json', help='Coco dataset instance json file.')
     parser.add_argument('-validationset', type=str, default='data/coco/annotations/instances_val2017.json', help='Coco dataset instance json file.')
     parser.add_argument('-train_image_path', type=str, default='data/coco/train2017', help='Coco image path for dataset.')
-    parser.add_argument('-imStatistics', type=bool, default=False, help='Record individual image statistics')
-    parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
+     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/deeplabv3/coco.json', help='Model class definition file.')
 
     parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
@@ -55,7 +54,6 @@ def parse_arguments():
     parser.add_argument('-model_class', type=str,  default='deeplabv3')
     parser.add_argument('-model_src', type=str,  default='segment_deeplabv3_512x442_20211118_00')
     parser.add_argument('-model_dest', type=str, default='segment_deeplabv3_512x442_20211118_01')
-    parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
     parser.add_argument('-width', type=int, default=512, help='Batch image width')
@@ -73,7 +71,10 @@ def parse_arguments():
     parser.add_argument('-infer', type=bool, default=True)
     parser.add_argument('-onnx', type=bool, default=False)
 
+    parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-test_dir', type=str, default=None)
+    parser.add_argument('-imStatistics', type=bool, default=False, help='Record individual image statistics')
+
     parser.add_argument('-tensorboard_dir', type=str, default='/store/test/segtb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir /store/test/segtb --bind_all')
     parser.add_argument('-class_weight', type=json.loads, default=None, help='Loss class weight ') 
@@ -321,13 +322,11 @@ def main(args):
             dt = (datetime.now()-initial).total_seconds()
             imageTime = dt/args.batch_size
 
-            images = np.squeeze(images.cpu().permute(0, 2, 3, 1).numpy())
-            labels = np.around(np.squeeze(labels.cpu().numpy())).astype('uint8')
-            segmentations = np.squeeze(segmentations.cpu().numpy()).astype('uint8')
-            mean = np.squeeze(mean.numpy())
-            stdev = np.squeeze(stdev.numpy())
+            images = images.cpu().permute(0, 2, 3, 1).numpy()
+            labels = np.around(labels.cpu().numpy()).astype('uint8')
+            segmentations = segmentations.cpu().numpy().astype('uint8')
 
-            dsResults.infer_results(i, images, labels, segmentations, mean, stdev, dt)
+            dsResults.infer_results(i, images, labels, segmentations, mean.numpy(), stdev.numpy(), dt)
 
             if args.fast and i+1 >= test_freq:
                 break
@@ -353,7 +352,7 @@ def main(args):
         onnx(segment, s3, s3def, args)
 
     print('Finished network2d Test')
-
+    return 0
 
 if __name__ == '__main__':
     import argparse
@@ -391,5 +390,6 @@ if __name__ == '__main__':
         debugpy.wait_for_client()
         print("Debugger attached")
 
-    main(args)
+    result = main(args)
+    sys.exit(result)
 

@@ -7,7 +7,7 @@ import sys
 import json
 import shutil
 import numpy
-#import onnx
+import onnx
 import tensorrt as trt
 
 sys.path.insert(0, os.path.abspath(''))
@@ -38,9 +38,9 @@ def parse_arguments():
 
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
     parser.add_argument('-savedmodelname', type=str, default="segmin", help='Path in S3 model')
-    parser.add_argument('-targetname', type=str, default="segment_nas_512x442_20211125_00", help='Final model wiout extension')
+    parser.add_argument('-targetname', type=str, default="segment_nas_512x442_20211126_00", help='Final model wiout extension')
     parser.add_argument('-workdir', type=str, default="trt", help='Working directory')
-    parser.add_argument('-onnxname', type=str, default="segment_nas_512x442_20211125_00.onnx", help='Onnx file name')
+    parser.add_argument('-onnxname', type=str, default="segment_nas_512x442_20211126_00.onnx", help='Onnx file name')
     parser.add_argument('-workspace_memory', type=int, default=4096, help='trtexec workspace size in megabytes')
     parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.') 
     parser.add_argument('-image_size', type=json.loads, default='[480, 512]', help='Image size') 
@@ -130,7 +130,8 @@ def build_tensorrt_engine(onnx_file_path,
         assert builder.platform_has_fast_int8, 'platform does not support int8 mode!'
         assert int8_calibrator is not None, 'calibrator is not provided!'
 
-    network = builder.create_network(EXPLICIT_BATCH)
+    #network = builder.create_network(EXPLICIT_BATCH)
+    network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
 
     parser = trt.OnnxParser(network, trt_logger)
 
@@ -201,25 +202,36 @@ def main(args):
     objpath = '{}/{}/{}{}.trt'.format(s3def['sets']['model']['prefix'],args.savedmodelname,args.targetname,args.precision)
     infile = '{}/{}'.format(workdir, args.onnxname)
 
-    if not s3.GetFile(s3def['sets']['model']['bucket'], inobj, infile):
-        print('Failed to load {}/{} to {}'.format(s3def['sets']['model']['bucket'], inobj, infile ))
+    #if not s3.GetFile(s3def['sets']['model']['bucket'], inobj, infile):
+    #    print('Failed to load {}/{} to {}'.format(s3def['sets']['model']['bucket'], inobj, infile ))
+    #    return True
+
+    onnx_buffer = s3.GetObject(s3def['sets']['model']['bucket'], inobj)
+    if not onnx_buffer:
+        print('Failed to load {}/{}'.format(s3def['sets']['model']['bucket'], inobj))
         return True
 
-    #onnx_buffer = s3.GetObject(s3def['sets']['model']['bucket'], inobj)
-    #onnx_model = onnx.load_from_string(onnx_buffer)
-    #onnx.checker.check_model(onnx_model)
+    onnx_model = onnx.load_from_string(onnx_buffer)
+    # onnx.checker.check_model(onnx_model)   
+
+    inputs = onnx_model.graph.input
+    for input in inputs:
+        dim1 = input.type.tensor_type.shape.dim[0]
+        dim1.dim_value = args.batch_size
+
+    onnx.save(onnx_model, infile)
 
     engine = build_tensorrt_engine(infile,
         precision_mode=args.precision,
         max_workspace_size=GB(1),  # in bytes
-        max_batch_size=1,
+        max_batch_size=args.batch_size,
         min_timing_iterations=2,
         avg_timing_iterations=2,
         int8_calibrator=None)
 
     s3.PutObject(s3def['sets']['model']['bucket'], objpath, engine.serialize())
 
-    print('onnx-trt complete')
+    print('onnx-trt complete {}/{}'.format(s3def['sets']['model']['bucket'], objpath))
     return 0
 
 

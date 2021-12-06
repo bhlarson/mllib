@@ -1,0 +1,30 @@
+FROM nvcr.io/nvidia/pytorch:21.11-py3
+LABEL maintainer="Brad Larson"
+
+ENV TZ=America/Los_Angeles
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+RUN pip3 install --upgrade pip
+RUN pip3 --no-cache-dir install \
+        minio \
+        tqdm \
+        natsort \
+        debugpy
+
+RUN echo 'alias py=python' >> ~/.bashrc
+
+COPY README.md /app/README.md
+COPY test /app/test/
+COPY utils /app/utils/
+COPY creds.json /app/creds.json
+
+WORKDIR /app
+ENV LANG C.UTF-8
+# diagnostics
+EXPOSE 5000
+# debugger
+EXPOSE 3000
+
+# Launch training
+ENTRYPOINT ["python", "test/workflowtest.py"]
+#RUN ["/bin/bash"]

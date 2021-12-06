@@ -62,21 +62,48 @@ The basics of a embedded ML imaging environment include a development workstatio
 On the development workstation:
 - Setup [Ubuntu desktop](https://ubuntu.com/tutorials/install-ubuntu-desktop#1-overview)
 - Install the current [nvidia drivers](https://linuxize.com/post/how-to-nvidia-drivers-on-ubuntu-20-04/)
+```console
+sudo apt-get update
+sudo apt-get upgrade
+sudo ubuntu-drivers autoinstall
+sudo reboot now
+nvidia-smi
+```
 - Install [docker](https://docs.docker.com/engine/install/ubuntu/)
+```console
+sudo apt-get remove docker docker-engine docker.io containerd runc
+sudo apt-get update
+sudo apt-get install ca-certificates curl gnupg lsb-release
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \
+  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install docker-ce docker-ce-cli containerd.io
+sudo reboot now
+```
 - Install [microk8s kubernetes](https://microk8s.io/docs)
+
+To install the latestest version of microk8s:
 ```console
 sudo snap install microk8s --classic
+```
+To install the 1.22 version of microk8s:
+```console
 sudo snap install microk8s --channel=1.22/stable --classic
+```
+To update to the 1.22 version of microk8s:
+```console
+sudo snap refresh microk8s --channel=1.22/stable
+```
+```console
 sudo usermod -a -G microk8s $USER
 sudo chown -f -R $USER ~/.kube
 su - $USER
 microk8s status --wait-ready
 microk8s enable dns gpu helm3 storage registry rbac ingress metallb:10.64.140.43-10.64.140.143
 sudo snap install kubectl --classic
-cd $HOME
-mkdir .kube
-cd .kube
-microk8s config > config
+microk8s config > $HOME/.kube/config
 ```
 - Install [Visual Studio Code](https://code.visualstudio.com/)
 - In Visual Studio Code, install Python Remote Development, Jupyter, Json, and Getlens extensions

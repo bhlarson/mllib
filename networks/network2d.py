@@ -4,6 +4,7 @@ import sys
 import copy
 import io
 import json
+import platform
 import numpy as np
 import torch
 import torch.nn as nn
@@ -466,8 +467,8 @@ def parse_arguments():
     parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20211124_00')
-    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20211125_00')
+    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20211125_00')
+    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20211126_00')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
@@ -561,6 +562,14 @@ def Test(args):
 
     import os
     import torch.optim as optim
+
+    system = {
+        'platform':platform.platform(),
+        'python':platform.python_version(),
+        'numpy version': sys.modules['numpy'].__version__,
+    }
+
+    print('system={}'.format(system))
 
     torch.autograd.set_detect_anomaly(True)
 
@@ -770,6 +779,7 @@ def Test(args):
         test_summary['object store'] =s3def
         test_summary['results'] = dsResults.Results()
         test_summary['config'] = args.__dict__
+        test_summary['system'] = system
 
         # If there is a way to lock this object between read and write, it would prevent the possability of loosing data
         test_path = '{}/{}/{}'.format(s3def['sets']['test']['prefix'], args.model_type, args.test_results)
@@ -786,6 +796,7 @@ def Test(args):
         onnx(segment, s3, s3def, args)
 
     print('Finished network2d Test')
+    return 0
 
 
 if __name__ == '__main__':

@@ -74,7 +74,13 @@ def Test(args):
                 }
                 ],
                 "entrypoint": "whalesay",
-                "arguments": {}
+                "arguments": {},
+                "ttlStrategy":{
+                    "secondsAfterCompletion": 300
+                },
+                "podGC":{
+                    "strategy": "OnPodCompletion"
+                }
             }
         }
     }
@@ -99,6 +105,7 @@ if __name__ == '__main__':
     if args.debug:
         import debugpy
         debugpy.listen(address=(args.debug_listen, args.debug_port))
+        print("Waiting for debugger at :{}".format(args.debug_port))
         debugpy.wait_for_client()  # Pause until remote debugger is attached
         print("Debugger attached")
 

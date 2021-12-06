@@ -3,8 +3,8 @@ docker run --gpus=0 -it --rm \
     -v "/store:/store" \
     -v /etc/localtime:/etc/localtime:ro \
     -p 8000:8000 -p 8001:8001 -p 8002:8002 -p 3000:3000 \
-    -e AWS_ACCESS_KEY_ID=admin \
-    -e AWS_SECRET_ACCESS_KEY=mlstoreadmin \
+    -e AWS_ACCESS_KEY_ID=accesskey \
+    -e AWS_SECRET_ACCESS_KEY=secretkey \
     -e AWS_DEFAULT_REGION=us-west-2 \
     triton:latest \
     #tritonserver --model-repository=s3://ipc.larson.myds.me:31994/model

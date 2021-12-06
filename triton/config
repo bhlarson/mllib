@@ -1,4 +1,4 @@
 [default]
-aws_access_key_id = admin
-aws_secret_access_key = mlstoreadmin
+aws_access_key_id = accesskey
+aws_secret_access_key = secretkey
 region = us-east-1

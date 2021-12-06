@@ -14,6 +14,65 @@ sys.path.insert(0, os.path.abspath(''))
 from utils.s3 import s3store, Connect
 from utils.jsonutil import ReadDictJson
 
+def resize_crop_or_pad(img, target_height, target_width, 
+    normalize=True, borderType=cv2.BORDER_CONSTANT, borderValue=0, 
+    astype='float32'):
+
+    imgMean = None
+    imgStd = None
+    imgtype = img.dtype.name
+    if normalize:
+        imgMean = np.mean(img)
+        imgStd = np.std(img)
+        img = (img - imgMean)/imgStd
+    
+    if astype is not None:
+        img = img.astype(astype)
+    elif img.dtype.name is not  imgtype:
+        img = img.astype(imgtype)
+
+    height = img.shape[0]
+    width = img.shape[1]
+    
+    # Pad
+    pad = False
+    top=0
+    bottom=0
+    left=0
+    right=0
+    if target_height > height:
+        bottom = int((target_height-height)/2)
+        top = target_height-height-bottom
+        pad = True
+    if target_width > width:
+        right = int((target_width-width)/2)
+        left = target_width-width-right
+        pad = True
+
+    if pad:
+        img = cv2.copyMakeBorder(img, top, bottom, left, right, borderType, None, borderValue)
+
+    # Crop
+    height = img.shape[0]
+    width = img.shape[1]
+    maxX = width - target_width
+    maxY = height - target_height
+
+    crop = False
+    startX = 0
+    startY = 0
+    if maxX > 0:
+        startX = int(maxX/2)
+        crop = True
+    if  maxY > 0:
+        startY = int(maxY/2)
+        crop = True
+    if crop:
+
+        img = img[startY:startY+target_height, startX:startX+target_width]
+
+    return img, imgMean, imgStd
+
 class CocoStore:
 
     def __init__(self, s3, bucket, dataset_desc, image_paths, class_dictionary, imflags=cv2.IMREAD_COLOR, name_decoration='' ):

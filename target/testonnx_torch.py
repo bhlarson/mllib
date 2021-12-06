@@ -52,7 +52,16 @@ def parse_arguments():
     return args
 
 def main(args):
-    print('Start test')
+
+    system = {
+        'platform':platform.platform(),
+        'python':platform.python_version(),
+        'onnx version': sys.modules['onnx'].__version__,
+        'tensorrt version': sys.modules['tensorrt'].__version__,
+        'numpy version': sys.modules['numpy'].__version__,
+    }
+
+    print('system={}'.format(system))
 
     s3, creds, s3def = Connect(args.credentails)
     class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.class_dict)
@@ -106,7 +115,11 @@ def main(args):
             images = images.cpu().permute(0, 2, 3, 1).numpy()
             labels = np.around(labels.cpu().numpy()).astype('uint8')
 
-            dsResults.infer_results(i, images, labels, segmentations, mean.numpy(), stdev.numpy(), dt)
+            totalConfusion = dsResults.infer_results(i, images, labels, segmentations, mean.numpy(), stdev.numpy(), dt)
+
+            iPrint = 100
+            if i % iPrint == iPrint-1:    # print every iPrint iterations
+                tqdm.write('Total confusion:\n {}'.format(totalConfusion))
 
             if args.fast and i+1 >= args.fast_steps:
                 break
@@ -118,6 +131,7 @@ def main(args):
     test_summary['object store'] =s3def
     test_summary['results'] = dsResults.Results()
     test_summary['config'] = args.__dict__
+    test_summary['system'] = system
 
     # If there is a way to lock this object between read and write, it would prevent the possability of loosing data
     test_path = '{}/{}/{}'.format(s3def['sets']['test']['prefix'], args.model_type, args.test_results)

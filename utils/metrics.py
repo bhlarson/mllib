@@ -127,7 +127,7 @@ def MergeImAnSeg(img, ann, seg, lut, mean=None, stdev=None, ann_text='Label', se
 class DatasetResults:
     # imgSave: save image to path defined in imgSave
     # imRecord: recorde image in results
-    def __init__(self, class_dictionary, batch_size, imStatistics=False, imgSave=None, imRecord=False, task='segmentation'):
+    def __init__(self, class_dictionary, batch_size=1, imStatistics=False, imgSave=None, imRecord=False, task='segmentation'):
         # Prepare datasets for similarity computation
         self.class_dictionary = class_dictionary
         self.batch_size = batch_size
@@ -197,7 +197,7 @@ class DatasetResults:
 
             self.images.append(result)
 
-        return True
+        return self.totalConfusion
 
     def Results(self):
 

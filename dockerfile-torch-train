@@ -1,19 +1,12 @@
-
-FROM pytorch/pytorch:1.9.0-cuda11.1-cudnn8-runtime
-#FROM nvcr.io/nvidia/pytorch:20.12-py3
+FROM nvcr.io/nvidia/pytorch:21.11-py3
 LABEL maintainer="Brad Larson"
 
 ENV TZ=America/Los_Angeles
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
-#RUN apt-get update -y && apt-get upgrade -y && apt-get autoremove -y && \
-#RUN apt-get update -y && \
-#    apt-get install -y libgl1-mesa-glx && \
-RUN  apt-get update -y && apt-get install --no-install-recommends build-essential libopencv-dev wget less udev sudo -y
-#RUN  apt-get update -y
-#RUN  apt-get install --no-install-recommends wget -y
-#RUN  apt-get install --no-install-recommends less -y
-#RUN  apt-get install --no-install-recommends udev -y
-#RUN  apt-get install --no-install-recommends sudo -y
+
+RUN apt-get update -y && apt-get upgrade -y && apt-get autoremove -y && \
+    apt-get install -y libgl1-mesa-glx && \
+    apt-get install -y wget
 
 RUN pip3 install --upgrade pip
 RUN pip3 --no-cache-dir install \
@@ -30,11 +23,17 @@ RUN pip3 --no-cache-dir install \
         tensorboardX \
         scipy \
         scikit-image \
+        apex \
         wget \
+        configparser \
+        pycocotools==2.0.2 \
         prettytable \
-        sklearn
+        onnx \
+        onnxruntime-gpu \
+        pycuda \
+        sklearn \
+        PyYAML
 
-RUN pip3 --no-cache-dir install pycocotools==2.0.2
 
 RUN echo 'alias py=python' >> ~/.bashrc
 

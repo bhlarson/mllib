@@ -1,21 +1,23 @@
 release: latest
 server: 192.168.0.155
+app: mllib
 
 objectstore:
-  name: minio
-  nodePort: 30992
+  name: mlstore
+  apinodePort: 30990
+  consolenodePort: 30991
   size: 900Gi
-  image: quay.io/minio/minio:latest
+  image: quay.io/minio/minio:RELEASE.2021-11-24T23-19-33Z
   credentials:
     name: minio-creds
-    access_key: my-access-key
-    secret_key: my-secret-key
+    access_key: admin
+    secret_key: storeadmin
   hostPath:
     path: /nvmestore/mlstore
 
 workflow_server:
-  name: argo-server
-  nodePort: 30996
+  name: workflow-server
+  nodePort: 30992
   image_workflow: quay.io/argoproj/workflow-controller:latest
   image_cli: quay.io/argoproj/argocli:latest
   image_exe: quay.io/argoproj/argoexec:latest

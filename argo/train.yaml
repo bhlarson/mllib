@@ -1,12 +1,11 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
-  name: train  # Name of this Workflow
+  name: train
 spec:
-  entrypoint: train        # Defines "whalesay" as the "main" template
+  entrypoint: train
   templates:
-  - name: train            # Defining the "whalesay" template
+  - name: train
     container:
-      image: localhost:32000/whalesay
-      command: [cowsay]
-      args: ["hello world"]   # This template runs "cowsay" in the "whalesay" image with arguments "hello world"
+      image: localhost:32000/fcntrain:latest
+      args: []

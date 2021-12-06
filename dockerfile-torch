@@ -1,7 +1,8 @@
-FROM nvcr.io/nvidia/pytorch:21.10-py3
+FROM nvcr.io/nvidia/pytorch:21.11-py3
 LABEL maintainer="Brad Larson"
 
-RUN echo 'alias py=python' >> ~/.bashrc
+ENV TZ=America/Los_Angeles
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # RUN apt-get install -y libsm6 libxext6 ffmpeg # required by opencv-python==4.4.0.42
 RUN apt-get update -y && apt-get upgrade -y && apt-get autoremove -y && \
@@ -20,10 +21,10 @@ RUN zedpackage=ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run && \
 
 RUN pip3 install --upgrade pip
 RUN pip3 --no-cache-dir install \
-        opencv-python==4.5.1.48 \
-        minio==7.0.2 \
-        tqdm==4.56.0 \
-        natsort==7.0.1 \
+        opencv-python \
+        minio \
+        tqdm \
+        natsort \
         debugpy \
         path \
         matplotlib\
@@ -36,17 +37,13 @@ RUN pip3 --no-cache-dir install \
         apex \
         wget \
         configparser \
-        pycocotools==2.0.1 \
+        pycocotools==2.0.2 \
         prettytable \
         onnx \
         onnxruntime-gpu \
         pycuda \
-        sklearn
-
-# Tutorial dependencies
-RUN pip3 --no-cache-dir install \
-        cython \
-        pycocotools
+        scikit-learn \
+        PyYAML
 
 # ZED Python API https://stackoverflow.com/a/63457606/7036639
 RUN wget download.stereolabs.com/zedsdk/pyzed -O /usr/local/zed/get_python_api.py && \
@@ -55,11 +52,8 @@ RUN wget download.stereolabs.com/zedsdk/pyzed -O /usr/local/zed/get_python_api.p
 
 RUN echo 'alias py=python' >> ~/.bashrc
 
-#COPY segment /app/segment/
-#COPY utils /app/utils/
-
-RUN git clone https://github.com/NVIDIA/apex
-RUN pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./apex
+#RUN git clone https://github.com/NVIDIA/apex
+#RUN pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./apex
 # RUN pip install -v --disable-pip-version-check --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./
 
 WORKDIR /app
@@ -70,5 +64,4 @@ EXPOSE 6006
 EXPOSE 3000
 
 # Launch training
-#ENTRYPOINT ["python", "segment/train.py"]
 RUN ["/bin/bash"]

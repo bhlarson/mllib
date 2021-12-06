@@ -4,8 +4,9 @@
     "collect":[],
     "whl":[],
     "dockerbuild":[
-        {"name":"dockerfile-torch-train", "dockerfile":"dockerfile-torch-train", "context":"."},
-        {"name":"dockerfile-py", "dockerfile":"dockerfile-py", "context":"."},
-        {"name":"dockerfile-triton", "dockerfile":"dockerfile-triton", "context":"."}
+        {"name":"torch", "dockerfile":"dockerfile-torch", "context":"."},
+        {"name":"torch-train", "dockerfile":"dockerfile-torch-train", "context":"."},
+        {"name":"workflowtest-py", "dockerfile":"dockerfile-py", "context":"."},
+        {"name":"triton", "dockerfile":"dockerfile-triton", "context":"."}
     ]
 }

@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 import math
 import os
 import sys
@@ -463,12 +464,12 @@ def parse_arguments():
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=1, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20211125_00')
-    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20211126_00')
+    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20211126_00')
+    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20211207_00')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
@@ -483,11 +484,11 @@ def parse_arguments():
     parser.add_argument('-target_structure', type=float, default=0.01, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=False)
 
-    parser.add_argument('-prune', type=bool, default=True)
-    parser.add_argument('-train', type=bool, default=True)
+    parser.add_argument('-prune', type=bool, default=False)
+    parser.add_argument('-train', type=bool, default=False)
     parser.add_argument('-infer', type=bool, default=True)
-    parser.add_argument('-search_structure', type=bool, default=True)
-    parser.add_argument('-onnx', type=bool, default=True)
+    parser.add_argument('-search_structure', type=bool, default=False)
+    parser.add_argument('-onnx', type=bool, default=False)
 
     parser.add_argument('-test_dir', type=str, default=None)
     parser.add_argument('-tensorboard_dir', type=str, default='/store/test/nassegtb', 

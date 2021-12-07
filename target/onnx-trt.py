@@ -5,6 +5,7 @@ import argparse
 import os
 import sys
 import platform
+import tempfile
 import json
 import numpy
 import onnx
@@ -42,7 +43,7 @@ def parse_arguments():
     parser.add_argument('-workspace_memory', type=int, default=8000, help='trtexec workspace size in megabytes')
     parser.add_argument('-batch_size', type=int, default=1, help='Number of examples per batch.') 
     parser.add_argument('-image_size', type=json.loads, default='[480, 512]', help='Image size') 
-    parser.add_argument('-precision',  type=str, default='fp32', choices=['int8', 'fp16', 'fp32'], help='Output model precision.')
+    parser.add_argument('-precision',  type=str, default='fp16', choices=['int8', 'fp16', 'fp32'], help='Output model precision.')
 
     args = parser.parse_args()
     return args
@@ -234,17 +235,18 @@ def main(args):
         dim1 = input.type.tensor_type.shape.dim[0]
         dim1.dim_value = args.batch_size
 
-    onnx.save(onnx_model, infile)
+    with tempfile.NamedTemporaryFile(suffix='.onnx') as tmp:
+        onnx.save(onnx_model, tmp.name)
 
-    engine = build_tensorrt_engine(infile,
-        precision_mode=args.precision,
-        max_workspace_size=GB(1),  # in bytes
-        max_batch_size=args.batch_size,
-        min_timing_iterations=2,
-        avg_timing_iterations=2,
-        int8_calibrator=None)
+        engine = build_tensorrt_engine(tmp.name,
+            precision_mode=args.precision,
+            max_workspace_size=MB(args.workspace_memory),  # in bytes
+            max_batch_size=args.batch_size,
+            min_timing_iterations=2,
+            avg_timing_iterations=2,
+            int8_calibrator=None)
 
-    s3.PutObject(s3def['sets']['model']['bucket'], objpath, engine.serialize())
+        s3.PutObject(s3def['sets']['model']['bucket'], objpath, engine.serialize())
 
     print('onnx-trt complete {}/{}'.format(s3def['sets']['model']['bucket'], objpath))
     return 0

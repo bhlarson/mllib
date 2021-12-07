@@ -31,7 +31,7 @@ def parse_arguments():
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model', type=str,  default='segment_nas_512x442_20211125_00.onnx', help=' Model to test')
+    parser.add_argument('-model', type=str,  default='segment_nas_512x442_20211126_00.onnx', help=' Model to test')
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
     parser.add_argument('-width', type=int, default=512, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')
@@ -56,8 +56,7 @@ def main(args):
     system = {
         'platform':platform.platform(),
         'python':platform.python_version(),
-        'onnx version': sys.modules['onnx'].__version__,
-        'tensorrt version': sys.modules['tensorrt'].__version__,
+        'onnxruntime version': sys.modules['onnxruntime'].__version__,
         'numpy version': sys.modules['numpy'].__version__,
     }
 

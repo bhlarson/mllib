@@ -11,7 +11,7 @@ class TrtInference:
         self.runtime = trt.Runtime(trt.Logger(trt.Logger.WARNING)) 
         self.engine = self.runtime.deserialize_cuda_engine(serialized_engine)
         self.context = self.engine.create_execution_context()
-        self.output = np.empty([batch_size, height, width, len(class_dictionary)], dtype = np.dtype(intype)) # Need to set output dtype to FP16 to enable FP16
+        self.output = np.empty([batch_size, len(class_dictionary), height, width], dtype = np.dtype(intype)) # Need to set output dtype to FP16 to enable FP16
 
         self.d_input = cuda.mem_alloc(self.dummy_input_batch.nbytes)
         self.d_output = cuda.mem_alloc(self.output.nbytes)
@@ -33,6 +33,6 @@ class TrtInference:
         # Syncronize threads
         self.stream.synchronize()
 
-        segmentations = np.argmax(self.output, axis=-1).astype(self.outtype)
+        segmentations = np.argmax(self.output, axis=1).astype(self.outtype)
         
         return segmentations

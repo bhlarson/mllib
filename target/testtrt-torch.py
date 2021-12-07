@@ -33,7 +33,7 @@ def parse_arguments():
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model', type=str,  default='segment_nas_512x442_20211126_00fp32.trt', help=' Model to test')
+    parser.add_argument('-model', type=str,  default='segment_nas_512x442_20211126_00fp16.trt', help=' Model to test')
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
     parser.add_argument('-width', type=int, default=512, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')
@@ -139,8 +139,6 @@ def main(args):
 
             initial = datetime.now()
             segmentations = inf.predict(images.cpu().numpy().astype(np.float32))
-            #predtrt = predict(images.cpu().numpy().astype(np.float32))
-            #segmentations = np.argmax(predtrt, axis=-1).astype('uint8')
             dt = (datetime.now()-initial).total_seconds()
             imageTime = dt/args.batch_size
 

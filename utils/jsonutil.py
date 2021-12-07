@@ -1,5 +1,6 @@
-import json
 import os
+import json
+import yaml
 
 def WriteDictJson(outdict, path):
 
@@ -28,3 +29,24 @@ def Dict2Json(dict):
 def Json2Dict(json):
     jsondict = json.load(json_file)
     return jsondict
+
+
+def ReadDictYaml(filepath):
+    yamldict = {}
+    try:
+        with open(filepath) as yaml_file:
+            yamldict = yaml.safe_load(yaml_file)
+        if not yamldict:
+            print('Failed to load {}'.format(filepath))
+    except:
+        print('Failed to load {}'.format(filepath))
+    return yamldict
+
+def ReadDict(filepath):
+    ext = os.path.splitext(filepath)
+    if ext=='yaml':
+        readDict = ReadDictYaml(filepath)
+    elif ext=='json':
+        workflow = ReadDictJson(filepath)
+
+    return readDict

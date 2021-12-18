@@ -23,6 +23,7 @@ RUN pip3 --no-cache-dir install \
         tensorboardX \
         scipy \
         scikit-image \
+        scikit-learn \
         apex \
         wget \
         configparser \
@@ -31,8 +32,9 @@ RUN pip3 --no-cache-dir install \
         onnx \
         onnxruntime-gpu \
         pycuda \
-        sklearn \
-        PyYAML
+        PyYAML \
+        jsonpickle
+
 
 
 RUN echo 'alias py=python' >> ~/.bashrc

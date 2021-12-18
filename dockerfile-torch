@@ -34,6 +34,7 @@ RUN pip3 --no-cache-dir install \
         tensorboardX \
         scipy \
         scikit-image \
+        scikit-learn \
         apex \
         wget \
         configparser \
@@ -42,8 +43,8 @@ RUN pip3 --no-cache-dir install \
         onnx \
         onnxruntime-gpu \
         pycuda \
-        scikit-learn \
-        PyYAML
+        PyYAML \
+        jsonpickle
 
 # ZED Python API https://stackoverflow.com/a/63457606/7036639
 RUN wget download.stereolabs.com/zedsdk/pyzed -O /usr/local/zed/get_python_api.py && \

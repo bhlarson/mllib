@@ -18,15 +18,15 @@ def ReadDictJson(filepath):
             jsondict = json.load(json_file)
         if not jsondict:
             print('Failed to load {}'.format(filepath))
-    except:
-        print('Failed to load {}'.format(filepath))
+    except ValueError:
+        print('Failed to load {} error {}'.format(filepath, ValueError))
     return jsondict
 
-def Dict2Json(dict):
+def Dict2Json(outdict):
     jsonStr = json.dumps(outdict, sort_keys=False, indent=4)      
     return jsonStr
 
-def Json2Dict(json):
+def Json2Dict(json_file):
     jsondict = json.load(json_file)
     return jsondict
 
@@ -38,15 +38,16 @@ def ReadDictYaml(filepath):
             yamldict = yaml.safe_load(yaml_file)
         if not yamldict:
             print('Failed to load {}'.format(filepath))
-    except:
-        print('Failed to load {}'.format(filepath))
+    except ValueError:
+        print('Failed to load {} error {}'.format(filepath, ValueError))
     return yamldict
 
 def ReadDict(filepath):
     ext = os.path.splitext(filepath)
-    if ext=='yaml':
+    readDict = None
+    if ext=='.yaml':
         readDict = ReadDictYaml(filepath)
-    elif ext=='json':
-        workflow = ReadDictJson(filepath)
+    elif ext=='.json':
+        readDict = ReadDictJson(filepath)
 
     return readDict

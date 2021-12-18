@@ -17,7 +17,7 @@ def remove_prefix(text, prefix):
 
 class s3store:
 
-    def __init__(self, address, access_key, secret_key, tls = True, cert_verify=True, cert_path = None):
+    def __init__(self, address, access_key, secret_key, tls = True, cert_verify=True, cert_path = None, timeout=5.0):
         self.addresss = address
         self.tls = tls
         urllib3.disable_warnings()
@@ -26,9 +26,9 @@ class s3store:
                 cert_location = cert_path
             else:
                 cert_location = certifi.where()
-            http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', ca_certs=cert_location)
+            http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', ca_certs=cert_location, timeout=timeout)
         else:
-            http = urllib3.PoolManager(cert_reqs='CERT_NONE')
+            http = urllib3.PoolManager(cert_reqs='CERT_NONE', timeout=timeout)
 
         self.s3 = Minio(address,
              access_key=access_key,
@@ -40,7 +40,7 @@ class s3store:
 
         url = self.s3.presigned_get_object(bucket, path, expires=expires)
         return url
-        
+
     def ListBuckets(self):
         return self.s3.list_buckets()
 
@@ -59,6 +59,7 @@ class s3store:
             results = self.s3.fput_object(bucket, filename, file)
         except Exception as err:
             print(err)
+            success = False
 
         return success
 
@@ -73,9 +74,10 @@ class s3store:
             for file in tqdm(files, total=len(files)):
                 # Create object directory structure
                 object_name = setname+ remove_prefix(str(file), str(Path(path)))
-                self.s3.fput_object(bucket, object_name, file)
+                self.s3.fput_object(bucket, object_name.lstrip('/'), str(file))
         except Exception as err:
             print(err)
+            success = False
 
         return success
 
@@ -179,8 +181,6 @@ class s3store:
                 print('error reading {}/{}'.format(bucket, obj))
         return objects
 
-
-
     def GetObject(self, bucket, object_name):
         success = True
         response = None
@@ -262,7 +262,7 @@ class s3store:
                 success = False
         return success
 
-    def ListModels(self, bucket='savedmodel', model_type='lit' ):
+    def ListModels(self, bucket='', model_type='' ):
         models = []
         sized_models = {}
         try:
@@ -280,13 +280,11 @@ class s3store:
                     basemodel = obj.object_name.replace(splitname[fields-2]+'-','')
                     resolution = splitname[fields-2].split('x')
                     resolution = [int(resolution[0]),int(resolution[1])]
-                    mpp = 1e-10*float(splitname[fields-1].replace('/',''))
                     if(basemodel not in sized_models):
                         sized_models[basemodel] = []
 
                     model = {'name':obj.object_name,
-                             'resolution':resolution,
-                             'mpp':mpp,
+                             'resolution':resolution
                     }
                     sized_models[basemodel].append(model)
 
@@ -417,7 +415,7 @@ def Connect(credentials_filename='creds.json', s3_name='store'):
 
     creds = ReadDictJson(credentials_filename)
     if not creds:
-        print('Failed to load credentials file {}. Exiting'.format(args.credentails))
+        print('Failed to load credentials file {}. Exiting'.format(credentials_filename))
         return False
 
     s3_creds = next(filter(lambda d: d.get('name') == s3_name, creds['s3']), None)
@@ -435,11 +433,9 @@ def Connect(credentials_filename='creds.json', s3_name='store'):
         s3 = None
         print('Failed connect to {}'.format(s3_creds['address']))
 
-    s3safe = s3_creds
-    del s3safe['access key']
-    del s3safe['secret key']
-    del s3safe['tls']
-    del s3safe['cert verify']
-    del s3safe['cert path']
+    del s3_creds['access key']
+    del s3_creds['secret key']
+    del s3_creds['cert verify']
+    del s3_creds['cert path']
     
-    return s3, creds, s3safe
+    return s3, creds, s3_creds

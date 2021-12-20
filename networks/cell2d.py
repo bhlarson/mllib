@@ -5,6 +5,7 @@ import math
 import io
 import json
 import platform
+from enum import Enum
 from copy import deepcopy
 import torch
 import torch.nn as nn
@@ -172,19 +173,6 @@ class ConvBR(nn.Module):
         return conv_mask
 
 
-
-# Inner neural architecture cell search with convolution steps batch norm parameters
-# Process:
-# 1) Concatenate inputs
-# 2) Repeat ConvBR "steps" times
-# 3) 1x1 convolution to return to in1 number of channels
-# 4) Sum with in1 (residual bypass)
-# in1 and in2: [Batch, channel, height width]
-# in_channels = in1 channels + in2 channels
-# out_channels = 
-# steps: integer 1..n
-# batchNorm: true/false
-
 DefaultMaxDepth = 3
 class Cell(nn.Module):
     def __init__(self,
@@ -208,6 +196,7 @@ class Cell(nn.Module):
                  depth=DefaultMaxDepth,
                  weight_gain = 11.0,
                  convMaskThreshold=0.5,
+                 convolutions=[{'out_channels':64, 'kernel_size': 3, 'stride': 1, 'dilation': 1}],
                  definition=None,
                  ):
                 
@@ -250,44 +239,47 @@ class Cell(nn.Module):
         if definition is not None and 'conv_size' in definition:
             convdfn = definition['conv_size']
 
-        self.conv_size = ConvBR(self.in1_channels+self.in2_channels, self.out_channels, 
-            batch_norm=batch_norm, 
-            relu=relu, 
-            kernel_size=kernel_size, 
-            stride=stride, 
-            dilation=dilation, 
-            groups=groups, 
-            bias=bias, 
-            padding_mode=padding_mode,
-            weight_gain=self.weight_gain,
-            convMaskThreshold=convMaskThreshold, 
-            definition=convdfn)
+        in_channels = self.in1_channels+self.in2_channels
 
-        for i in range(self.steps):
+        totalStride = 1
+        totalDilation = 1
+
+        for convdev in convolutions:
             convdfn = None
             if definition is not None and 'cnn' in definition and i < len(definition['cnn']):
                 convdfn = definition['cnn'][i]
 
-            conv = ConvBR(self.out_channels, self.out_channels, 
-                batch_norm=batch_norm, 
-                relu=relu, 
-                kernel_size=kernel_size, 
-                stride=stride, 
-                dilation=dilation, 
-                groups=groups, 
-                bias=bias, 
-                padding_mode=padding_mode,
-                weight_gain=weight_gain,
-                convMaskThreshold=convMaskThreshold, 
+            conv = ConvBR(in_channels, convdev['out_channels'], 
+                batch_norm=self.batch_norm, 
+                relu=self.relu, 
+                kernel_size=convdev['kernel_size'], 
+                stride=convdev['stride'], 
+                dilation=convdev['dilation'],
+                groups=self.groups, 
+                bias=self.bias, 
+                padding_mode=self.padding_mode,
+                weight_gain=self.weight_gain,
+                convMaskThreshold=self.convMaskThreshold, 
                 definition=convdfn)
             self.cnn.append(conv)
 
-        convdfn = None
-        if definition is not None and 'conv1x1' in definition:
-            convdfn = definition['conv1x1']
+            in_channels = convdev.out_channels
+            totalStride *= convdev['stride']
+            totalDilation *= convdev['dilation']
+ 
 
-        # 1x1 convolution to out_channels
-        self.conv1x1 = ConvBR(self.out_channels, self.out_channels, batch_norm=False, relu=True, kernel_size=1, definition=convdfn)
+        self.conv_residual = ConvBR(in_channels, self.convolutions[-1]['out_channels'], 
+            batch_norm=self.batch_norm, 
+            relu=self.relu, 
+            kernel_size=1, 
+            stride=totalStride, 
+            dilation=totalDilation, 
+            groups=self.groups, 
+            bias=self.bias, 
+            padding_mode=self.padding_mode,
+            weight_gain=self.weight_gain,
+            convMaskThreshold=self.convMaskThreshold, 
+            definition=convdfn)
 
         self._initialize_weights()
         self.total_trainable_weights = model_weights(self)
@@ -395,11 +387,12 @@ class Cell(nn.Module):
             x = in1
 
         # Resizing convolution
+        residual = self.conv_residual(x)
         x = self.conv_size(x)
-        residual = x
         # Learnable number of convolution layers
         # Continuous relaxation of number of layers through a basis function providing continuous search space
-        if self.search_structure:
+        #if self.search_structure:
+        if False:
             y = torch.zeros_like(x)
             for i, l in enumerate(self.cnn):
                 x = self.cnn[i](x)
@@ -439,7 +432,8 @@ class Cell(nn.Module):
         max_index = cell_weights.index(max_value)
 
         for i, l in enumerate(self.cnn): 
-            if i < max_index :
+            #if i < max_index :
+            if True:
                 architecture_weights += layer_weights[i]
             else:
                 architecture_weights += cell_weights[i]*layer_weights[i]
@@ -448,6 +442,70 @@ class Cell(nn.Module):
         architecture_weights += layer_weight
 
         return architecture_weights, self.total_trainable_weights
+
+# Inner neural architecture cell search with convolution steps batch norm parameters
+# Process:
+# 1) Concatenate inputs
+# 2) Repeat ConvBR "steps" times
+# 3) 1x1 convolution to return to in1 number of channels
+# 4) Sum with in1 (residual bypass)
+# in1 and in2: [Batch, channel, height width]
+# in_channels = in1 channels + in2 channels
+# out_channels = 
+# steps: integer 1..n
+# batchNorm: true/false
+
+# Resenet definitions from https://www.cv-foundation.org/openaccess/content_cvpr_2016/papers/He_Deep_Residual_Learning_CVPR_2016_paper.pdf
+class Resnet(Enum):
+    layers_18 = 18
+    layers_34 = 34
+    layers_50 = 50
+    layers_101 = 101
+    layers_152 = 152
+
+def ResnetCells(size = Resnet.layers_50):
+    resnetCells = []
+    network_channels = [64, 128, 256, 512]
+    
+    sizes = {
+        'layers_18': [2, 2, 2, 2], 
+        'layers_34': [3, 4, 6, 3], 
+        'layers_50': [3, 4, 6, 3], 
+        'layers_101': [3, 4, 23, 3], 
+        'layers_152': [3, 8, 36, 3]
+        }
+    bottlenecks = {
+        'layers_18': False, 
+        'layers_34': False, 
+        'layers_50': True, 
+        'layers_101': True, 
+        'layers_152': True
+        }
+
+    resnet_cells = []
+    block_sizes = sizes[size.name]
+    bottleneck = bottlenecks[size.name]
+    for i, layer_size in enumerate(block_sizes):
+        block_channels = network_channels[i]
+        cell = []
+        for j in range(layer_size):
+            stride = 1
+            # Downsample by setting stride to 2 on the first layer of each block
+            if i != 0 and j == 0:
+                stride = 2
+
+            if bottleneck:
+                cell.append({'out_channels':network_channels[i], 'kernel_size': 1, 'stride': stride, 'dilation': 1})
+                cell.append({'out_channels':network_channels[i], 'kernel_size': 3, 'stride': 1, 'dilation': 1})
+                cell.append({'out_channels':4*network_channels[i], 'kernel_size': 1, 'stride': 1, 'dilation': 1})
+            else:
+                cell.append({'out_channels':network_channels[i], 'kernel_size': 3, 'stride': stride, 'dilation': 1})
+                cell.append({'out_channels':network_channels[i], 'kernel_size': 3, 'stride': 1, 'dilation': 1})
+
+        resnetCells.append(cell)
+        
+    return resnetCells
+
 
 class Classify(nn.Module):
     def __init__(self, is_cuda=False, source_channels = 3, out_channels = 10, initial_channels=16, weight_gain=11, definition=None):
@@ -481,11 +539,9 @@ class Classify(nn.Module):
             if len(definition['cells']) > 2:
                 convdfn = definition['cells'][2] 
         self.cells.append(Cell(out_channels=64, in1_channels=32, is_cuda=self.is_cuda,  weight_gain = self.weight_gain, definition=convdfn))
-
-        self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(64 * 4 * 4, 256)
-        self.fc2 = nn.Linear(256, 64)
-        self.fc3 = nn.Linear(64, self.out_channels)
+        self.maxpool = nn.MaxPool2d(2, 2)
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(64 * 4 * 4, self.out_channels)
 
         self.total_trainable_weights = model_weights(self)
 
@@ -529,12 +585,10 @@ class Classify(nn.Module):
 
     def forward(self, x):
         for cell in self.cells:
-            x = self.pool(cell(x))
-
+            x = cell(x)
+        x = self.pool(x)
         x = torch.flatten(x, 1) # flatten all dimensions except batch
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
+        x = self.fc(x)
         return x
 
     def Cells(self):
@@ -563,19 +617,20 @@ def parse_arguments():
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
     parser.add_argument('-model', type=str, default='model')
 
-    parser.add_argument('-batch_size', type=int, default=512, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=50, help='Training epochs')
+    parser.add_argument('-learning_rate', type=float, default=0.002, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=4000, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
-    parser.add_argument('-model_src', type=str,  default='class_nas_bn_20211217_00')
-    parser.add_argument('-model_dest', type=str, default='class_nas_bn_20211217_01')
+    parser.add_argument('-model_src', type=str,  default=None)
+    parser.add_argument('-model_dest', type=str, default='class_nas_bn_20211218_00')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-k_structure', type=float, default=1.0e-1, help='Structure minimization weighting fator')
     parser.add_argument('-target_structure', type=float, default=0.1, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=True)
     parser.add_argument('-weight_gain', type=float, default=5.0, help='Convolution norm tanh weight gain')
 
-    parser.add_argument('-prune', type=bool, default=False)
+    parser.add_argument('-prune', type=bool, default=True)
     parser.add_argument('-train', type=bool, default=True)
     parser.add_argument('-infer', type=bool, default=True)
     parser.add_argument('-search_structure', type=bool, default=True)
@@ -603,15 +658,15 @@ def Test(args):
     import torchvision
     import torchvision.transforms as transforms
 
-    print('Cell Test')
-
     system = {
         'platform':platform.platform(),
         'python':platform.python_version(),
         'numpy version': sys.modules['numpy'].__version__,
     }
 
-    print('system={}'.format(system))
+    print('Cell Test system={}'.format(system))
+
+    resnetCells = ResnetCells(Resnet.layers_152)
 
     torch.autograd.set_detect_anomaly(True)
 
@@ -679,7 +734,7 @@ def Test(args):
     target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32)
     criterion = TotalLoss(args.cuda, k_structure=args.k_structure, target_structure=target_structure, search_structure=args.search_structure)
    #optimizer = optim.SGD(classify.parameters(), lr=0.001, momentum=0.9)
-    optimizer = optim.Adam(classify.parameters(), lr=0.001)
+    optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate)
         # Train
     if args.train:
         for epoch in tqdm(range(args.epochs), desc="Train epochs"):  # loop over the dataset multiple times

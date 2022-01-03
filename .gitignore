@@ -1,4 +1,5 @@
 creds.json
+private.key
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

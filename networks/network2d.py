@@ -18,7 +18,6 @@ from typing import Callable, Optional
 import cv2
 from tqdm import tqdm
 from datetime import datetime
-from sklearn.metrics import confusion_matrix
 
 sys.path.insert(0, os.path.abspath(''))
 from networks.cell2d import Cell, NormGausBasis

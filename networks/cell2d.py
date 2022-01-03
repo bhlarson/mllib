@@ -16,6 +16,8 @@ from collections import namedtuple
 from collections import OrderedDict
 from typing import Callable, Optional
 from tqdm import tqdm
+import matplotlib.pyplot as plt
+from matplotlib.animation import FFMpegWriter
 
 sys.path.insert(0, os.path.abspath(''))
 from utils.torch_util import count_parameters, model_stats, model_weights
@@ -435,6 +437,7 @@ class Cell(nn.Module):
 
         layer_weights = []
         cell_weight = []
+        prune_weight = torch.tanh(torch.abs(self.weight_gain*self.depth))
 
         if self.conv_residual is not None:
 
@@ -447,8 +450,6 @@ class Cell(nn.Module):
                 layer_weight, _, conv_weights  = l.ArchitectureWeights()
                 cell_weight.append(conv_weights)
                 architecture_weights += layer_weight*torch.tanh(torch.abs(self.weight_gain*self.depth))
-
-        prune_weight = torch.tanh(torch.abs(self.weight_gain*self.depth))
 
         cell_weights = {'prune_weight':prune_weight, 'cell_weight':cell_weight}
 
@@ -680,12 +681,12 @@ def parse_arguments():
     parser.add_argument('-model', type=str, default='model')
 
     parser.add_argument('-learning_rate', type=float, default=0.01, help='Training learning rate')
-    parser.add_argument('-batch_size', type=int, default=1024, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=1000, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=256, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
-    parser.add_argument('-model_src', type=str,  default='nas_20220101_00')
-    parser.add_argument('-model_dest', type=str, default='nas_20220101_01')
+    parser.add_argument('-model_src', type=str,  default=None)
+    parser.add_argument('-model_dest', type=str, default='nas_20220103_01')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-k_structure', type=float, default=1.0e-1, help='Structure minimization weighting fator')
     parser.add_argument('-target_structure', type=float, default=0.1, help='Structure minimization weighting fator')
@@ -704,7 +705,7 @@ def parse_arguments():
 
     parser.add_argument('-description', type=json.loads, default='{"description":"Cell 2D NAS classification"}', help='Run description')
 
-    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152], default=18, help='Run description')
+    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152], default=50, help='Run description')
 
     args = parser.parse_args()
     return args
@@ -716,19 +717,67 @@ def save(model, s3, s3def, args):
     s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), out_buffer)
     s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), model.definition())
 
-def plot_weights(weights, diameter = 5, colormapname = 'jet', title = '', save_path = 'class_weights.png'):
-    import matplotlib.pyplot as plt
-    fig, ax = plt.subplots() # note we must use plt.subplots, not plt.subplot
-    ax.set_title(title)
-    cm = plt.get_cmap(colormapname) 
+class PlotSearch():
+    def __init__(self, save_image = 'class_weights.svg', save_video = 'class_weights.mp4', title = 'Architecture Weights', colormapname = 'jet', diameter = 1.0, width=7.5, height=20, dpi=1200, fps=2 ):
 
-    for i,  cell, in enumerate(weights):
-        for j, step in enumerate(cell['cell_weight']):
-            for k, gain in enumerate(step.cpu().detach().numpy()):
-                circle = plt.Circle((i*diameter*len(cell['cell_weight'])+j*diameter, k*diameter), diameter, color=cm(gain))
-            ax.add_patch(circle)
+        self.save_image = save_image
+        self.save_video = save_video
+        self.title = title
+        self.colormapname = colormapname
+        self.diameter = diameter
+        self.dpi = dpi
+        self.cm = plt.get_cmap(colormapname)
+        self.clear_frames = True
+        self.fps = fps
 
-    fig.savefig(save_path)
+        self.fig, self.ax = plt.subplots(figsize=(width,height), dpi=self.dpi) # note we must use plt.subplots, not plt.subplot       
+
+        # Output video writer
+        metadata = dict(title='self.title', artist='Matplotlib', comment='Plot neural architecture search')
+        self.writer = FFMpegWriter(fps=self.fps, metadata=metadata)
+        self.writer.setup(self.fig, self.save_video)
+    def __del__(self):
+        self.finish()
+
+    def plot_weights(self, weights, index = None):
+
+        self.ax.clear()
+        
+        if index:
+            title = '{} {}'.format(self.title, index)
+        else:
+            title = self.title
+
+        self.ax.set_title(title)
+        xMax = 1.0
+        yMax = 1.0
+
+        for i,  cell, in enumerate(weights):
+            prune_weight = cell['prune_weight'].cpu().detach().numpy()
+            for j, step in enumerate(cell['cell_weight']):
+                for k, gain in enumerate(step.cpu().detach().numpy()):
+                    centerX = i*self.diameter*len(cell['cell_weight'])+j*self.diameter+self.diameter/2.0
+                    centerY = k*self.diameter+self.diameter/2.0
+                    conv_gain = prune_weight*gain
+                    circle = plt.Circle((centerX, centerY), self.diameter, color=self.cm(conv_gain))
+                    self.ax.add_patch(circle)
+                    
+                    circleXMax = i*self.diameter*len(cell['cell_weight'])+(j+1)*self.diameter
+                    circleYMax = (k+1)*self.diameter
+
+                    if circleXMax > xMax:
+                        xMax = circleXMax
+                    if circleYMax > yMax:
+                        yMax = circleYMax
+
+        self.ax.set_xlim((0, xMax))
+        self.ax.set_ylim((0, yMax))
+
+        self.fig.savefig(self.save_image)
+        self.writer.grab_frame()
+
+    def finish(self):
+        self.writer.finish()
 
 
 # Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
@@ -812,6 +861,7 @@ def Test(args):
     criterion = TotalLoss(args.cuda, k_structure=args.k_structure, target_structure=target_structure, search_structure=args.search_structure)
    #optimizer = optim.SGD(classify.parameters(), lr=0.001, momentum=0.9)
     optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate)
+    plotsearch = PlotSearch()
         # Train
     if args.train:
         for epoch in tqdm(range(args.epochs), desc="Train epochs"):  # loop over the dataset multiple times
@@ -874,7 +924,7 @@ def Test(args):
                         epoch + 1, i + 1, training_accuracy, test_accuracy, running_loss, loss, arcitecture_reduction))
                     running_loss = 0.0
 
-                    plot_weights(cell_weights)
+                    plotsearch.plot_weights(cell_weights)
 
                 iSave = 2000
                 if i % iSave == iSave-1:    # print every 20 mini-batches

@@ -6,8 +6,7 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # RUN apt-get install -y libsm6 libxext6 ffmpeg # required by opencv-python==4.4.0.42
 RUN apt-get update -y && apt-get upgrade -y && apt-get autoremove -y && \
-    apt-get install -y libgl1-mesa-glx && \
-    apt-get install -y wget
+    apt-get install -y libgl1-mesa-glx wget ffmpeg
 
 # RUN apt-get install --no-install-recommends lsb-release wget less udev sudo -y
 
@@ -44,7 +43,8 @@ RUN pip3 --no-cache-dir install \
         onnxruntime-gpu \
         pycuda \
         PyYAML \
-        jsonpickle
+        ffmpeg \
+        ffmpeg-python
 
 # ZED Python API https://stackoverflow.com/a/63457606/7036639
 RUN wget download.stereolabs.com/zedsdk/pyzed -O /usr/local/zed/get_python_api.py && \

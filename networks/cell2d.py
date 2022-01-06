@@ -16,8 +16,10 @@ from collections import namedtuple
 from collections import OrderedDict
 from typing import Callable, Optional
 from tqdm import tqdm
+import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FFMpegWriter
+import cv2
 
 sys.path.insert(0, os.path.abspath(''))
 from utils.torch_util import count_parameters, model_stats, model_weights
@@ -130,8 +132,9 @@ class ConvBR(nn.Module):
         return x
 
     def ArchitectureWeights(self):
-        conv_weights = torch.tanh(self.weight_gain*torch.linalg.norm(self.conv.weight, dim=(1,2,3))) 
-        architecture_weights = self.total_trainable_weights * torch.sum(conv_weights) / self.out_channels
+        conv_weights = torch.tanh(self.weight_gain*torch.linalg.norm(self.conv.weight, dim=(1,2,3)))
+        # Keep sum as [1] tensor so subsiquent concatination works
+        architecture_weights = (self.total_trainable_weights/ self.out_channels) * conv_weights.sum_to_size((1))
 
         return architecture_weights, self.total_trainable_weights, conv_weights
 
@@ -204,7 +207,7 @@ class Cell(nn.Module):
                  is_cuda=False,
                  feature_threshold=0.01,
                  search_structure=True,
-                 depth=DefaultMaxDepth,
+                 cell_convolution=DefaultMaxDepth,
                  weight_gain = 11.0,
                  convMaskThreshold=0.5,
                  convolutions=[{'out_channels':64, 'kernel_size': 3, 'stride': 1, 'dilation': 1}],
@@ -230,7 +233,7 @@ class Cell(nn.Module):
         self.is_cuda = is_cuda
         self.feature_threshold = feature_threshold
         self.search_structure = search_structure
-        self.depth = nn.Parameter(torch.tensor(depth, dtype=torch.float))
+        self.cell_convolution = nn.Parameter(torch.tensor(cell_convolution, dtype=torch.float))
         self.weight_gain = weight_gain
         self.convMaskThreshold = convMaskThreshold
         self.convolutions = convolutions
@@ -239,8 +242,8 @@ class Cell(nn.Module):
             for key in definition:
                 self.__dict__[key] = definition[key]
                 
-            if 'depth' in definition:
-                self.depth = nn.Parameter(torch.tensor(definition['depth'], dtype=torch.float))
+            if 'cell_convolution' in definition:
+                self.cell_convolution = nn.Parameter(torch.tensor(definition['cell_convolution'], dtype=torch.float))
 
         self.cnn = torch.nn.ModuleList()
 
@@ -316,7 +319,7 @@ class Cell(nn.Module):
             'is_cuda': self.is_cuda,
             'feature_threshold': self.feature_threshold,
             'search_structure': self.search_structure,
-            'depth': self.depth.item(),
+            'cell_convolution': self.cell_convolution.item(),
             'total_trainable_weights': self.total_trainable_weights,
         }
 
@@ -328,7 +331,7 @@ class Cell(nn.Module):
         #definition_dict['conv1x1'] = self.conv1x1.definition()
 
         #dfn = deepcopy(self.__dict__)
-        #dfn['depth'] = self.depth.item()
+        #dfn['cell_convolution'] = self.cell_convolution.item()
 
         return definition_dict
 
@@ -366,18 +369,6 @@ class Cell(nn.Module):
         else: # Do not reduce input channels.  
             in_channel_mask = torch.ones((self.in1_channels+self.in2_channels), dtype=torch.int32)
         
-        # Fix convolution depth
-        #cnn = torch.nn.ModuleList()
-        #if self.depth.item() < 1:
-        #    cnn_depth = 1
-        #elif round(self.depth.item()) < self.steps:
-        #    cnn_depth = round(self.depth.item())
-        #else:
-        #    cnn_depth = self.steps
-        #print('cell_depth {}/{} = {}'.format(cnn_depth, self.steps,cnn_depth/self.steps))
-        #self.cnn = self.cnn[0:cnn_depth]
-        #self.steps = cnn_depth
-
         # Drop minimized dimensions
         out_channel_mask = in_channel_mask
         #out_channel_mask = self.conv_size.ApplyStructure(in_channel_mask=in_channel_mask)
@@ -393,13 +384,13 @@ class Cell(nn.Module):
 
         #print('dimension_threshold {}/{} = {}'.format(num_out_channels, self.out_channels, num_out_channels/self.out_channels))
 
-        if self.convMaskThreshold > torch.tanh(torch.abs(self.weight_gain*self.depth)):
+        if self.convMaskThreshold > torch.tanh(torch.abs(self.weight_gain*self.cell_convolution)):
             self.cnn = None
 
             if self.out_channels == self.in1_channels+self.in2_channels:
                 self.conv_residual = None
             
-            print('Pruning cell weight={} in1_channels={} in2_channels={} out_channels={}'.format(self.depth, self.in1_channels, self.in2_channels, self.out_channels))
+            print('Pruning cell weight={} in1_channels={} in2_channels={} out_channels={}'.format(self.cell_convolution, self.in1_channels, self.in2_channels, self.out_channels))
 
 
 
@@ -422,7 +413,7 @@ class Cell(nn.Module):
                 x = self.cnn[i](x) 
 
             if self.conv_residual:
-                y = residual + x*torch.tanh(torch.abs(self.weight_gain*self.depth))
+                y = residual + x*torch.tanh(torch.abs(self.weight_gain*self.cell_convolution))
         elif self.conv_residual:
             y = residual
         else:
@@ -431,27 +422,31 @@ class Cell(nn.Module):
         return y
 
     def ArchitectureWeights(self):
-        architecture_weights = torch.tensor(0.0)
-        if self.is_cuda:
-            architecture_weights = architecture_weights.cuda()
+        architecture_weights = []
 
         layer_weights = []
         cell_weight = []
-        prune_weight = torch.tanh(torch.abs(self.weight_gain*self.depth))
+        prune_weight = torch.tanh(torch.abs(self.weight_gain*self.cell_convolution))
 
-        if self.conv_residual is not None:
-
-            layer_weight, _, conv_weights  = self.conv_residual.ArchitectureWeights()
-            cell_weight.append(conv_weights)
-            architecture_weights += layer_weight 
+        # Not pruning residual weights 
+        #if self.conv_residual is not None:
+        #    layer_weight, _, conv_weights  = self.conv_residual.ArchitectureWeights()
+        #    cell_weight.append(conv_weights)
+        #    architecture_weights += layer_weight 
 
         if self.cnn is not None:
             for i, l in enumerate(self.cnn): 
                 layer_weight, _, conv_weights  = l.ArchitectureWeights()
+                architecture_weights.append(layer_weight)
                 cell_weight.append(conv_weights)
-                architecture_weights += layer_weight*torch.tanh(torch.abs(self.weight_gain*self.depth))
+
+            architecture_weights = torch.cat(architecture_weights)
+            architecture_weights = architecture_weights.sum_to_size((1))
 
         cell_weights = {'prune_weight':prune_weight, 'cell_weight':cell_weight}
+
+        # Enable "architecture_weights *= prune_weight" when convolution weights are successfully optimized
+        architecture_weights *= prune_weight
 
         return architecture_weights, self.total_trainable_weights, cell_weights
 
@@ -622,7 +617,7 @@ class Classify(nn.Module):
             #'channel_multiple': self.channel_multiple,
             #'batch_norm': self.batch_norm,
             #'search_structure': self.search_structure,
-            #'depth': self.depth.item(),
+            #'cell_convolution': self.cell_convolution.item(),
             'cells': [],
         }
 
@@ -653,19 +648,22 @@ class Classify(nn.Module):
         return self.cells
 
     def ArchitectureWeights(self):
-        archatecture_weights = torch.tensor(0.0)+self.fc_weights
+        architecture_weights = []
         cell_weights = []
-        if self.is_cuda:
-            archatecture_weights = archatecture_weights.cuda()
         for in_cell in self.cells:
-            cell_archatecture_weights, cell_total_trainable_weights, architectureweights = in_cell.ArchitectureWeights()
-            archatecture_weights += cell_archatecture_weights
-            cell_weights.append(architectureweights)
+            cell_archatecture_weights, cell_total_trainable_weights, cell_weight = in_cell.ArchitectureWeights()
+            cell_weights.append(cell_weight)
+            architecture_weights.append(cell_archatecture_weights)
 
-        fc_archatecture_weights, fc_total_trainable_weights = self.fc.ArchitectureWeights()
-        archatecture_weights += fc_archatecture_weights
 
-        return archatecture_weights, self.total_trainable_weights, cell_weights
+        architecture_weights = torch.cat(architecture_weights)
+        architecture_weights = torch.sum(architecture_weights)
+
+        # Not yet minimizing fully connected layer weights
+        # fc_archatecture_weights, fc_total_trainable_weights = self.fc.ArchitectureWeights()
+        #archatecture_weights += fc_archatecture_weights
+
+        return architecture_weights, self.total_trainable_weights, cell_weights
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
@@ -682,16 +680,16 @@ def parse_arguments():
 
     parser.add_argument('-learning_rate', type=float, default=0.01, help='Training learning rate')
     parser.add_argument('-batch_size', type=int, default=256, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
+    parser.add_argument('-epochs', type=int, default=500, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
     parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default='nas_20220103_01')
+    parser.add_argument('-model_dest', type=str, default='nas_20220104_00')
     parser.add_argument('-cuda', type=bool, default=True)
-    parser.add_argument('-k_structure', type=float, default=1.0e-1, help='Structure minimization weighting fator')
+    parser.add_argument('-k_structure', type=float, default=0.1e-0, help='Structure minimization weighting fator')
     parser.add_argument('-target_structure', type=float, default=0.1, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=True)
-    parser.add_argument('-weight_gain', type=float, default=8.0, help='Convolution norm tanh weight gain')
+    parser.add_argument('-weight_gain', type=float, default=3.0, help='Convolution norm tanh weight gain')
 
     parser.add_argument('-prune', type=bool, default=False)
     parser.add_argument('-train', type=bool, default=True)
@@ -718,19 +716,28 @@ def save(model, s3, s3def, args):
     s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), model.definition())
 
 class PlotSearch():
-    def __init__(self, save_image = 'class_weights.svg', save_video = 'class_weights.mp4', title = 'Architecture Weights', colormapname = 'jet', diameter = 1.0, width=7.5, height=20, dpi=1200, fps=2 ):
+    def __init__(self, network, save_image = 'class_weights.png', save_video = 'class_weights.mp4', title = 'Architecture Weights', colormapname = 'jet', lenght = 5, width=7.5, height=20, dpi=1200, fps=2 ):
 
         self.save_image = save_image
         self.save_video = save_video
         self.title = title
         self.colormapname = colormapname
-        self.diameter = diameter
+        self.lenght = int(lenght)
         self.dpi = dpi
         self.cm = plt.get_cmap(colormapname)
         self.clear_frames = True
         self.fps = fps
+        self.thickness=1
 
-        self.fig, self.ax = plt.subplots(figsize=(width,height), dpi=self.dpi) # note we must use plt.subplots, not plt.subplot       
+        self.fig, self.ax = plt.subplots(figsize=(width,height), dpi=self.dpi) # note we must use plt.subplots, not plt.subplot 
+
+        architecture_weights, total_trainable_weights, cell_weights = network.ArchitectureWeights()
+        self.height = 0
+        self.width = 0
+        for i,  cell, in enumerate(cell_weights):
+            for j, step in enumerate(cell['cell_weight']):
+                self.width += self.lenght
+                self.height = max(self.height, self.thickness*len(step))
 
         # Output video writer
         metadata = dict(title='self.title', artist='Matplotlib', comment='Plot neural architecture search')
@@ -741,43 +748,57 @@ class PlotSearch():
 
     def plot_weights(self, weights, index = None):
 
-        self.ax.clear()
+        img = np.zeros([self.height,self.width,3]).astype(np.uint8)
+        
+        #self.ax.clear()
         
         if index:
             title = '{} {}'.format(self.title, index)
         else:
             title = self.title
 
-        self.ax.set_title(title)
-        xMax = 1.0
-        yMax = 1.0
+        #self.ax.set_title(title)
+        #xMax = 1.0
+        #yMax = 1.0
+         
 
         for i,  cell, in enumerate(weights):
             prune_weight = cell['prune_weight'].cpu().detach().numpy()
             for j, step in enumerate(cell['cell_weight']):
+                x = i*self.lenght*len(cell['cell_weight'])+j*self.lenght
+
                 for k, gain in enumerate(step.cpu().detach().numpy()):
-                    centerX = i*self.diameter*len(cell['cell_weight'])+j*self.diameter+self.diameter/2.0
-                    centerY = k*self.diameter+self.diameter/2.0
-                    conv_gain = prune_weight*gain
-                    circle = plt.Circle((centerX, centerY), self.diameter, color=self.cm(conv_gain))
-                    self.ax.add_patch(circle)
                     
-                    circleXMax = i*self.diameter*len(cell['cell_weight'])+(j+1)*self.diameter
-                    circleYMax = (k+1)*self.diameter
+                    y = int(k*self.thickness+self.thickness/2)
+                    start_point = (x,y)
+                    end_point=(x+self.lenght,y)
 
-                    if circleXMax > xMax:
-                        xMax = circleXMax
-                    if circleYMax > yMax:
-                        yMax = circleYMax
+                    conv_gain = prune_weight*gain
+                    color = 255*np.array(self.cm(conv_gain))
+                    color = color.astype('uint8')
+                    colorbgr = (int(color[2]), int(color[1]), int(color[0]))
 
-        self.ax.set_xlim((0, xMax))
-        self.ax.set_ylim((0, yMax))
+                    cv2.line(img,start_point,end_point,colorbgr,self.thickness)
+                    #cv2.line(img, start_point=start_point, end_point=end_point, color=colorbgr, thickness=thickness)
+                    
+                    #circleXMax = i*self.lenght*len(cell['cell_weight'])+(j+1)*self.lenght
+                    #circleYMax = (k+1)*self.lenght
 
-        self.fig.savefig(self.save_image)
-        self.writer.grab_frame()
+                    #if circleXMax > xMax:
+                    #    xMax = circleXMax
+                    #if circleYMax > yMax:
+                    #    yMax = circleYMax
+
+        #self.ax.set_xlim((0, xMax))
+        #self.ax.set_ylim((0, yMax))
+
+        #self.fig.savefig(self.save_image)
+        cv2.imwrite(self.save_image, img)
+        #self.writer.grab_frame()
 
     def finish(self):
-        self.writer.finish()
+        print('PlotSearch finish')
+        #self.writer.finish()
 
 
 # Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
@@ -861,7 +882,7 @@ def Test(args):
     criterion = TotalLoss(args.cuda, k_structure=args.k_structure, target_structure=target_structure, search_structure=args.search_structure)
    #optimizer = optim.SGD(classify.parameters(), lr=0.001, momentum=0.9)
     optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate)
-    plotsearch = PlotSearch()
+    plotsearch = PlotSearch(classify)
         # Train
     if args.train:
         for epoch in tqdm(range(args.epochs), desc="Train epochs"):  # loop over the dataset multiple times

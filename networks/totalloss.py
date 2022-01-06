@@ -39,7 +39,9 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
         arcitecture_reduction = architecture_weights/total_trainable_weights
         architecture_loss = self.mseloss(arcitecture_reduction,self.target_structure)
 
-        total_loss = cross_entropy_loss
         if self.search_structure:
-            total_loss += self.k_structure*architecture_loss
+            total_loss = cross_entropy_loss + self.k_structure*architecture_loss
+            #total_loss = architecture_loss
+        else:
+            total_loss = cross_entropy_loss
         return total_loss,  cross_entropy_loss, architecture_loss, arcitecture_reduction, cell_weights

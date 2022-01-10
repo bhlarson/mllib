@@ -9,6 +9,7 @@ import platform
 from enum import Enum
 from copy import deepcopy
 import torch
+from torch._C import parse_ir
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -59,6 +60,9 @@ class ConvBR(nn.Module):
                  weight_gain = 11.0,
                  convMaskThreshold=0.5,
                  definition=None,
+                 dropout_rate=0.2,
+                 sigmoid_scale = 5.0, # Channel sigmoid scale fatctor
+                 search_structure=True,
                  ):
         super(ConvBR, self).__init__()
         self.in_channels = in_channels
@@ -75,11 +79,16 @@ class ConvBR(nn.Module):
         self.groups = groups
         self.bias = bias
         self.padding_mode = padding_mode
+        self.dropout_rate = dropout_rate
+        self.sigmoid_scale = sigmoid_scale
+        self.search_structure = search_structure
 
         if definition is not None:
             for key in definition:
                 self[key] = definition[key]
 
+        
+        self.channel_scale = nn.Parameter(torch.ones(self.out_channels, dtype=torch.float))
 
         if type(kernel_size) == int:
             padding = kernel_size // 2 # dynamic add padding based on the kernel_size
@@ -90,9 +99,12 @@ class ConvBR(nn.Module):
         if self.batch_norm:
             self.batchnorm2d = nn.BatchNorm2d(out_channels)
 
+        self.sigmoid = nn.Sigmoid()
+
         self._initialize_weights()
 
         self.total_trainable_weights = model_weights(self)
+        self.dropout = nn.Dropout(p=self.dropout_rate)
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -114,8 +126,6 @@ class ConvBR(nn.Module):
             'stride': self.stride,
             'dilation': self.dilation,
             'groups': self.groups,
-            'bias': self.bias,
-            'padding_mode': self.padding_mode
         }
 
         #dfn = deepcopy(self.__dict__)
@@ -123,8 +133,13 @@ class ConvBR(nn.Module):
 
         return definition_dict
 
-    def forward(self, x):
+    def forward(self, x, isTraining=False):
+        if isTraining:
+            x = self.dropout(x)
         x = self.conv(x)
+        if self.search_structure: #scale channels based on 
+            weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)[None,:,None,None]
+            x *= weight_scale
         if self.batch_norm:
             x = self.batchnorm2d(x)
         if self.relu:
@@ -132,7 +147,9 @@ class ConvBR(nn.Module):
         return x
 
     def ArchitectureWeights(self):
-        conv_weights = torch.tanh(self.weight_gain*torch.linalg.norm(self.conv.weight, dim=(1,2,3)))
+        weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)
+        conv_weights = torch.tanh(self.weight_gain*weight_scale*torch.linalg.norm(self.conv.weight, dim=(1,2,3)))
+
         # Keep sum as [1] tensor so subsiquent concatination works
         architecture_weights = (self.total_trainable_weights/ self.out_channels) * conv_weights.sum_to_size((1))
 
@@ -140,7 +157,7 @@ class ConvBR(nn.Module):
 
     # Remove specific network dimensions
     # remove dimension where inDimensions and outDimensions arrays are 0 for channels to be removed
-    def ApplyStructure(self, in_channel_mask=None, out_channel_mask=None, weight_mask=True):
+    def ApplyStructure(self, in_channel_mask=None, out_channel_mask=None, weight_mask=True, msg=None):
         if in_channel_mask is not None:
             if len(in_channel_mask) == self.in_channels:
                 self.conv.weight.data = self.conv.weight[:, in_channel_mask!=0]
@@ -151,7 +168,8 @@ class ConvBR(nn.Module):
         # Convolution norm gain mask
         #print("ApplyStructure convolution norm {}".format(torch.linalg.norm(self.conv.weight, dim=(1,2,3))))
         if weight_mask:
-            conv_mask = torch.tanh(self.weight_gain*torch.linalg.norm(self.conv.weight, dim=(1,2,3))) 
+            conv_mask = torch.tanh(self.weight_gain*torch.linalg.norm(self.conv.weight, dim=(1,2,3)))
+            conv_mask *= self.sigmoid(self.sigmoid_scale*self.channel_scale)
             conv_mask = conv_mask > self.convMaskThreshold
         else:
             conv_mask = torch.ones(self.conv.weight.shape[0], dtype=torch.bool, device=self.conv.weight.device)
@@ -166,10 +184,7 @@ class ConvBR(nn.Module):
                 raise ValueError("len(out_channel_mask)={} must be equal to self.out_channels={}".format(len(out_channel_mask), self.out_channels))
 
         pruned_convolutions = len(conv_mask[conv_mask==False])
-
-        if pruned_convolutions > 0:
-            numconvolutions = len(conv_mask)
-            print("Pruned {}={}/{} convolutional weights".format(pruned_convolutions/numconvolutions, pruned_convolutions, numconvolutions))
+        prev_colutions = len(conv_mask)
 
         self.conv.bias.data = self.conv.bias[conv_mask!=0]
         self.conv.weight.data = self.conv.weight[conv_mask!=0]
@@ -182,7 +197,11 @@ class ConvBR(nn.Module):
 
         self.out_channels = len(conv_mask[conv_mask!=0])
 
-        print("ConvBR::ApplyStructure pruned_convolutions={} in_channels={} out_channels={}".format(pruned_convolutions, self.in_channels, self.out_channels))
+        if msg is None:
+            prefix = "ConvBR::ApplyStructure"
+        else:
+            prefix = "ConvBR::ApplyStructure {}".format(msg)
+        print("{} {}={}/{} in_channels={} out_channels={}".format(prefix, pruned_convolutions/prev_colutions, pruned_convolutions, prev_colutions, self.in_channels, self.out_channels))
 
         return conv_mask
 
@@ -190,9 +209,7 @@ class ConvBR(nn.Module):
 DefaultMaxDepth = 1
 class Cell(nn.Module):
     def __init__(self,
-                 steps=DefaultMaxDepth,
-                 out_channels=1, 
-                 in1_channels=3, 
+                 in1_channels, 
                  in2_channels = 0,
                  batch_norm=False, 
                  relu=True,
@@ -212,12 +229,12 @@ class Cell(nn.Module):
                  convMaskThreshold=0.5,
                  convolutions=[{'out_channels':64, 'kernel_size': 3, 'stride': 1, 'dilation': 1}],
                  definition=None,
+                 dropout_rate = 0.2,
+                 sigmoid_scale = 5.0
                  ):
                 
         super(Cell, self).__init__()
 
-        self.steps = steps
-        self.out_channels = out_channels
         self.in1_channels = in1_channels
         self.in2_channels = in2_channels
         self.batch_norm = batch_norm
@@ -237,6 +254,8 @@ class Cell(nn.Module):
         self.weight_gain = weight_gain
         self.convMaskThreshold = convMaskThreshold
         self.convolutions = convolutions
+        self.dropout_rate = dropout_rate
+        self.sigmoid_scale=sigmoid_scale
 
         if definition is not None:
             for key in definition:
@@ -275,7 +294,10 @@ class Cell(nn.Module):
                 padding_mode=self.padding_mode,
                 weight_gain=self.weight_gain,
                 convMaskThreshold=self.convMaskThreshold, 
-                definition=convdfn)
+                definition=convdfn,
+                dropout_rate=self.dropout_rate,
+                search_structure=self.search_structure,
+                sigmoid_scale = self.sigmoid_scale
             self.cnn.append(conv)
 
             src_channels = convdev['out_channels']
@@ -294,7 +316,8 @@ class Cell(nn.Module):
             padding_mode=self.padding_mode,
             weight_gain=self.weight_gain,
             convMaskThreshold=self.convMaskThreshold, 
-            definition=convdfn)
+            definition=convdfn,
+            dropout_rate=self.dropout_rate,)
 
         self._initialize_weights()
         self.total_trainable_weights = model_weights(self)
@@ -302,8 +325,6 @@ class Cell(nn.Module):
 
     def definition(self):
         definition_dict = {
-            'steps': self.steps,
-            'out_channels': self.out_channels, 
             'in1_channels': self.in1_channels, 
             'in2_channels': self.in2_channels,
             'batch_norm': self.batch_norm,
@@ -344,7 +365,7 @@ class Cell(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
 
-    def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None):
+    def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None, msg=None):
 
         # Reduce channels
         if in1_channel_mask is not None or in2_channel_mask is not None:
@@ -369,35 +390,37 @@ class Cell(nn.Module):
         else: # Do not reduce input channels.  
             in_channel_mask = torch.ones((self.in1_channels+self.in2_channels), dtype=torch.int32)
         
-        # Drop minimized dimensions
-        out_channel_mask = in_channel_mask
-        #out_channel_mask = self.conv_size.ApplyStructure(in_channel_mask=in_channel_mask)
-
         if self.cnn is not None:
+            out_channel_mask = in_channel_mask
+
             for i, cnn in enumerate(self.cnn):
-                out_channel_mask = cnn.ApplyStructure(in_channel_mask=out_channel_mask)
+                layermsg = "convolution {}/{}".format(i, len(self.cnn))
 
-        self.conv_residual.ApplyStructure(in_channel_mask=in_channel_mask, out_channel_mask=out_channel_mask, weight_mask=False)
+                if msg is not None:
+                    layermsg = "{} {}".format(msg, layermsg)
+                    
+                out_channel_mask = cnn.ApplyStructure(in_channel_mask=out_channel_mask, msg=layermsg)
+        else:
+            out_channel_mask = None
 
-        # Apply structure to conv1x1
-        #out_channel_mask = self.conv1x1.ApplyStructure(in_channel_mask=out_channel_mask)
+        layermsg = "cell residual"
+        if msg is not None:
+            layermsg = "{} {}".format(msg, layermsg)
 
-        #print('dimension_threshold {}/{} = {}'.format(num_out_channels, self.out_channels, num_out_channels/self.out_channels))
+        self.conv_residual.ApplyStructure(in_channel_mask=in_channel_mask, out_channel_mask=out_channel_mask, weight_mask=False, msg=layermsg)
 
         if self.convMaskThreshold > torch.tanh(torch.abs(self.weight_gain*self.cell_convolution)):
             self.cnn = None
-
-            if self.out_channels == self.in1_channels+self.in2_channels:
-                self.conv_residual = None
+            #if self.convolutions[-1]['out_channels'] == self.in1_channels+self.in2_channels:
+            #    self.conv_residual = None
             
-            print('Pruning cell weight={} in1_channels={} in2_channels={} out_channels={}'.format(self.cell_convolution, self.in1_channels, self.in2_channels, self.out_channels))
-
-
+            print('Pruning cell weight={} cell weights={} in1_channels={} in2_channels={} out_channels={}'.format(self.cell_convolution, self.total_trainable_weights, self.in1_channels, self.in2_channels, self.convolutions[-1]['out_channels']))
+        
 
         return out_channel_mask
 
 
-    def forward(self, in1, in2 = None):
+    def forward(self, in1, in2 = None, isTraining=False):
         if in2 is not None:
             u = torch.cat((in1, in2), dim=1)
         else:
@@ -410,7 +433,7 @@ class Cell(nn.Module):
         if self.cnn is not None:
             x = u
             for i, l in enumerate(self.cnn):
-                x = self.cnn[i](x) 
+                x = self.cnn[i](x, isTraining) 
 
             if self.conv_residual:
                 y = residual + x*torch.tanh(torch.abs(self.weight_gain*self.cell_convolution))
@@ -427,6 +450,7 @@ class Cell(nn.Module):
         layer_weights = []
         cell_weight = []
         prune_weight = torch.tanh(torch.abs(self.weight_gain*self.cell_convolution))
+        prune_weight = torch.ones_like(prune_weight)
 
         # Not pruning residual weights 
         #if self.conv_residual is not None:
@@ -442,11 +466,13 @@ class Cell(nn.Module):
 
             architecture_weights = torch.cat(architecture_weights)
             architecture_weights = architecture_weights.sum_to_size((1))
+        else:
+            architecture_weights = torch.zeros((1), device=self.cell_convolution.device)
 
         cell_weights = {'prune_weight':prune_weight, 'cell_weight':cell_weight}
 
         # Enable "architecture_weights *= prune_weight" when convolution weights are successfully optimized
-        architecture_weights *= prune_weight
+        #architecture_weights *= prune_weight
 
         return architecture_weights, self.total_trainable_weights, cell_weights
 
@@ -475,7 +501,7 @@ class FC(nn.Module):
 
     # Remove specific network dimensions
     # remove dimension where inDimensions and outDimensions arrays are 0 for channels to be removed
-    def ApplyStructure(self, in_channel_mask=None, out_channel_mask=None):
+    def ApplyStructure(self, in_channel_mask=None, out_channel_mask=None, msg=None):
         if in_channel_mask is not None:
             if len(in_channel_mask) != self.in_channels:
                 raise ValueError("len(in_channel_mask)={} must be equal to self.in_channels={}".format(len(in_channel_mask), self.in_channels))
@@ -498,8 +524,28 @@ class FC(nn.Module):
         self.fc.bias.data = self.fc.bias.data[out_channel_mask!=0]
         self.fc.weight.data = self.fc.weight.data[out_channel_mask!=0]
 
+        prev_in_convolutions = len(in_channel_mask)
         self.in_channels = len(in_channel_mask[in_channel_mask!=0])
+
+        prev_out_convolutions = len(out_channel_mask)
         self.out_channels = len(out_channel_mask[out_channel_mask!=0])
+
+        if msg is None:
+            prefix = "FC::ApplyStructure"
+        else:
+            prefix = "FC::ApplyStructure {}".format(msg)
+        print("{} in {}={}/{} out {}={}/{} convolutions in_channels={} out_channels={}".format(
+            prefix, 
+            (prev_in_convolutions-self.in_channels)/prev_in_convolutions, 
+            (prev_in_convolutions-self.in_channels),
+            prev_in_convolutions,
+            (prev_out_convolutions-self.out_channels)/prev_out_convolutions, 
+            (prev_out_convolutions-self.out_channels),
+            prev_out_convolutions,
+            self.in_channels, 
+            self.out_channels))
+
+
 
         return out_channel_mask
 
@@ -554,7 +600,10 @@ def ResnetCells(size = Resnet.layers_50):
 
 
 class Classify(nn.Module):
-    def __init__(self, is_cuda=False, source_channels = 3, out_channels = 10, initial_channels=16, batch_norm=True, weight_gain=11, convMaskThreshold=0.5, convolutions=None, definition=None):
+    def __init__(self, convolutions, 
+    is_cuda=False, source_channels = 3, out_channels = 10, initial_channels=16, 
+    batch_norm=True, weight_gain=11, convMaskThreshold=0.5, definition=None, 
+    dropout_rate=0.2, search_structure = True, sigmoid_scale=5.0,):
         super().__init__()
         self.is_cuda = is_cuda
         self.source_channels = source_channels
@@ -563,6 +612,9 @@ class Classify(nn.Module):
         self.weight_gain = weight_gain
         self.convMaskThreshold = convMaskThreshold
         self.batch_norm = batch_norm
+        self.dropout_rate = dropout_rate
+        self.search_structure = search_structure
+        self.sigmoid_scale = sigmoid_scale
 
         if definition is not None:
             for key in definition:
@@ -570,32 +622,26 @@ class Classify(nn.Module):
                 
         self.cells = torch.nn.ModuleList()
         in_channels = self.source_channels
-        if convolutions is not None:
-            for i, cell_convolutions in enumerate(convolutions):
 
-                convdfn = None
-                if definition is not None and 'cells' in definition:
-                    if len(definition['cells']) > i:
-                        convdfn = definition['cells'][i] 
+        for i, cell_convolutions in enumerate(convolutions):
 
-                cell = Cell(in1_channels=in_channels, 
-                    batch_norm=self.batch_norm,
-                    is_cuda=self.is_cuda,  
-                    weight_gain = self.weight_gain,
-                    convMaskThreshold = self.convMaskThreshold,
-                    convolutions=cell_convolutions,  
-                    definition=convdfn)
-                in_channels = cell_convolutions[-1]['out_channels']
-                self.cells.append(cell)
-        else:
-            out_channels = 64
-            cell = Cell(in1_channels=in_channels, out_channels=out_channels,
+            convdfn = None
+            if definition is not None and 'cells' in definition:
+                if len(definition['cells']) > i:
+                    convdfn = definition['cells'][i] 
+
+            cell = Cell(in1_channels=in_channels, 
                 batch_norm=self.batch_norm,
                 is_cuda=self.is_cuda,  
                 weight_gain = self.weight_gain,
-                convMaskThreshold = self.convMaskThreshold)
+                convMaskThreshold = self.convMaskThreshold,
+                convolutions=cell_convolutions,  
+                definition=convdfn,
+                dropout_rate=self.dropout_rate, 
+                search_structure=self.search_structure, 
+                sigmoid_scale=self.sigmoid_scale)
+            in_channels = cell_convolutions[-1]['out_channels']
             self.cells.append(cell)
-            in_channels = out_channels
 
         self.maxpool = nn.MaxPool2d(2, 2)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
@@ -633,12 +679,15 @@ class Classify(nn.Module):
     def ApplyStructure(self):
         in_channel_mask = None
         for i, cell in enumerate(self.cells):
-            out_channel_mask = cell.ApplyStructure(in1_channel_mask=in_channel_mask)
+            layer_msg = 'Cell {}'.format(i)
+            out_channel_mask = cell.ApplyStructure(in1_channel_mask=in_channel_mask, msg=layer_msg)
             in_channel_mask = out_channel_mask
 
-    def forward(self, x):
-        for cell in self.cells:
-            x = cell(x)
+        self.fc.ApplyStructure(in_channel_mask=in_channel_mask)
+
+    def forward(self, x, isTraining=False):
+        for i, cell in enumerate(self.cells):
+            x = cell(x, isTraining=isTraining)
         x = self.avgpool(x)
         x = torch.flatten(x, 1) # flatten all dimensions except batch dimension
         x = self.fc(x)
@@ -679,23 +728,25 @@ def parse_arguments():
     parser.add_argument('-model', type=str, default='model')
 
     parser.add_argument('-learning_rate', type=float, default=0.01, help='Training learning rate')
-    parser.add_argument('-batch_size', type=int, default=256, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=500, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=128, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=100, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
     parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default='nas_20220104_00')
+    parser.add_argument('-model_dest', type=str, default='nas_20220110_00')
     parser.add_argument('-cuda', type=bool, default=True)
-    parser.add_argument('-k_structure', type=float, default=0.1e-0, help='Structure minimization weighting fator')
-    parser.add_argument('-target_structure', type=float, default=0.1, help='Structure minimization weighting fator')
+    parser.add_argument('-k_structure', type=float, default=3.0e0, help='Structure minimization weighting fator')
+    parser.add_argument('-target_structure', type=float, default=0.0e-0, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=True)
     parser.add_argument('-weight_gain', type=float, default=3.0, help='Convolution norm tanh weight gain')
+    parser.add_argument('-dropout_rate', type=float, default=0.3, help='Convolution norm tanh weight gain')
+    parser.add_argument('-args.sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convoluiton channels weights')
 
     parser.add_argument('-prune', type=bool, default=False)
     parser.add_argument('-train', type=bool, default=True)
     parser.add_argument('-infer', type=bool, default=True)
     parser.add_argument('-search_structure', type=bool, default=True)
-    parser.add_argument('-onnx', type=bool, default=False)
+    parser.add_argument('-onnx', type=bool, default=True)
 
     parser.add_argument('-test_dir', type=str, default=None)
     parser.add_argument('-tensorboard_dir', type=str, default='/store/test/nassegtb', 
@@ -713,7 +764,7 @@ def save(model, s3, s3def, args):
     model.zero_grad(set_to_none=True)
     torch.save(model, out_buffer)
     s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), out_buffer)
-    s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), model.definition())
+    #s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), model.definition())
 
 class PlotSearch():
     def __init__(self, network, save_image = 'class_weights.png', save_video = 'class_weights.mp4', title = 'Architecture Weights', colormapname = 'jet', lenght = 5, width=7.5, height=20, dpi=1200, fps=2 ):
@@ -785,12 +836,7 @@ class PlotSearch():
                     #circleYMax = (k+1)*self.lenght
 
                     #if circleXMax > xMax:
-                    #    xMax = circleXMax
-                    #if circleYMax > yMax:
-                    #    yMax = circleYMax
-
-        #self.ax.set_xlim((0, xMax))
-        #self.ax.set_ylim((0, yMax))
+                    #    xMax = circleXMaxTotal Trainable Params: 27620940
 
         #self.fig.savefig(self.save_image)
         cv2.imwrite(self.save_image, img)
@@ -846,15 +892,8 @@ def Test(args):
 
     # Create classifier
     if(args.model_src and args.model_src != ''):
-        modeldict = s3.GetDict(s3def['sets']['model']['bucket'], '{}/{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
+        #modeldict = s3.GetDict(s3def['sets']['model']['bucket'], '{}/{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
         modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
-
-        #if modeldict is not None:
-        #    classify = Classify(is_cuda=args.cuda, definition=modeldict)
-        #else:
-        #    print('Unable to load model definition {}/{}/{}/{}. Creating default model.'.format(
-        #        s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
-        #    classify = Classify(is_cuda=args.cuda)
 
         if modelObj is not None:
             classify = torch.load(io.BytesIO(modelObj))
@@ -864,7 +903,12 @@ def Test(args):
     else:
         # Create Default classifier
         resnetCells = ResnetCells(Resnet(args.resnet_len))
-        classify = Classify(is_cuda=args.cuda, weight_gain=args.weight_gain, convolutions=resnetCells)
+        classify = Classify(convolutions=resnetCells, 
+                            is_cuda=args.cuda, 
+                            weight_gain=args.weight_gain, 
+                            dropout_rate=args.dropout_rate, 
+                            search_structure=args.search_structure, 
+                            sigmoid_scale=args.sigmoid_scale)
 
     #sepcificy device for model
     classify.to(device)
@@ -883,6 +927,8 @@ def Test(args):
    #optimizer = optim.SGD(classify.parameters(), lr=0.001, momentum=0.9)
     optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate)
     plotsearch = PlotSearch(classify)
+    iSample = 0
+
         # Train
     if args.train:
         for epoch in tqdm(range(args.epochs), desc="Train epochs"):  # loop over the dataset multiple times
@@ -899,7 +945,7 @@ def Test(args):
 
                 # zero the parameter gradients
                 optimizer.zero_grad()
-                outputs = classify(inputs)
+                outputs = classify(inputs, isTraining=True)
                 loss, cross_entropy_loss, architecture_loss, arcitecture_reduction, cell_weights  = criterion(outputs, labels, classify)
                 loss.backward()
                 optimizer.step()
@@ -907,10 +953,10 @@ def Test(args):
                 # print statistics
                 running_loss += loss.item()
 
-                writer.add_scalar('loss/train', loss, i)
-                writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, i)
-                writer.add_scalar('architecture_loss/train', architecture_loss, i)
-                writer.add_scalar('arcitecture_reduction/train', arcitecture_reduction, i)
+                writer.add_scalar('loss/train', loss, iSample)
+                writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, iSample)
+                writer.add_scalar('architecture_loss/train', architecture_loss, iSample)
+                writer.add_scalar('arcitecture_reduction/train', arcitecture_reduction, iSample)
 
                 if i % test_freq == test_freq-1:    # Save image and run test
 
@@ -933,15 +979,15 @@ def Test(args):
 
                     loss, cross_entropy_loss, architecture_loss, arcitecture_reduction, cell_weights  = criterion(outputs, labels, classify)
 
-                    writer.add_scalar('accuracy/train', training_accuracy, int((i+1)/test_freq-1))
-                    writer.add_scalar('accuracy/test', test_accuracy, int((i+1)/test_freq-1))
-                    writer.add_scalar('loss/test', loss, int((i+1)/test_freq-1))
-                    writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, int((i+1)/test_freq-1))
-                    writer.add_scalar('architecture_loss/test', architecture_loss, int((i+1)/test_freq-1))
-                    writer.add_scalar('arcitecture_reduction/train', arcitecture_reduction, i)
+                    writer.add_scalar('accuracy/train', training_accuracy, iSample)
+                    writer.add_scalar('accuracy/test', test_accuracy, iSample)
+                    writer.add_scalar('loss/test', loss, iSample)
+                    writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, iSample)
+                    writer.add_scalar('architecture_loss/test', architecture_loss, iSample)
+                    writer.add_scalar('arcitecture_reduction/train', arcitecture_reduction, iSample)
 
                     running_loss /=test_freq
-                    tqdm.write('Test [{}, {:06}] training accuracy={:03} test accuracy={:03} training loss={:0.5e}, test loss={:0.5e} arcitecture_reduction: {:0.5e}'.format(
+                    tqdm.write('Test [{}, {:06f}] training accuracy={:03f} test accuracy={:03f} training loss={:0.5e}, test loss={:0.5e} arcitecture_reduction: {:0.5e}'.format(
                         epoch + 1, i + 1, training_accuracy, test_accuracy, running_loss, loss, arcitecture_reduction))
                     running_loss = 0.0
 
@@ -953,6 +999,8 @@ def Test(args):
 
                 if args.fast and i+1 >= test_freq:
                     break
+
+                iSample += 1
 
             save(classify, s3, s3def, args)
 

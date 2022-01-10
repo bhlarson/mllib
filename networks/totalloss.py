@@ -16,7 +16,7 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
         self.k_structure = k_structure
         self.softsign = nn.Softsign()
         self.target_structure = target_structure  
-        self.mseloss = nn.MSELoss()
+        self.archloss = nn.L1Loss()
         self.class_weight = class_weight
         self.cross_entropy_loss = nn.CrossEntropyLoss(weight=self.class_weight, ignore_index=self.ignore_index, reduction=self.reduction)
         self.search_structure = search_structure
@@ -37,10 +37,10 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
 
         architecture_weights, total_trainable_weights, cell_weights = network.ArchitectureWeights()
         arcitecture_reduction = architecture_weights/total_trainable_weights
-        architecture_loss = self.mseloss(arcitecture_reduction,self.target_structure)
+        architecture_loss = self.k_structure*self.archloss(arcitecture_reduction,self.target_structure)
 
         if self.search_structure:
-            total_loss = cross_entropy_loss + self.k_structure*architecture_loss
+            total_loss = cross_entropy_loss + architecture_loss
             #total_loss = architecture_loss
         else:
             total_loss = cross_entropy_loss

@@ -88,7 +88,7 @@ class ConvBR(nn.Module):
                 self[key] = definition[key]
 
         
-        self.channel_scale = nn.Parameter(torch.ones(self.out_channels, dtype=torch.float))
+        self.channel_scale = nn.Parameter(torch.zeros(self.out_channels, dtype=torch.float))
 
         if type(kernel_size) == int:
             padding = kernel_size // 2 # dynamic add padding based on the kernel_size
@@ -100,15 +100,17 @@ class ConvBR(nn.Module):
             self.batchnorm2d = nn.BatchNorm2d(out_channels)
 
         self.sigmoid = nn.Sigmoid()
-
-        self._initialize_weights()
-
         self.total_trainable_weights = model_weights(self)
         self.dropout = nn.Dropout(p=self.dropout_rate)
+
+        self._initialize_weights()
+        norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
+        print('ConvBR initialized weights {}'.format(norm))
 
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
+                #nn.init.normal_(m.weight)
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif self.batch_norm and self.batchnorm2d and isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
@@ -137,18 +139,21 @@ class ConvBR(nn.Module):
         if isTraining:
             x = self.dropout(x)
         x = self.conv(x)
-        if self.search_structure: #scale channels based on 
+        if self.search_structure: #scale channels based on self.channel_scale
             weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)[None,:,None,None]
             x *= weight_scale
+
         if self.batch_norm:
             x = self.batchnorm2d(x)
         if self.relu:
             x = F.relu(x, inplace=True)
+
         return x
 
     def ArchitectureWeights(self):
         weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)
-        conv_weights = torch.tanh(self.weight_gain*weight_scale*torch.linalg.norm(self.conv.weight, dim=(1,2,3)))
+        norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
+        conv_weights = (torch.tanh(self.weight_gain*norm)+weight_scale)/2.0
 
         # Keep sum as [1] tensor so subsiquent concatination works
         architecture_weights = (self.total_trainable_weights/ self.out_channels) * conv_weights.sum_to_size((1))
@@ -168,9 +173,10 @@ class ConvBR(nn.Module):
         # Convolution norm gain mask
         #print("ApplyStructure convolution norm {}".format(torch.linalg.norm(self.conv.weight, dim=(1,2,3))))
         if weight_mask:
-            conv_mask = torch.tanh(self.weight_gain*torch.linalg.norm(self.conv.weight, dim=(1,2,3)))
-            conv_mask *= self.sigmoid(self.sigmoid_scale*self.channel_scale)
-            conv_mask = conv_mask > self.convMaskThreshold
+            norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
+            conv_mask = torch.tanh(self.weight_gain*norm)
+            conv_mask += self.sigmoid(self.sigmoid_scale*self.channel_scale)
+            conv_mask = conv_mask/2.0 > self.convMaskThreshold
         else:
             conv_mask = torch.ones(self.conv.weight.shape[0], dtype=torch.bool, device=self.conv.weight.device)
 
@@ -297,7 +303,7 @@ class Cell(nn.Module):
                 definition=convdfn,
                 dropout_rate=self.dropout_rate,
                 search_structure=self.search_structure,
-                sigmoid_scale = self.sigmoid_scale
+                sigmoid_scale = self.sigmoid_scale)
             self.cnn.append(conv)
 
             src_channels = convdev['out_channels']
@@ -317,7 +323,8 @@ class Cell(nn.Module):
             weight_gain=self.weight_gain,
             convMaskThreshold=self.convMaskThreshold, 
             definition=convdfn,
-            dropout_rate=self.dropout_rate,)
+            dropout_rate=self.dropout_rate,
+            search_structure=False)
 
         self._initialize_weights()
         self.total_trainable_weights = model_weights(self)
@@ -428,7 +435,8 @@ class Cell(nn.Module):
 
         # Resizing convolution
         if self.conv_residual:
-            residual = self.conv_residual(u)
+            residual = self.conv_residual(u, isTraining)
+            #residual = self.conv_residual(u)
 
         if self.cnn is not None:
             x = u
@@ -729,18 +737,18 @@ def parse_arguments():
 
     parser.add_argument('-learning_rate', type=float, default=0.01, help='Training learning rate')
     parser.add_argument('-batch_size', type=int, default=128, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=100, help='Training epochs')
+    parser.add_argument('-epochs', type=int, default=50, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
     parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default='nas_20220110_00')
+    parser.add_argument('-model_dest', type=str, default='nas_20220113_00')
     parser.add_argument('-cuda', type=bool, default=True)
-    parser.add_argument('-k_structure', type=float, default=3.0e0, help='Structure minimization weighting fator')
-    parser.add_argument('-target_structure', type=float, default=0.0e-0, help='Structure minimization weighting fator')
+    parser.add_argument('-k_structure', type=float, default=1.0e-3, help='Structure minimization weighting fator')
+    parser.add_argument('-target_structure', type=float, default=1.0e-1, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=True)
-    parser.add_argument('-weight_gain', type=float, default=3.0, help='Convolution norm tanh weight gain')
-    parser.add_argument('-dropout_rate', type=float, default=0.3, help='Convolution norm tanh weight gain')
-    parser.add_argument('-args.sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convoluiton channels weights')
+    parser.add_argument('-dropout_rate', type=float, default=0.3, help='Dropout probabability gain')
+    parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')
+    parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convoluiton channels weights')
 
     parser.add_argument('-prune', type=bool, default=False)
     parser.add_argument('-train', type=bool, default=True)
@@ -908,7 +916,8 @@ def Test(args):
                             weight_gain=args.weight_gain, 
                             dropout_rate=args.dropout_rate, 
                             search_structure=args.search_structure, 
-                            sigmoid_scale=args.sigmoid_scale)
+                            sigmoid_scale=args.sigmoid_scale,
+                            batch_norm = args.batch_norm)
 
     #sepcificy device for model
     classify.to(device)

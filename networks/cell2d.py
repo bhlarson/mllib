@@ -63,6 +63,7 @@ class ConvBR(nn.Module):
                  dropout_rate=0.2,
                  sigmoid_scale = 5.0, # Channel sigmoid scale fatctor
                  search_structure=True,
+                 residual = False,
                  ):
         super(ConvBR, self).__init__()
         self.in_channels = in_channels
@@ -82,13 +83,14 @@ class ConvBR(nn.Module):
         self.dropout_rate = dropout_rate
         self.sigmoid_scale = sigmoid_scale
         self.search_structure = search_structure
+        self.residual = residual
 
         if definition is not None:
             for key in definition:
                 self[key] = definition[key]
 
         
-        self.channel_scale = nn.Parameter(torch.zeros(self.out_channels, dtype=torch.float))
+        self.channel_scale = nn.Parameter(torch.ones(self.out_channels, dtype=torch.float))
 
         if type(kernel_size) == int:
             padding = kernel_size // 2 # dynamic add padding based on the kernel_size
@@ -105,7 +107,7 @@ class ConvBR(nn.Module):
 
         self._initialize_weights()
         norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
-        print('ConvBR initialized weights {}'.format(norm))
+        #print('ConvBR initialized weights {}'.format(norm))
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -136,17 +138,22 @@ class ConvBR(nn.Module):
         return definition_dict
 
     def forward(self, x, isTraining=False):
-        if isTraining:
-            x = self.dropout(x)
-        x = self.conv(x)
-        if self.search_structure: #scale channels based on self.channel_scale
-            weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)[None,:,None,None]
-            x *= weight_scale
+        if self.out_channels > 0:
+            if isTraining:
+                x = self.dropout(x)
+            x = self.conv(x)
+  
+            if self.batch_norm:
+                x = self.batchnorm2d(x)
 
-        if self.batch_norm:
-            x = self.batchnorm2d(x)
-        if self.relu:
-            x = F.relu(x, inplace=True)
+            if self.search_structure: #scale channels based on self.channel_scale
+                    weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)[None,:,None,None]
+                    x *= weight_scale  
+
+            if self.relu:
+                x = F.relu(x, inplace=True)
+        elif not self.residual:
+            x = self.conv(x) # Return a zero tensor of the same shape
 
         return x
 
@@ -155,20 +162,28 @@ class ConvBR(nn.Module):
         norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
         conv_weights = (torch.tanh(self.weight_gain*norm)+weight_scale)/2.0
 
-        # Keep sum as [1] tensor so subsiquent concatination works
-        architecture_weights = (self.total_trainable_weights/ self.out_channels) * conv_weights.sum_to_size((1))
+        if self.out_channels > 0:
+            # Keep sum as [1] tensor so subsiquent concatination works
+            architecture_weights = (self.total_trainable_weights/ self.out_channels) * conv_weights.sum_to_size((1))
+        else:
+            architecture_weights = conv_weights.sum_to_size((1))
 
         return architecture_weights, self.total_trainable_weights, conv_weights
 
     # Remove specific network dimensions
     # remove dimension where inDimensions and outDimensions arrays are 0 for channels to be removed
     def ApplyStructure(self, in_channel_mask=None, out_channel_mask=None, weight_mask=True, msg=None):
+        if msg is None:
+            prefix = "ConvBR::ApplyStructure"
+        else:
+            prefix = "ConvBR::ApplyStructure {}".format(msg)
+
         if in_channel_mask is not None:
             if len(in_channel_mask) == self.in_channels:
                 self.conv.weight.data = self.conv.weight[:, in_channel_mask!=0]
                 self.in_channels = len(in_channel_mask[in_channel_mask!=0])
             else:
-                raise ValueError("len(in_channel_mask)={} must be equal to self.in_channels={}".format(len(in_channel_mask), self.in_channels))
+                raise ValueError("{} len(in_channel_mask)={} must be equal to self.in_channels={}".format(prefix, len(in_channel_mask), self.in_channels))
 
         # Convolution norm gain mask
         #print("ApplyStructure convolution norm {}".format(torch.linalg.norm(self.conv.weight, dim=(1,2,3))))
@@ -189,24 +204,28 @@ class ConvBR(nn.Module):
             else:
                 raise ValueError("len(out_channel_mask)={} must be equal to self.out_channels={}".format(len(out_channel_mask), self.out_channels))
 
-        pruned_convolutions = len(conv_mask[conv_mask==False])
         prev_colutions = len(conv_mask)
+        pruned_convolutions = len(conv_mask[conv_mask==False])
 
-        self.conv.bias.data = self.conv.bias[conv_mask!=0]
-        self.conv.weight.data = self.conv.weight[conv_mask!=0]
+        # Pruning full convolution
+        if prev_colutions==pruned_convolutions:
+            print('{} removing convolution'.format(prefix))
+            if self.residual: # Residual connection becomes a straight through connection
+                conv_mask = ~conv_mask
+            else:
+                self.conv.bias.data = self.conv.bias[conv_mask!=0]
+                self.conv.weight.data = self.conv.weight[conv_mask!=0]
 
-        if self.batch_norm:
-            self.batchnorm2d.bias.data = self.batchnorm2d.bias.data[conv_mask!=0]
-            self.batchnorm2d.weight.data = self.batchnorm2d.weight.data[conv_mask!=0]
-            self.batchnorm2d.running_mean = self.batchnorm2d.running_mean[conv_mask!=0]
-            self.batchnorm2d.running_var = self.batchnorm2d.running_var[conv_mask!=0]
+                self.channel_scale.data = self.channel_scale.data[conv_mask!=0]
+
+                if self.batch_norm:
+                    self.batchnorm2d.bias.data = self.batchnorm2d.bias.data[conv_mask!=0]
+                    self.batchnorm2d.weight.data = self.batchnorm2d.weight.data[conv_mask!=0]
+                    self.batchnorm2d.running_mean = self.batchnorm2d.running_mean[conv_mask!=0]
+                    self.batchnorm2d.running_var = self.batchnorm2d.running_var[conv_mask!=0]
 
         self.out_channels = len(conv_mask[conv_mask!=0])
 
-        if msg is None:
-            prefix = "ConvBR::ApplyStructure"
-        else:
-            prefix = "ConvBR::ApplyStructure {}".format(msg)
         print("{} {}={}/{} in_channels={} out_channels={}".format(prefix, pruned_convolutions/prev_colutions, pruned_convolutions, prev_colutions, self.in_channels, self.out_channels))
 
         return conv_mask
@@ -303,7 +322,8 @@ class Cell(nn.Module):
                 definition=convdfn,
                 dropout_rate=self.dropout_rate,
                 search_structure=self.search_structure,
-                sigmoid_scale = self.sigmoid_scale)
+                sigmoid_scale = self.sigmoid_scale,
+                residual=False)
             self.cnn.append(conv)
 
             src_channels = convdev['out_channels']
@@ -324,7 +344,8 @@ class Cell(nn.Module):
             convMaskThreshold=self.convMaskThreshold, 
             definition=convdfn,
             dropout_rate=self.dropout_rate,
-            search_structure=False)
+            search_structure=False,
+            residual=True)
 
         self._initialize_weights()
         self.total_trainable_weights = model_weights(self)
@@ -579,9 +600,12 @@ def ResnetCells(size = Resnet.layers_50):
     bottlenecks = {
         'layers_18': False, 
         'layers_34': False, 
-        'layers_50': True, 
-        'layers_101': True, 
-        'layers_152': True
+        #'layers_50': True, 
+        #'layers_101': True, 
+        #'layers_152': True
+        'layers_50': False, 
+        'layers_101': False, 
+        'layers_152': False
         }
 
     resnet_cells = []
@@ -736,17 +760,17 @@ def parse_arguments():
     parser.add_argument('-model', type=str, default='model')
 
     parser.add_argument('-learning_rate', type=float, default=0.01, help='Training learning rate')
-    parser.add_argument('-batch_size', type=int, default=128, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=50, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=200, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=200, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
     parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default='nas_20220113_00')
+    parser.add_argument('-model_dest', type=str, default='nas_20220117_rn152_00')
     parser.add_argument('-cuda', type=bool, default=True)
-    parser.add_argument('-k_structure', type=float, default=1.0e-3, help='Structure minimization weighting fator')
-    parser.add_argument('-target_structure', type=float, default=1.0e-1, help='Structure minimization weighting fator')
+    parser.add_argument('-k_structure', type=float, default=1.0e2, help='Structure minimization weighting fator')
+    parser.add_argument('-target_structure', type=float, default=1.0e0, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=True)
-    parser.add_argument('-dropout_rate', type=float, default=0.3, help='Dropout probabability gain')
+    parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probabability gain')
     parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')
     parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convoluiton channels weights')
 
@@ -762,7 +786,7 @@ def parse_arguments():
 
     parser.add_argument('-description', type=json.loads, default='{"description":"Cell 2D NAS classification"}', help='Run description')
 
-    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152], default=50, help='Run description')
+    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152], default=152, help='Run description')
 
     args = parser.parse_args()
     return args
@@ -805,7 +829,7 @@ class PlotSearch():
     def __del__(self):
         self.finish()
 
-    def plot_weights(self, weights, index = None):
+    def plot(self, weights, index = None):
 
         img = np.zeros([self.height,self.width,3]).astype(np.uint8)
         
@@ -854,6 +878,98 @@ class PlotSearch():
         print('PlotSearch finish')
         #self.writer.finish()
 
+class PlotGradients():
+    def __init__(self, network, save_image = 'gradient_norm.png', save_video = 'gradient_norm.mp4', title = 'Gradient Norm', colormapname = 'jet', lenght = 5, width=7.5, height=20, dpi=1200, fps=2, max_norm=1.0e-3, classification=True, pruning=True ):
+
+        self.save_image = save_image
+        self.save_video = save_video
+        self.title = title
+        self.colormapname = colormapname
+        self.lenght = int(lenght)
+        self.dpi = dpi
+        self.cm = plt.get_cmap(colormapname)
+        self.clear_frames = True
+        self.fps = fps
+        self.thickness=1
+        self.max_norm = max_norm
+        self.classification=classification
+        self.pruning=pruning
+        
+
+        self.fig, self.ax = plt.subplots(figsize=(width,height), dpi=self.dpi) # note we must use plt.subplots, not plt.subplot 
+
+        architecture_weights, total_trainable_weights, cell_weights = network.ArchitectureWeights()
+        self.height = 0
+        self.width = 0
+        for i,  cell, in enumerate(cell_weights):
+            for j, step in enumerate(cell['cell_weight']):
+                self.width += self.lenght
+                self.height = max(self.height, self.thickness*len(step))
+
+        # Output video writer
+        metadata = dict(title='self.title', artist='Matplotlib', comment='Plot neural architecture search')
+        self.writer = FFMpegWriter(fps=self.fps, metadata=metadata)
+        self.writer.setup(self.fig, self.save_video)
+    def __del__(self):
+        self.finish()
+
+    def plot(self, network, index = None):
+
+        img = np.zeros([self.height,self.width,3]).astype(np.uint8)
+        
+        #self.ax.clear()
+        
+        if index:
+            title = '{} {}'.format(self.title, index)
+        else:
+            title = self.title
+
+        #self.ax.set_title(title)
+        #xMax = 1.0
+        #yMax = 1.0
+         
+        #classify.cells[0].cnn[0].channel_scale.grad
+        #torch.linalg.norm(classify.cells[0].cnn[0].conv.weight.grad , dim=(1,2,3))/np.sqrt(np.product(classify.cells[0].cnn[0].conv.weight.grad.shape[1:]))
+
+        for i,  cell, in enumerate(network.cells):
+            for j, convbr in enumerate(cell.cnn):
+                norm_weight_grad = torch.linalg.norm(convbr.conv.weight.grad , dim=(1,2,3))/np.sqrt(np.product(convbr.conv.weight.grad.shape[1:]))
+                
+                numSums = 0
+                grads = torch.zeros_like(norm_weight_grad)
+                if self.classification:
+                    grads += norm_weight_grad
+                    numSums += 1
+                if self.pruning:
+                    channel_grad = torch.abs(convbr.channel_scale.grad)
+                    grads += channel_grad
+                    numSums += 1
+
+                if numSums > 0:
+                    grads /= (numSums*self.max_norm)
+
+                x = i*self.lenght*len(cell.cnn)+j*self.lenght
+
+                for k, gain in enumerate(grads.cpu().detach().numpy()):
+                    
+                    y = int(k*self.thickness+self.thickness/2)
+                    start_point = (x,y)
+                    end_point=(x+self.lenght,y)
+
+                    color = 255*np.array(self.cm(gain))
+                    color = color.astype('uint8')
+                    colorbgr = (int(color[2]), int(color[1]), int(color[0]))
+
+                    cv2.line(img,start_point,end_point,colorbgr,self.thickness)
+
+        #self.fig.savefig(self.save_image)
+        cv2.imwrite(self.save_image, img)
+        #self.writer.grab_frame()
+
+    def finish(self):
+        print('PlotGradients finish')
+        #self.writer.finish()
+
 
 # Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
 def Test(args):
@@ -886,8 +1002,24 @@ def Test(args):
         device = "cuda"
         pin_memory = True
 
+    class AddGaussianNoise(object):
+        def __init__(self, mean=0., std=1.):
+            self.std = std
+            self.mean = mean
+            
+        def __call__(self, tensor):
+            return tensor + torch.randn(tensor.size()) * self.std + self.mean
+        
+        def __repr__(self):
+            return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
+
     # Load dataset
-    transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+    transform = transforms.Compose([transforms.RandomHorizontalFlip(),
+        transforms.RandomAffine(degrees=10, translate=(.25, .25), scale=(.75, 1.25), interpolation=transforms.InterpolationMode.BILINEAR),
+        transforms.ToTensor(), 
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        AddGaussianNoise(0., 0.1)
+    ])
 
     trainingset = torchvision.datasets.CIFAR10(root=args.dataset_path, train=True, download=True, transform=transform)
     train_batches=int(trainingset.__len__()/args.batch_size)
@@ -933,9 +1065,10 @@ def Test(args):
     # Define a Loss function and optimizer
     target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32)
     criterion = TotalLoss(args.cuda, k_structure=args.k_structure, target_structure=target_structure, search_structure=args.search_structure)
-   #optimizer = optim.SGD(classify.parameters(), lr=0.001, momentum=0.9)
+    #optimizer = optim.SGD(classify.parameters(), lr=args.learning_rate)
     optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate)
     plotsearch = PlotSearch(classify)
+    plotgrads = PlotGradients(classify)
     iSample = 0
 
         # Train
@@ -980,7 +1113,7 @@ def Test(args):
                         inputs = inputs.cuda()
                         labels = labels.cuda()
 
-                    optimizer.zero_grad()
+                    #optimizer.zero_grad()
                     outputs = classify(inputs)
                     classifications = torch.argmax(outputs, 1)
                     results = (classifications == labels).float()
@@ -1000,7 +1133,8 @@ def Test(args):
                         epoch + 1, i + 1, training_accuracy, test_accuracy, running_loss, loss, arcitecture_reduction))
                     running_loss = 0.0
 
-                    plotsearch.plot_weights(cell_weights)
+                    plotsearch.plot(cell_weights)
+                    plotgrads.plot(classify)
 
                 iSave = 2000
                 if i % iSave == iSave-1:    # print every 20 mini-batches

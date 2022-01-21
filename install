@@ -25,6 +25,7 @@ def parse_arguments():
     parser.add_argument('-namespace', type=str, default='ml',help='Install namespace')
     parser.add_argument('-version', type=str, default='latest', help='Version number')
     parser.add_argument('-timeout', type=str, default='1m0s', help='Version number')
+    parser.add_argument('-helmpath', type=str, default='./helm/mllib', help='Version number')
 
     args = parser.parse_args()
 
@@ -42,8 +43,11 @@ def main(args):
     initial = datetime.now()
     print("Install mllib version: {}".format(args.version))
 
-    cmdstr = "microk8s.helm3 upgrade mllib ./helm/mllib -i --create-namespace --namespace {} --set release={} --wait --timeout {} ".format(
-        args.namespace, args.version, args.timeout)
+    cmdstr = "microk8s.helm3 dependency update {}".format(args.helmpath)
+    result = cmd(cmdstr)
+
+    cmdstr = "microk8s.helm3 upgrade mllib {} -i --create-namespace --namespace {} --set release={} --wait --timeout {} ".format(
+        args.helmpath, args.namespace, args.version, args.timeout)
     if args.dev:
         cmdstr = "{} -f helm/values_dev.yaml".format(cmdstr)
 

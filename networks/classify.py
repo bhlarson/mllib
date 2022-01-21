@@ -45,13 +45,13 @@ def parse_arguments():
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
     parser.add_argument('-model', type=str, default='model')
 
-    parser.add_argument('-learning_rate', type=float, default=0.01, help='Training learning rate')
+    parser.add_argument('-learning_rate', type=float, default=0.0001, help='Training learning rate')
     parser.add_argument('-batch_size', type=int, default=50, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=100, help='Training epochs')
+    parser.add_argument('-epochs', type=int, default=25, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
-    parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default='wrn_20220117_00')
+    parser.add_argument('-model_src', type=str,  default='wrn_20220117_sgd_03')
+    parser.add_argument('-model_dest', type=str, default='wrn_20220117_sgd_04')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-k_structure', type=float, default=1.0e2, help='Structure minimization weighting fator')
     parser.add_argument('-target_structure', type=float, default=1.0e-1, help='Structure minimization weighting fator')
@@ -166,8 +166,8 @@ def Test(args):
 
 
     # Define a Loss function and optimizer
-    #optimizer = optim.SGD(classify.parameters(), lr=args.learning_rate)
-    optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate)
+    optimizer = optim.SGD(classify.parameters(), lr=args.learning_rate, momentum=0.9)
+    #optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate)
     loss_metric = nn.CrossEntropyLoss()
     iSample = 0
 

@@ -43,8 +43,6 @@ RUN pip3 --no-cache-dir install \
         onnxruntime-gpu \
         pycuda \
         PyYAML \
-        ffmpeg \
-        ffmpeg-python \
         mlflow
 
 # ZED Python API https://stackoverflow.com/a/63457606/7036639

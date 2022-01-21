@@ -32,8 +32,7 @@ RUN pip3 --no-cache-dir install \
         onnx \
         onnxruntime-gpu \
         pycuda \
-        PyYAML \
-        jsonpickle
+        PyYAML
 
 
 
@@ -42,7 +41,6 @@ RUN echo 'alias py=python' >> ~/.bashrc
 COPY README.md /app/README.md
 COPY datasets /app/datasets/
 COPY networks /app/networks/
-COPY segment /app/segment/
 COPY utils /app/utils/
 COPY creds.json /app/creds.json
 
@@ -54,4 +52,4 @@ EXPOSE 6006
 EXPOSE 3000
 
 # Launch training
-ENTRYPOINT ["python", "networks/network2d.py"]
+ENTRYPOINT ["python", "networks/cell2d.py"]

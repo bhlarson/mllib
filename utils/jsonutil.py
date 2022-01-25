@@ -43,7 +43,7 @@ def ReadDictYaml(filepath):
     return yamldict
 
 def ReadDict(filepath):
-    ext = os.path.splitext(filepath)
+    ext = os.path.splitext(filepath)[-1]
     readDict = None
     if ext=='.yaml':
         readDict = ReadDictYaml(filepath)

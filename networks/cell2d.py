@@ -22,10 +22,11 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FFMpegWriter
 import cv2
 from mlflow import log_metric, log_param, log_artifacts
+import adabound
 
 sys.path.insert(0, os.path.abspath(''))
 from utils.torch_util import count_parameters, model_stats, model_weights
-from utils.jsonutil import ReadDictJson
+from utils.jsonutil import ReadDictJson, WriteDictJson
 from utils.s3 import s3store, Connect
 from torch.utils.tensorboard import SummaryWriter
 from networks.totalloss import TotalLoss
@@ -60,7 +61,6 @@ class ConvBR(nn.Module):
                  padding_mode='zeros',
                  weight_gain = 11.0,
                  convMaskThreshold=0.5,
-                 definition=None,
                  dropout_rate=0.2,
                  sigmoid_scale = 5.0, # Channel sigmoid scale fatctor
                  search_structure=True,
@@ -85,10 +85,6 @@ class ConvBR(nn.Module):
         self.sigmoid_scale = sigmoid_scale
         self.search_structure = search_structure
         self.residual = residual
-
-        if definition is not None:
-            for key in definition:
-                self[key] = definition[key]
 
         
         self.channel_scale = nn.Parameter(torch.ones(self.out_channels, dtype=torch.float))
@@ -118,25 +114,6 @@ class ConvBR(nn.Module):
             elif self.batch_norm and self.batchnorm2d and isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
-
-    def definition(self):
-        definition_dict = {
-            'in_channelss': self.in_channels,
-            'out_channels': self.out_channels, 
-            'batch_norm': self.batch_norm,
-            'relu': self.relu, 
-            'weight_gain': self.weight_gain,
-            'convMaskThreshold': self.convMaskThreshold,
-            'kernel_size': self.kernel_size,
-            'stride': self.stride,
-            'dilation': self.dilation,
-            'groups': self.groups,
-        }
-
-        #dfn = deepcopy(self.__dict__)
-        #dfn['depth'] = self.depth.item()
-
-        return definition_dict
 
     def forward(self, x, isTraining=False):
         if self.out_channels > 0:
@@ -193,8 +170,8 @@ class ConvBR(nn.Module):
         if weight_mask:
             norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
             conv_mask = torch.tanh(self.weight_gain*norm)
-            conv_mask += self.sigmoid(self.sigmoid_scale*self.channel_scale)
-            conv_mask = conv_mask/2.0 > self.convMaskThreshold
+            conv_mask *= self.sigmoid(self.sigmoid_scale*self.channel_scale)
+            conv_mask = conv_mask > self.convMaskThreshold
         else:
             conv_mask = torch.ones(self.conv.weight.shape[0], dtype=torch.bool, device=self.conv.weight.device)
 
@@ -253,7 +230,6 @@ class Cell(nn.Module):
                  weight_gain = 11.0,
                  convMaskThreshold=0.5,
                  convolutions=[{'out_channels':64, 'kernel_size': 3, 'stride': 1, 'dilation': 1}],
-                 definition=None,
                  dropout_rate = 0.2,
                  sigmoid_scale = 5.0
                  ):
@@ -282,22 +258,12 @@ class Cell(nn.Module):
         self.dropout_rate = dropout_rate
         self.sigmoid_scale=sigmoid_scale
 
-        if definition is not None:
-            for key in definition:
-                self.__dict__[key] = definition[key]
-                
-            if 'cell_convolution' in definition:
-                self.cell_convolution = nn.Parameter(torch.tensor(definition['cell_convolution'], dtype=torch.float))
-
         self.cnn = torch.nn.ModuleList()
 
         # First convolution uses in1_channels+in2_channels is input chanels. 
         # Remaining convoutions uses out_channels as chanels
 
         convdfn = None
-        if definition is not None and 'conv_size' in definition:
-            convdfn = definition['conv_size']
-
         src_channels = self.in1_channels+self.in2_channels
 
         totalStride = 1
@@ -305,8 +271,6 @@ class Cell(nn.Module):
 
         for i, convdev in enumerate(convolutions):
             convdfn = None
-            if definition is not None and 'cnn' in definition and i < len(definition['cnn']):
-                convdfn = definition['cnn'][i]
 
             conv = ConvBR(src_channels, convdev['out_channels'], 
                 batch_norm=self.batch_norm, 
@@ -319,7 +283,6 @@ class Cell(nn.Module):
                 padding_mode=self.padding_mode,
                 weight_gain=self.weight_gain,
                 convMaskThreshold=self.convMaskThreshold, 
-                definition=convdfn,
                 dropout_rate=self.dropout_rate,
                 search_structure=self.search_structure,
                 sigmoid_scale = self.sigmoid_scale,
@@ -342,47 +305,12 @@ class Cell(nn.Module):
             padding_mode=self.padding_mode,
             weight_gain=self.weight_gain,
             convMaskThreshold=self.convMaskThreshold, 
-            definition=convdfn,
             dropout_rate=self.dropout_rate,
             search_structure=False,
             residual=True)
 
         self._initialize_weights()
         self.total_trainable_weights = model_weights(self)
-
-
-    def definition(self):
-        definition_dict = {
-            'in1_channels': self.in1_channels, 
-            'in2_channels': self.in2_channels,
-            'batch_norm': self.batch_norm,
-            'relu': self.relu,
-            'kernel_size': self.kernel_size,
-            'stride': self.stride,
-            'padding': self.padding,
-            'dilation': self.dilation,
-            'groups': self.groups,
-            'bias': self.bias,
-            'padding_mode': self.padding_mode,
-            'residual': self.residual,
-            'is_cuda': self.is_cuda,
-            'feature_threshold': self.feature_threshold,
-            'search_structure': self.search_structure,
-            'cell_convolution': self.cell_convolution.item(),
-            'total_trainable_weights': self.total_trainable_weights,
-        }
-
-        # definition_dict['conv_size'] = self.conv_size.definition()
-        definition_dict['cnn'] = []
-        if self.cnn is not None:
-            for conv in self.cnn:
-                definition_dict['cnn'].append(conv.definition())
-        #definition_dict['conv1x1'] = self.conv1x1.definition()
-
-        #dfn = deepcopy(self.__dict__)
-        #dfn['cell_convolution'] = self.cell_convolution.item()
-
-        return definition_dict
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -391,7 +319,6 @@ class Cell(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
-
 
     def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None, msg=None):
 
@@ -604,12 +531,12 @@ def ResnetCells(size = Resnet.layers_50):
     bottlenecks = {
         'layers_18': False, 
         'layers_34': False, 
-        #'layers_50': True, 
-        #'layers_101': True, 
-        #'layers_152': True
-        'layers_50': False, 
-        'layers_101': False, 
-        'layers_152': False
+        'layers_50': True, 
+        'layers_101': True, 
+        'layers_152': True
+        #'layers_50': False, 
+        #'layers_101': False, 
+        #'layers_152': False
         }
 
     resnet_cells = []
@@ -638,7 +565,7 @@ def ResnetCells(size = Resnet.layers_50):
 class Classify(nn.Module):
     def __init__(self, convolutions, 
     is_cuda=False, source_channels = 3, out_channels = 10, initial_channels=16, 
-    batch_norm=True, weight_gain=11, convMaskThreshold=0.5, definition=None, 
+    batch_norm=True, weight_gain=11, convMaskThreshold=0.5, 
     dropout_rate=0.2, search_structure = True, sigmoid_scale=5.0,):
         super().__init__()
         self.is_cuda = is_cuda
@@ -651,10 +578,6 @@ class Classify(nn.Module):
         self.dropout_rate = dropout_rate
         self.search_structure = search_structure
         self.sigmoid_scale = sigmoid_scale
-
-        if definition is not None:
-            for key in definition:
-                self.__dict__[key] = definition[key]
                 
         self.cells = torch.nn.ModuleList()
         in_channels = self.source_channels
@@ -662,9 +585,6 @@ class Classify(nn.Module):
         for i, cell_convolutions in enumerate(convolutions):
 
             convdfn = None
-            if definition is not None and 'cells' in definition:
-                if len(definition['cells']) > i:
-                    convdfn = definition['cells'][i] 
 
             cell = Cell(in1_channels=in_channels, 
                 batch_norm=self.batch_norm,
@@ -672,7 +592,6 @@ class Classify(nn.Module):
                 weight_gain = self.weight_gain,
                 convMaskThreshold = self.convMaskThreshold,
                 convolutions=cell_convolutions,  
-                definition=convdfn,
                 dropout_rate=self.dropout_rate, 
                 search_structure=self.search_structure, 
                 sigmoid_scale=self.sigmoid_scale)
@@ -686,31 +605,6 @@ class Classify(nn.Module):
         self.total_trainable_weights = model_weights(self)
 
         self.fc_weights = model_weights(self.fc)
-
-    def definition(self):
-        definition_dict = {
-            'source_channels': self.source_channels,
-            'out_channels': self.out_channels,
-            'initial_channels': self.initial_channels,
-            'is_cuda': self.is_cuda,
-            #'min_search_depth': self.min_search_depth,
-            #'max_search_depth': self.max_search_depth,
-            #'max_cell_steps': self.max_cell_steps,
-            #'channel_multiple': self.channel_multiple,
-            #'batch_norm': self.batch_norm,
-            #'search_structure': self.search_structure,
-            #'cell_convolution': self.cell_convolution.item(),
-            'cells': [],
-        }
-
-        for ed in self.cells:
-            definition_dict['cells'].append(ed.definition())
-
-        architecture_weights, total_trainable_weights, cell_weights = self.ArchitectureWeights()
-        definition_dict['architecture_weights']= architecture_weights.item()
-        definition_dict['total_trainable_weights']= total_trainable_weights
-
-        return definition_dict
 
     def ApplyStructure(self):
         in_channel_mask = None
@@ -750,6 +644,28 @@ class Classify(nn.Module):
 
         return architecture_weights, self.total_trainable_weights, cell_weights
 
+    def Parameters(self):
+        current_weights = model_weights(self)
+        if self.total_trainable_weights > 0:
+            remnent =  model_weights(self)/self.total_trainable_weights
+        else:
+            remnent = None
+
+            
+        return current_weights, self.total_trainable_weights, remnent
+
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, int):
+        return not(v==0)
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
 
@@ -757,22 +673,31 @@ def parse_arguments():
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
     parser.add_argument('-fast', action='store_true', help='Fast run with a few iterations')
-
+    parser.add_argument('-description', type=str, default="", help='Training description to record with resuts')
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
+
+    parser.add_argument('-prune', type=str2bool, default=True)
+    parser.add_argument('-train', type=str2bool, default=True)
+    parser.add_argument('-infer', type=str2bool, default=True)
+    parser.add_argument('-search_structure', type=str2bool, default=True)
+    parser.add_argument('-onnx', type=str2bool, default=True)
+    parser.add_argument('-job', action='store_true',help='Run as job')
+
+    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152], default=50, help='Run description')
 
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
     parser.add_argument('-model', type=str, default='model')
 
     parser.add_argument('-learning_rate', type=float, default=1e-2, help='Training learning rate')
     parser.add_argument('-batch_size', type=int, default=400, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=50, help='Training epochs')
+    parser.add_argument('-epochs', type=int, default=125, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
     parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default='nas_20220119_rn50_00')
+    parser.add_argument('-model_dest', type=str, default="crisp20220125_00")
     parser.add_argument('-cuda', type=bool, default=True)
-    parser.add_argument('-k_structure', type=float, default=1.0e1, help='Structure minimization weighting fator')
-    parser.add_argument('-target_structure', type=float, default=1.0e0, help='Structure minimization weighting fator')
+    parser.add_argument('-k_structure', type=float, default=1.0e0, help='Structure minimization weighting fator')
+    parser.add_argument('-target_structure', type=float, default=0.0e0, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=True)
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probabability gain')
     parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')
@@ -786,19 +711,12 @@ def parse_arguments():
     parser.add_argument('-augment_translate_y', type=float, default=0.1, help='Input augmentation rotation degrees')
     parser.add_argument('-augment_noise', type=float, default=0.1, help='Input augmentation rotation degrees')
 
-    parser.add_argument('-prune', type=bool, default=False)
-    parser.add_argument('-train', type=bool, default=True)
-    parser.add_argument('-infer', type=bool, default=True)
-    parser.add_argument('-search_structure', type=bool, default=True)
-    parser.add_argument('-onnx', type=bool, default=True)
-
+    parser.add_argument('-resultspath', type=str, default=None)
     parser.add_argument('-test_dir', type=str, default=None)
-    parser.add_argument('-tensorboard_dir', type=str, default='/store/test/nassegtb', 
+    parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir /store/test/nassegtb --bind_all')
 
-    parser.add_argument('-description', type=json.loads, default='{"description":"Cell 2D NAS classification"}', help='Run description')
 
-    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152], default=50, help='Run description')
 
     args = parser.parse_args()
     return args
@@ -808,19 +726,14 @@ def save(model, s3, s3def, args):
     model.zero_grad(set_to_none=True)
     torch.save(model, out_buffer)
     s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), out_buffer)
-    #s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), model.definition())
 
 class PlotSearch():
-    def __init__(self, network, save_image = 'class_weights.png', save_video = 'class_weights.mp4', title = 'Architecture Weights', colormapname = 'jet', lenght = 5, width=7.5, height=20, dpi=1200, fps=2 ):
-
-        self.save_image = save_image
-        self.save_video = save_video
+    def __init__(self, network, title = 'Architecture Weights', colormapname = 'jet', lenght = 5, width=7.5, height=20, dpi=1200, fps=2 ):
         self.title = title
         self.colormapname = colormapname
         self.lenght = int(lenght)
         self.dpi = dpi
         self.cm = plt.get_cmap(colormapname)
-        self.clear_frames = True
         self.fps = fps
         self.thickness=1
 
@@ -834,13 +747,6 @@ class PlotSearch():
                 self.width += self.lenght
                 self.height = max(self.height, self.thickness*len(step))
 
-        # Output video writer
-        metadata = dict(title='self.title', artist='Matplotlib', comment='Plot neural architecture search')
-        self.writer = FFMpegWriter(fps=self.fps, metadata=metadata)
-        self.writer.setup(self.fig, self.save_video)
-    def __del__(self):
-        self.finish()
-
     def plot(self, weights, index = None):
 
         img = np.zeros([self.height,self.width,3]).astype(np.uint8)
@@ -850,12 +756,7 @@ class PlotSearch():
         if index:
             title = '{} {}'.format(self.title, index)
         else:
-            title = self.title
-
-        #self.ax.set_title(title)
-        #xMax = 1.0
-        #yMax = 1.0
-         
+            title = self.title        
 
         for i,  cell, in enumerate(weights):
             prune_weight = cell['prune_weight'].cpu().detach().numpy()
@@ -874,33 +775,19 @@ class PlotSearch():
                     colorbgr = (int(color[2]), int(color[1]), int(color[0]))
 
                     cv2.line(img,start_point,end_point,colorbgr,self.thickness)
-                    #cv2.line(img, start_point=start_point, end_point=end_point, color=colorbgr, thickness=thickness)
-                    
-                    #circleXMax = i*self.lenght*len(cell['cell_weight'])+(j+1)*self.lenght
-                    #circleYMax = (k+1)*self.lenght
 
-                    #if circleXMax > xMax:
-                    #    xMax = circleXMaxTotal Trainable Params: 27620940
+        #cv2.putText(img,title,(int(0.25*self.width), 30), cv2.FONT_HERSHEY_COMPLEX, fontScale=1, color=(255, 0, 0))
 
-        #self.fig.savefig(self.save_image)
-        cv2.imwrite(self.save_image, img)
-        #self.writer.grab_frame()
-
-    def finish(self):
-        print('PlotSearch finish')
-        #self.writer.finish()
+        return img
 
 class PlotGradients():
-    def __init__(self, network, save_image = 'gradient_norm.png', save_video = 'gradient_norm.mp4', title = 'Gradient Norm', colormapname = 'jet', lenght = 5, width=7.5, height=20, dpi=1200, fps=2, max_norm=1.0e-3, classification=True, pruning=True ):
+    def __init__(self, network, title = 'Gradient Norm', colormapname = 'jet', lenght = 5, width=7.5, height=20, dpi=1200, fps=2, max_norm=1.0e-3, classification=True, pruning=True ):
 
-        self.save_image = save_image
-        self.save_video = save_video
         self.title = title
         self.colormapname = colormapname
         self.lenght = int(lenght)
         self.dpi = dpi
         self.cm = plt.get_cmap(colormapname)
-        self.clear_frames = True
         self.fps = fps
         self.thickness=1
         self.max_norm = max_norm
@@ -918,30 +805,14 @@ class PlotGradients():
                 self.width += self.lenght
                 self.height = max(self.height, self.thickness*len(step))
 
-        # Output video writer
-        metadata = dict(title='self.title', artist='Matplotlib', comment='Plot neural architecture search')
-        self.writer = FFMpegWriter(fps=self.fps, metadata=metadata)
-        self.writer.setup(self.fig, self.save_video)
-    def __del__(self):
-        self.finish()
-
     def plot(self, network, index = None):
 
         img = np.zeros([self.height,self.width,3]).astype(np.uint8)
-        
-        #self.ax.clear()
         
         if index:
             title = '{} {}'.format(self.title, index)
         else:
             title = self.title
-
-        #self.ax.set_title(title)
-        #xMax = 1.0
-        #yMax = 1.0
-         
-        #classify.cells[0].cnn[0].channel_scale.grad
-        #torch.linalg.norm(classify.cells[0].cnn[0].conv.weight.grad , dim=(1,2,3))/np.sqrt(np.product(classify.cells[0].cnn[0].conv.weight.grad.shape[1:]))
 
         for i,  cell, in enumerate(network.cells):
             if cell.cnn is not None:
@@ -975,13 +846,9 @@ class PlotGradients():
 
                         cv2.line(img,start_point,end_point,colorbgr,self.thickness)
 
-        #self.fig.savefig(self.save_image)
-        cv2.imwrite(self.save_image, img)
-        #self.writer.grab_frame()
+        #cv2.putText(img,title,(int(0.25*self.width), 30), cv2.FONT_HERSHEY_COMPLEX, fontScale=1, color=(255, 0, 0))
 
-    def finish(self):
-        print('PlotGradients finish')
-        #self.writer.finish()
+        return img
 
 
 # Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
@@ -989,23 +856,28 @@ def Test(args):
     import torchvision
     import torchvision.transforms as transforms
 
-
-    for arg in vars(args):
-        log_param(arg, getattr(args, arg))
-
-    system = {
+    test_results={}
+    test_results['system'] = {
         'platform':platform.platform(),
         'python':platform.python_version(),
-        'numpy version': sys.modules['numpy'].__version__,
+        'numpy': np.__version__,
+        'torch': torch.__version__,
+        'OpenCV': cv2.__version__,
     }
+    print('Cell Test system={}'.format(test_results['system'] ))
 
-    print('Cell Test system={}'.format(system))
+    test_results['args'] = {}
+    for arg in vars(args):
+        log_param(arg, getattr(args, arg))
+        test_results['args'][arg]=getattr(args, arg)
+
+    print('arguments={}'.format(test_results['args']))
 
     torch.autograd.set_detect_anomaly(True)
 
     s3, creds, s3def = Connect(args.credentails)
 
-    classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+    test_results['classes'] = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
     if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0):
         os.makedirs(args.tensorboard_dir, exist_ok=True)
@@ -1084,18 +956,21 @@ def Test(args):
     target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32)
     criterion = TotalLoss(args.cuda, k_structure=args.k_structure, target_structure=target_structure, search_structure=args.search_structure)
     #optimizer = optim.SGD(classify.parameters(), lr=args.learning_rate)
-    optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate)
+    #optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate)
+    optimizer = adabound.AdaBound(classify.parameters(), lr=args.learning_rate, final_lr=args.learning_rate)
     plotsearch = PlotSearch(classify)
     plotgrads = PlotGradients(classify)
     iSample = 0
 
-        # Train
+    # Train
+    test_results['train'] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'arcitecture_reduction':[]}
+    test_results['test'] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'arcitecture_reduction':[], 'accuracy':[]}
     if args.train:
-        for epoch in tqdm(range(args.epochs), desc="Train epochs"):  # loop over the dataset multiple times
+        for epoch in tqdm(range(args.epochs), desc="Train epochs", disable=args.job):  # loop over the dataset multiple times
             iTest = iter(testloader)
 
             running_loss = 0.0
-            for i, data in tqdm(enumerate(trainloader), total=trainingset.__len__()/args.batch_size, desc="Train steps"):
+            for i, data in tqdm(enumerate(trainloader), total=trainingset.__len__()/args.batch_size, desc="Train steps", disable=args.job):
                 # get the inputs; data is a list of [inputs, labels]
                 inputs, labels = data
 
@@ -1117,6 +992,10 @@ def Test(args):
                 writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, iSample)
                 writer.add_scalar('architecture_loss/train', architecture_loss, iSample)
                 writer.add_scalar('arcitecture_reduction/train', arcitecture_reduction, iSample)
+                #test_results['train']['loss'].append(loss.item())
+                #test_results['train']['cross_entropy_loss'].append(cross_entropy_loss.item())
+                #test_results['train']['architecture_loss'].append(architecture_loss.item())
+                #test_results['train']['arcitecture_reduction'].append(arcitecture_reduction.item())
 
                 if i % test_freq == test_freq-1:    # Save image and run test
 
@@ -1139,6 +1018,15 @@ def Test(args):
 
                     loss, cross_entropy_loss, architecture_loss, arcitecture_reduction, cell_weights  = criterion(outputs, labels, classify)
 
+                    running_loss /=test_freq
+                    msg = '[{:3}/{}, {:6d}/{}]  accuracy: {:03f}|{:03f} loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test)'.format(
+                        epoch + 1,args.epochs, i + 1, trainingset.__len__()/args.batch_size, training_accuracy, test_accuracy, running_loss, loss, arcitecture_reduction)
+                    if args.job is True:
+                        print(msg)
+                    else:
+                        tqdm.write(msg)
+                    running_loss = 0.0
+
                     writer.add_scalar('accuracy/train', training_accuracy, iSample)
                     writer.add_scalar('accuracy/test', test_accuracy, iSample)
                     writer.add_scalar('loss/test', loss, iSample)
@@ -1146,15 +1034,17 @@ def Test(args):
                     writer.add_scalar('architecture_loss/test', architecture_loss, iSample)
                     writer.add_scalar('arcitecture_reduction/train', arcitecture_reduction, iSample)
 
-                    log_metric("accuracy/test", test_accuracy.item())
+                    test_results['train']['loss'].append(running_loss)
+                    #test_results['test']['loss'].append(loss)
+                    #test_results['test']['cross_entropy_loss'].append(cross_entropy_loss.item())
+                    #test_results['test']['architecture_loss'].append(architecture_loss.item())
+                    test_results['test']['arcitecture_reduction'].append(arcitecture_reduction.item())
+                    test_results['test']['accuracy'].append(test_accuracy.item())
 
-                    running_loss /=test_freq
-                    tqdm.write('Test [{}, {:06f}] training accuracy={:03f} test accuracy={:03f} training loss={:0.5e}, test loss={:0.5e} arcitecture_reduction: {:0.5e}'.format(
-                        epoch + 1, i + 1, training_accuracy, test_accuracy, running_loss, loss, arcitecture_reduction))
-                    running_loss = 0.0
+                    log_metric("accuracy", test_accuracy.item())
 
-                    plotsearch.plot(cell_weights)
-                    plotgrads.plot(classify)
+                    cv2.imwrite('class_weights.png', plotsearch.plot(cell_weights))
+                    cv2.imwrite('gradient_norm.png', plotgrads.plot(classify))
 
                 iSave = 2000
                 if i % iSave == iSave-1:    # print every 20 mini-batches
@@ -1164,6 +1054,20 @@ def Test(args):
                     break
 
                 iSample += 1
+
+            compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
+            img = plotsearch.plot(cell_weights)
+            is_success, buffer = cv2.imencode(".png", img, compression_params)
+            img_enc = io.BytesIO(buffer).read()
+            filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+            s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+
+            # Plot gradients before saving which clears the gradients
+            img = plotgrads.plot(classify)
+            is_success, buffer = cv2.imencode(".png", img)  
+            img_enc = io.BytesIO(buffer).read()
+            filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+            s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
 
             save(classify, s3, s3def, args)
 
@@ -1188,6 +1092,13 @@ def Test(args):
         accuracy /= args.batch_size*int(testset.__len__()/args.batch_size)
         log_metric("test_accuracy", accuracy)
         print("test_accuracy={}".format(accuracy))
+        test_results['test_accuracy'] = accuracy
+        test_results['current_weights'], test_results['original_weights'], test_results['remnent'] = classify.Parameters()
+
+        s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}/{}_results.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), test_results)
+
+    if args.resultspath is not None and len(args.resultspath) > 0:
+        WriteDictJson(test_results, args.resultspath)
 
     print('Finished cell2d Test')
     return 0

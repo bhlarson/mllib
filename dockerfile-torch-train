@@ -32,7 +32,9 @@ RUN pip3 --no-cache-dir install \
         onnx \
         onnxruntime-gpu \
         pycuda \
-        PyYAML
+        PyYAML \
+        mlflow \
+        adabound
 
 
 

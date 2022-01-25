@@ -886,7 +886,7 @@ def Test(args):
     device = "cpu"
     pin_memory = False
     if args.cuda:
-        device = "cuda"
+        device = torch.device('cuda')
         pin_memory = True
 
     class AddGaussianNoise(object):
@@ -943,14 +943,25 @@ def Test(args):
             print('Failed to load model {}. Exiting.'.format(args.model_src))
             return -1
 
-    #sepcificy device for model
-    classify.to(device)
-
     if args.prune:
         classify.ApplyStructure()
         reduced_parameters = count_parameters(classify)
         print('Reduced parameters {}/{} = {}'.format(reduced_parameters, total_parameters, reduced_parameters/total_parameters))
         save(classify, s3, s3def, args)
+
+    # Enable multi-gpu processing
+    if torch.cuda.device_count() > 1:
+        print("Let's use", torch.cuda.device_count(), "GPUs!")
+        # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+        model = nn.DataParallel(classify)
+        classify = model.module
+    else:
+        model = classify
+
+    #sepcificy device for model
+    classify.to(device)
+
+
 
     # Define a Loss function and optimizer
     target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32)
@@ -980,7 +991,7 @@ def Test(args):
 
                 # zero the parameter gradients
                 optimizer.zero_grad()
-                outputs = classify(inputs, isTraining=True)
+                outputs = model(inputs, isTraining=True)
                 loss, cross_entropy_loss, architecture_loss, arcitecture_reduction, cell_weights  = criterion(outputs, labels, classify)
                 loss.backward()
                 optimizer.step()
@@ -1011,7 +1022,7 @@ def Test(args):
                         labels = labels.cuda()
 
                     #optimizer.zero_grad()
-                    outputs = classify(inputs)
+                    outputs = model(inputs)
                     classifications = torch.argmax(outputs, 1)
                     results = (classifications == labels).float()
                     test_accuracy = torch.sum(results)/len(results)

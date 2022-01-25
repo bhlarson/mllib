@@ -18,9 +18,9 @@ objectstore:
 workflow_server:
   name: workflow-server
   nodePort: 30992
-  image_workflow: quay.io/argoproj/workflow-controller:latest
-  image_cli: quay.io/argoproj/argocli:latest
-  image_exe: quay.io/argoproj/argoexec:latest
+  image_workflow: quay.io/argoproj/workflow-controller:v3.2.6
+  image_cli: quay.io/argoproj/argocli:v3.2.6
+  image_exe: quay.io/argoproj/argoexec:v3.2.6
   s3:
     bucket: workflows
     insecure: true

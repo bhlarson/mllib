@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/pytorch:21.11-py3
+FROM nvcr.io/nvidia/pytorch:21.12-py3-py3
 LABEL maintainer="Brad Larson"
 
 ENV TZ=America/Los_Angeles

@@ -1,0 +1,121 @@
+workflow: 
+  metadata:
+    generateName: crisp-
+  annotations:
+    workflows.argoproj.io/description: |
+      Perform a training sequence
+      Find parameter optimized network
+  spec:
+    arguments:
+      parameters:
+        - name: resultspath
+          value: /tmp/results.json
+        - name: train_image
+          value: 'localhost:32000/torch-train:latest'
+        - name: target_structure
+          value: 0.50
+        - name: log_name
+          value: t50
+        - name: batch_size
+          value: 1
+    entrypoint: train-crisp
+    templates:
+    - name: train-crisp
+      dag:
+        tasks:
+        - name: initial-train
+          template: train
+          arguments:
+            parameters: [
+              {name: prune, value: false},
+              {name: search_structure, value: true},
+              {name: target_structure, value: "{{workflow.parameters.target_structure}}"},
+              {name: epochs, value: 75},
+              {name: k_structure, value: 1e1},
+              {name: model_src, value: ""},
+              {name: model_dest, value: "crisp20220121_{{workflow.parameters.log_name}}_00"},
+              {name: description, value: "Simultaniously train network and prune weights"}]
+        - name: finetuning
+          dependencies: [initial-train]
+          template: train
+          arguments:
+            parameters: [
+              {name: prune, value: false},
+              {name: search_structure, value: true},
+              {name: target_structure, value: '{{workflow.parameters.target_structure}}'},
+              {name: epochs, value: 10},
+              {name: learning_rate, value: 1e-3},
+              {name: k_structure, value: 1e1},
+              {name: model_src, value: "crisp20220121_{{workflow.parameters.log_name}}_00"},
+              {name: model_dest, value: "crisp20220121_{{workflow.parameters.log_name}}_01"},
+              {name: description, value: "Fine training before pruning"}]
+        - name: prune
+          dependencies: [finetuning]
+          template: train
+          arguments:
+            parameters: [
+              {name: prune, value: true},
+              {name: search_structure, value: false},
+              {name: epochs, value: 25},
+              {name: model_src, value: "crisp20220121_{{workflow.parameters.log_name}}_01"},
+              {name: model_dest, value: "crisp20220121_{{workflow.parameters.log_name}}_02"},
+              {name: description, value: "Prune and corse training"}]
+        - name: final
+          dependencies: [prune]
+          template: train
+          arguments:
+            parameters: [
+              {name: prune, value: false},
+              {name: search_structure, value: false},
+              {name: epochs, value: 10},
+              {name: learning_rate, value: 1e-3},
+              {name: model_src, value: "crisp20220121_{{workflow.parameters.log_name}}_02"},
+              {name: model_dest, value: "crisp20220121_{{workflow.parameters.log_name}}_03"},
+              {name: description, value: "Final fine training"}]
+
+    - name: train
+      inputs:
+        parameters: [
+          {name: prune, value: false},
+          {name: search_structure, value: true},
+          {name: target_structure, value: 1.0},
+          {name: epochs, value: 10},
+          {name: k_structure, value: 1e1},
+          {name: learning_rate, value: 1e-2},
+          {name: model_src, value: ""},
+          {name: model_dest, value: "crisp00"},
+          {name: description, value: "Default network training"}]
+      outputs:
+        parameters:
+        - name: results        
+          valueFrom:
+            path: '{{workflow.parameters.resultspath}}'
+
+      container: 
+        image: '{{workflow.parameters.train_image}}'
+        command: 
+        -  python3
+        args: 
+        - networks/cell2d.py
+        - -prune={{inputs.parameters.prune}}
+        - -search_structure={{inputs.parameters.search_structure}}
+        - -target_structure={{inputs.parameters.target_structure}}
+        - -epochs={{inputs.parameters.epochs}}
+        - -k_structure={{inputs.parameters.k_structure}}
+        - -learning_rate={{inputs.parameters.learning_rate}}
+        - -model_src={{inputs.parameters.model_src}}
+        - -model_dest={{inputs.parameters.model_dest}}
+        - -description={{inputs.parameters.description}}
+        - -resultspath={{workflow.parameters.resultspath}}
+        - -batch_size={{workflow.parameters.batch_size}}
+        - -job
+        resources: 
+          requests:
+                ephemeral-storage: "40Gi"
+                "nvidia.com/gpu": '4'
+          limits:
+                ephemeral-storage: "40Gi"
+                "nvidia.com/gpu": '4'
+        retryStrategy:
+          limit: "3"
+          retryPolicy: "Always"

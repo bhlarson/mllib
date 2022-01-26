@@ -65,6 +65,7 @@ class ConvBR(nn.Module):
                  sigmoid_scale = 5.0, # Channel sigmoid scale fatctor
                  search_structure=True,
                  residual = False,
+                 dropout=False
                  ):
         super(ConvBR, self).__init__()
         self.in_channels = in_channels
@@ -85,6 +86,7 @@ class ConvBR(nn.Module):
         self.sigmoid_scale = sigmoid_scale
         self.search_structure = search_structure
         self.residual = residual
+        self.dropout = residual
 
         
         self.channel_scale = nn.Parameter(torch.ones(self.out_channels, dtype=torch.float))
@@ -115,10 +117,11 @@ class ConvBR(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, x, isTraining=False):
+    def forward(self, x):
         if self.out_channels > 0:
-            if isTraining:
+            if self.dropout:
                 x = self.dropout(x)
+                
             x = self.conv(x)
   
             if self.batch_norm:
@@ -387,13 +390,13 @@ class Cell(nn.Module):
 
         # Resizing convolution
         if self.conv_residual:
-            residual = self.conv_residual(u, isTraining)
+            residual = self.conv_residual(u)
             #residual = self.conv_residual(u)
 
         if self.cnn is not None:
             x = u
             for i, l in enumerate(self.cnn):
-                x = self.cnn[i](x, isTraining) 
+                x = self.cnn[i](x) 
 
             if self.conv_residual:
                 y = residual + x*torch.tanh(torch.abs(self.weight_gain*self.cell_convolution))
@@ -531,12 +534,12 @@ def ResnetCells(size = Resnet.layers_50):
     bottlenecks = {
         'layers_18': False, 
         'layers_34': False, 
-        'layers_50': True, 
-        'layers_101': True, 
-        'layers_152': True
-        #'layers_50': False, 
-        #'layers_101': False, 
-        #'layers_152': False
+        #'layers_50': True, 
+        #'layers_101': True, 
+        #'layers_152': True
+        'layers_50': False, 
+        'layers_101': False, 
+        'layers_152': False
         }
 
     resnet_cells = []
@@ -690,7 +693,7 @@ def parse_arguments():
 
     parser.add_argument('-learning_rate', type=float, default=1e-2, help='Training learning rate')
     parser.add_argument('-batch_size', type=int, default=400, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=125, help='Training epochs')
+    parser.add_argument('-epochs', type=int, default=100, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
     parser.add_argument('-model_src', type=str,  default=None)

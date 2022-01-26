@@ -6,7 +6,6 @@
     "dockerbuild":[
         {"name":"torch", "dockerfile":"dockerfile-torch", "context":"."},
         {"name":"torch-train", "dockerfile":"dockerfile-torch-train", "context":"."},
-        {"name":"workflowtest-py", "dockerfile":"dockerfile-workflow", "context":"."},
         {"name":"triton", "dockerfile":"dockerfile-triton", "context":"."},
         {"name":"mlflow", "dockerfile":"dockerfile-mlflow", "context":"."}
     ]

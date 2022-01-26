@@ -36,13 +36,13 @@ classify/
 config/
 cvat/
 containers/
-dataset/
+#dataset/
+dataset/cifar-10-batches-py/
 img/
 jupyter/
 None/
 triton/
 trt/
-dataset/
 record/
 
 

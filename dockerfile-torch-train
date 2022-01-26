@@ -44,7 +44,7 @@ COPY datasets datasets
 COPY networks networks
 COPY utils utils
 COPY creds.json creds.json
-#COPY ./dataset/cifar-10-python.tar.gz ./dataset/cifar-10-python.tar.gz
+COPY ./dataset/cifar-10-python.tar.gz ./dataset/cifar-10-python.tar.gz
 
 ENV LANG C.UTF-8
 # port 6006 exposes tensorboard

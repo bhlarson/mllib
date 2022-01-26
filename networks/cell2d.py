@@ -534,12 +534,12 @@ def ResnetCells(size = Resnet.layers_50):
     bottlenecks = {
         'layers_18': False, 
         'layers_34': False, 
-        #'layers_50': True, 
-        #'layers_101': True, 
-        #'layers_152': True
-        'layers_50': False, 
-        'layers_101': False, 
-        'layers_152': False
+        'layers_50': True, 
+        'layers_101': True, 
+        'layers_152': True
+        #'layers_50': False, 
+        #'layers_101': False, 
+        #'layers_152': False
         }
 
     resnet_cells = []

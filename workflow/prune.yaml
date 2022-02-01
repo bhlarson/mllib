@@ -2,7 +2,7 @@ workflow:
   metadata:
     generateName: crisp-
   annotations:
-    workflows.argoproj.io/description: |
+    workflows.ml.argoproj.io/description: |
       Perform a training sequence
       Find parameter optimized network
   spec:
@@ -13,9 +13,9 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: target_structure
-          value: 0.50
+          value: 0.125
         - name: log_name
-          value: t50
+          value: t12
         - name: batch_size
           value: 50
     entrypoint: train-crisp
@@ -30,10 +30,10 @@ workflow:
               {name: prune, value: false},
               {name: search_structure, value: true},
               {name: target_structure, value: "{{workflow.parameters.target_structure}}"},
-              {name: epochs, value: 75},
+              {name: epochs, value: 125},
               {name: k_structure, value: 1e1},
               {name: model_src, value: ""},
-              {name: model_dest, value: "crisp20220121_{{workflow.parameters.log_name}}_00"},
+              {name: model_dest, value: "crisp20220126_{{workflow.parameters.log_name}}_00"},
               {name: description, value: "Simultaniously train network and prune weights"}]
         - name: finetuning
           dependencies: [initial-train]
@@ -43,11 +43,11 @@ workflow:
               {name: prune, value: false},
               {name: search_structure, value: true},
               {name: target_structure, value: '{{workflow.parameters.target_structure}}'},
-              {name: epochs, value: 10},
+              {name: epochs, value: 25},
               {name: learning_rate, value: 1e-3},
               {name: k_structure, value: 1e1},
-              {name: model_src, value: "crisp20220121_{{workflow.parameters.log_name}}_00"},
-              {name: model_dest, value: "crisp20220121_{{workflow.parameters.log_name}}_01"},
+              {name: model_src, value: "crisp20220126_{{workflow.parameters.log_name}}_00"},
+              {name: model_dest, value: "crisp20220126_{{workflow.parameters.log_name}}_01"},
               {name: description, value: "Fine training before pruning"}]
         - name: prune
           dependencies: [finetuning]
@@ -57,8 +57,8 @@ workflow:
               {name: prune, value: true},
               {name: search_structure, value: false},
               {name: epochs, value: 25},
-              {name: model_src, value: "crisp20220121_{{workflow.parameters.log_name}}_01"},
-              {name: model_dest, value: "crisp20220121_{{workflow.parameters.log_name}}_02"},
+              {name: model_src, value: "crisp20220126_{{workflow.parameters.log_name}}_01"},
+              {name: model_dest, value: "crisp20220126_{{workflow.parameters.log_name}}_02"},
               {name: description, value: "Prune and corse training"}]
         - name: final
           dependencies: [prune]
@@ -67,10 +67,10 @@ workflow:
             parameters: [
               {name: prune, value: false},
               {name: search_structure, value: false},
-              {name: epochs, value: 10},
+              {name: epochs, value: 25},
               {name: learning_rate, value: 1e-3},
-              {name: model_src, value: "crisp20220121_{{workflow.parameters.log_name}}_02"},
-              {name: model_dest, value: "crisp20220121_{{workflow.parameters.log_name}}_03"},
+              {name: model_src, value: "crisp20220126_{{workflow.parameters.log_name}}_02"},
+              {name: model_dest, value: "crisp20220126_{{workflow.parameters.log_name}}_03"},
               {name: description, value: "Final fine training"}]
 
     - name: train
@@ -79,7 +79,7 @@ workflow:
           {name: prune, value: false},
           {name: search_structure, value: true},
           {name: target_structure, value: 1.0},
-          {name: epochs, value: 10},
+          {name: epochs, value: 25},
           {name: k_structure, value: 1e1},
           {name: learning_rate, value: 1e-2},
           {name: model_src, value: ""},
@@ -112,10 +112,10 @@ workflow:
         resources: 
           requests:
                 ephemeral-storage: "40Gi"
-                "nvidia.com/gpu": '4'
+                "nvidia.com/gpu": '1'
           limits:
                 ephemeral-storage: "40Gi"
-                "nvidia.com/gpu": '4'
+                "nvidia.com/gpu": '1'
         retryStrategy:
           limit: "3"
           retryPolicy: "Always"

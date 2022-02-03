@@ -87,7 +87,7 @@ class ConvBR(nn.Module):
         self.residual = residual
         self.dropout = residual
 
-        self.channel_scale = nn.Parameter(torch.ones(self.out_channels, dtype=torch.float))
+        self.channel_scale = nn.Parameter(torch.zeros(self.out_channels, dtype=torch.float))
 
         if type(kernel_size) == int:
             padding = kernel_size // 2 # dynamic add padding based on the kernel_size
@@ -107,6 +107,7 @@ class ConvBR(nn.Module):
         #print('ConvBR initialized weights {}'.format(norm))
 
     def _initialize_weights(self):
+        nn.init.normal_(self.channel_scale, mean=1.0,std=1.0)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 #nn.init.normal_(m.weight)
@@ -441,8 +442,8 @@ class Cell(nn.Module):
 
             architecture_weights = torch.cat(architecture_weights)
             architecture_weights = architecture_weights.sum_to_size((1))
-            #prune_weight = torch.tanh(self.weight_gain*torch.tensor(cnn_weights))
             prune_weight =  torch.prod(torch.cat(norm_conv_weight))
+            prune_weight = torch.tanh(self.weight_gain*torch.tensor(prune_weight))
             architecture_weights *= prune_weight
         else:
             architecture_weights = torch.zeros((1), device=self.cell_convolution.device)
@@ -606,7 +607,7 @@ class Classify(nn.Module):
                 
         self.cells = torch.nn.ModuleList()
         in_channels = self.source_channels
-        conv1_out_cannels = 64
+        '''conv1_out_cannels = 64
         self.resnet_conv1 =  ConvBR(
                          self.source_channels,
                         conv1_out_cannels,
@@ -621,7 +622,7 @@ class Classify(nn.Module):
                         search_structure=self.search_structure,
                         dropout=False
                         )
-        in_channels = conv1_out_cannels
+        #in_channels = conv1_out_cannels'''
         for i, cell_convolutions in enumerate(convolutions):
 
             convdfn = None
@@ -647,16 +648,17 @@ class Classify(nn.Module):
         self.fc_weights = model_weights(self.fc)
 
     def ApplyStructure(self):
+        layer_msg = 'Initial resize convolution'
+        #in_channel_mask = self.resnet_conv1.ApplyStructure(msg=layer_msg)
         in_channel_mask = None
         for i, cell in enumerate(self.cells):
-            layer_msg = 'Cell {}'.format(i)
             out_channel_mask = cell.ApplyStructure(in1_channel_mask=in_channel_mask, msg=layer_msg)
             in_channel_mask = out_channel_mask
 
         self.fc.ApplyStructure(in_channel_mask=in_channel_mask)
 
     def forward(self, x, isTraining=False):
-        x = self.resnet_conv1(x)
+        #x = self.resnet_conv1(x)
         for i, cell in enumerate(self.cells):
             x = cell(x, isTraining=isTraining)
         x = self.avgpool(x)
@@ -670,6 +672,12 @@ class Classify(nn.Module):
     def ArchitectureWeights(self):
         architecture_weights = []
         cell_weights = []
+
+        #cell_archatecture_weights, cell_total_trainable_weights, conv_weights = self.resnet_conv1.ArchitectureWeights()
+        #cell_weight = {'prune_weight':torch.tensor(1.0), 'cell_weight':[conv_weights]}
+        #cell_weights.append(cell_weight)
+        #architecture_weights.append(cell_archatecture_weights)
+
         for in_cell in self.cells:
             cell_archatecture_weights, cell_total_trainable_weights, cell_weight = in_cell.ArchitectureWeights()
             cell_weights.append(cell_weight)
@@ -720,25 +728,28 @@ def parse_arguments():
     parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=True)
-    parser.add_argument('-search_structure', type=str2bool, default=True)
+    parser.add_argument('-search_structure', type=str2bool, default=False)
     parser.add_argument('-onnx', type=str2bool, default=True)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
-    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152], default=50, help='Run description')
+    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152], default=152, help='Run description')
 
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
     parser.add_argument('-model', type=str, default='model')
 
     parser.add_argument('-learning_rate', type=float, default=1e-2, help='Training learning rate')
-    parser.add_argument('-batch_size', type=int, default=800, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=100, help='Training epochs')
+    parser.add_argument('-learning_rate_decay', type=float, default=0.1, help='Rate decay multiple')
+    parser.add_argument('-rate_schedule', type=json.loads, default='[30, 60, 90, 150, 160, 180]', help='Training learning rate')
+
+    parser.add_argument('-batch_size', type=int, default=100, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=300, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
-    parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default="crisp20220131_00")
+    parser.add_argument('-model_src', type=str,  default="crisp20220201_r152_t100_02")
+    parser.add_argument('-model_dest', type=str, default="crisp20220201_r152_t100_03")
     parser.add_argument('-cuda', type=bool, default=True)
-    parser.add_argument('-k_structure', type=float, default=1e1, help='Structure minimization weighting fator')
-    parser.add_argument('-target_structure', type=float, default=0.50, help='Structure minimization weighting fator')
+    parser.add_argument('-k_structure', type=float, default=1e0, help='Structure minimization weighting fator')
+    parser.add_argument('-target_structure', type=float, default=1.0, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=True)
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probabability gain')
     parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')
@@ -855,9 +866,13 @@ class PlotGradients():
         else:
             title = self.title
 
+        gradient_norms = []
+        max_gradient =  float('-inf')
+        min_gradient = float('inf')
         for i,  cell, in enumerate(network.cells):
             if cell.cnn is not None:
                 for j, convbr in enumerate(cell.cnn):
+                    layer_norms = []
                     norm_weight_grad = torch.linalg.norm(convbr.conv.weight.grad , dim=(1,2,3))/np.sqrt(np.product(convbr.conv.weight.grad.shape[1:]))
                     
                     numSums = 0
@@ -867,30 +882,49 @@ class PlotGradients():
                         numSums += 1
                     if self.pruning:
                         if convbr.channel_scale.grad is not None:
-                            channel_grad = torch.abs(convbr.channel_scale.grad)
-                        else:
-                            channel_grad = torch.zeros_like(convbr.channel_scale)
-                        grads += channel_grad
-                        numSums += 1
+                            grads += torch.abs(convbr.channel_scale.grad)
+                            numSums += 1
 
                     if numSums > 0:
-                        grads /= (numSums*self.max_norm)
+                        grads /= (numSums)
 
-                    x = i*self.lenght*len(cell.cnn)+j*self.lenght
+                    #x = i*self.lenght*len(cell.cnn)+j*self.lenght
 
-                    for k, gain in enumerate(grads.cpu().detach().numpy()):
+                    for k, gradient_norm in enumerate(grads.cpu().detach().numpy()):
+                        if gradient_norm > max_gradient:
+                            max_gradient = gradient_norm
+                        if gradient_norm < min_gradient:
+                            min_gradient = gradient_norm
+
+                        layer_norms.append(gradient_norm)
                         
-                        y = int(k*self.thickness+self.thickness/2)
+                        '''y = int(k*self.thickness+self.thickness/2)
                         start_point = (x,y)
                         end_point=(x+self.lenght,y)
 
-                        color = 255*np.array(self.cm(gain))
+                        color = 255*np.array(self.cm(gradient_norm))
                         color = color.astype('uint8')
                         colorbgr = (int(color[2]), int(color[1]), int(color[0]))
 
-                        cv2.line(img,start_point,end_point,colorbgr,self.thickness)
+                        cv2.line(img,start_point,end_point,colorbgr,self.thickness)'''
+                    gradient_norms.append(layer_norms)
 
-        #cv2.putText(img,title,(int(0.25*self.width), 30), cv2.FONT_HERSHEY_COMPLEX, fontScale=1, color=(255, 0, 0))
+        for j, gradient_norm in enumerate(gradient_norms):
+            x = j*self.lenght
+            for k, gradient in enumerate(gradient_norm):
+                y = int(k*self.thickness)
+                start_point = (x,y)
+                end_point=(x+self.lenght,y)
+
+                gain = (gradient-min_gradient)/(max_gradient-min_gradient)
+                color = 255*np.array(self.cm(gain))
+                color = color.astype('uint8')
+                colorbgr = (int(color[2]), int(color[1]), int(color[0]))
+
+                cv2.line(img,start_point,end_point,colorbgr,self.thickness)
+
+        grad_mag = 'grad {:0.5e}- {:0.5e}'.format(max_gradient, min_gradient)
+        cv2.putText(img,grad_mag,(int(0.05*self.width), int(0.90*self.height)), cv2.FONT_HERSHEY_COMPLEX, fontScale=0.5, color=(0, 255, 255))
 
         return img
 
@@ -1015,13 +1049,13 @@ def Test(args):
     # Define a Loss function and optimizer
     target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32)
     criterion = TotalLoss(args.cuda, k_structure=args.k_structure, target_structure=target_structure, search_structure=args.search_structure)
-    optimizer = optim.SGD(classify.parameters(), lr=args.learning_rate)
-    #optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate)
+    #optimizer = optim.SGD(classify.parameters(), lr=args.learning_rate)
+    optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate)
     #optimizer = adabound.AdaBound(classify.parameters(), lr=args.learning_rate, final_lr=args.learning_rate)
     plotsearch = PlotSearch(classify)
     plotgrads = PlotGradients(classify)
     scheduler1 = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
-    scheduler2 = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30,60, 90, 120, 150], gamma=0.1)
+    scheduler2 = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.rate_schedule, gamma=args.learning_rate_decay)
     iSample = 0
 
     # Train
@@ -1081,7 +1115,7 @@ def Test(args):
                     loss, cross_entropy_loss, architecture_loss, arcitecture_reduction, cell_weights  = criterion(outputs, labels, classify)
 
                     running_loss /=test_freq
-                    msg = '[{:3}/{}, {:6d}/{}]  accuracy: {:03f}|{:03f} loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test)'.format(
+                    msg = '[{:3}/{}, {:6d}/{}]  accuracy: {:05f}|{:05f} loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test)'.format(
                         epoch + 1,args.epochs, i + 1, trainingset.__len__()/args.batch_size, training_accuracy, test_accuracy, running_loss, loss, arcitecture_reduction)
                     if args.job is True:
                         print(msg)

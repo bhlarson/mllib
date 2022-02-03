@@ -1,0 +1,45 @@
+workflow: 
+  metadata: 
+    generateName: train-
+  spec:
+    arguments:
+      parameters:
+        - name: resultspath
+          value: /tmp/results.json
+    entrypoint: train
+    templates:   
+      - name: train
+        inputs:
+          parameters:
+            - name: trainingset
+              value: full-20210726-184953-lit
+            - name: train_epochs
+              value: 2
+            - name: description
+              value: ''
+            - name: train_image
+              value: 'localhost:32000/torch-train:latest'
+        outputs:
+          parameters:
+          - name: results        
+            valueFrom:
+              path: '{{workflow.parameters.resultspath}}'
+
+        container: 
+          image: '{{inputs.parameters.train_image}}'
+          command: 
+            -  python3
+          args: 
+            - networks/cell2d.py
+          resources: 
+            requests:
+                  ephemeral-storage: "40Gi"
+                  "nvidia.com/gpu": '1'
+            limits:
+                  ephemeral-storage: "40Gi"
+                  "nvidia.com/gpu": '1'
+
+    ttlStrategy:
+        secondsAfterCompletion: 300
+    podGC:
+        strategy: OnPodCompletion

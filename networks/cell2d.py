@@ -61,7 +61,7 @@ class ConvBR(nn.Module):
                  weight_gain = 11.0,
                  convMaskThreshold=0.5,
                  dropout_rate=0.2,
-                 sigmoid_scale = 5.0, # Channel sigmoid scale fatctor
+                 sigmoid_scale = 5.0, # Channel sigmoid scale factor
                  search_structure=True,
                  residual = False,
                  dropout=False
@@ -154,7 +154,7 @@ class ConvBR(nn.Module):
         cell_weights = model_weights(self)
 
         if self.out_channels > 0:
-            # Keep sum as [1] tensor so subsiquent concatination works
+            # Keep sum as [1] tensor so subsequent concatenation works
             architecture_weights = (cell_weights/ self.out_channels) * conv_weights.sum_to_size((1))
         else:
             architecture_weights = conv_weights.sum_to_size((1))
@@ -271,7 +271,7 @@ class Cell(nn.Module):
         self.cnn = torch.nn.ModuleList()
 
         # First convolution uses in1_channels+in2_channels is input chanels. 
-        # Remaining convoutions uses out_channels as chanels
+        # Remaining convolutions uses out_channels as chanels
 
         src_channels = in_chanels = self.in1_channels+self.in2_channels
 
@@ -334,7 +334,6 @@ class Cell(nn.Module):
     def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None, msg=None):
 
         # Reduce channels
-
         if in1_channel_mask is not None or in2_channel_mask is not None:
 
             if in1_channel_mask is not None:
@@ -360,17 +359,28 @@ class Cell(nn.Module):
         if self.cnn is not None:
             out_channel_mask = in_channel_mask
 
+            norm_conv_weight = []
             for i, cnn in enumerate(self.cnn):
                 layermsg = "convolution {}/{} search_structure={}".format(i, len(self.cnn), cnn.search_structure)
 
                 if msg is not None:
                     layermsg = "{} {}".format(msg, layermsg)
+
+                layer_weight, cnn_weight, conv_weight  = cnn.ArchitectureWeights()
+                if cnn.search_structure:
+                    norm_conv_weight.append(layer_weight/cnn_weight)
                     
                 out_channel_mask = cnn.ApplyStructure(in_channel_mask=out_channel_mask, msg=layermsg)
                 if cnn.out_channels == 0: # Prune convolutions
                     self.cnn = None
                     out_channel_mask = None
                     break
+
+            prune_weight =  torch.prod(torch.cat(norm_conv_weight))
+            prune_weight = torch.tanh(self.weight_gain*torch.tensor(prune_weight))
+            if prune_weight < self.feature_threshold:
+                self.cnn = None
+
         else:
             out_channel_mask = None
 
@@ -420,8 +430,8 @@ class Cell(nn.Module):
         architecture_weights = []
         layer_weights = []
         conv_weights = []
-        cnn_weights = []
         norm_conv_weight = []
+        search_structure = []
         #prune_weight = torch.tanh(torch.abs(self.weight_gain*self.cell_convolution))
         #prune_weight = torch.tanh(torch.abs(self.weight_gain*self.cell_convolution))
         #prune_weight = torch.ones_like(prune_weight)
@@ -431,20 +441,25 @@ class Cell(nn.Module):
         #    layer_weight, _, conv_weights  = self.conv_residual.ArchitectureWeights()
         #    cell_weight.append(conv_weights)
         #    architecture_weights += layer_weight 
-
+        unallocated_weights = torch.tensor(0)
         if self.cnn is not None:
             for i, l in enumerate(self.cnn): 
                 layer_weight, cnn_weight, conv_weight  = l.ArchitectureWeights()
-                architecture_weights.append(layer_weight)
-                cnn_weights.append(layer_weight/cnn_weight)
                 conv_weights.append(conv_weight)
-                norm_conv_weight.append(torch.linalg.norm(conv_weight, keepdim=True)/np.sqrt(len(conv_weight)))
+                if l.search_structure:
+                    architecture_weights.append(layer_weight)
+                    
+                    norm_conv_weight.append(layer_weight/cnn_weight)
+                else:
+                    unallocated_weights = cnn_weight
 
             architecture_weights = torch.cat(architecture_weights)
             architecture_weights = architecture_weights.sum_to_size((1))
+
+            # Allocate remaining weights if pruning full channel
             prune_weight =  torch.prod(torch.cat(norm_conv_weight))
-            prune_weight = torch.tanh(self.weight_gain*torch.tensor(prune_weight))
-            architecture_weights *= prune_weight
+            prune_weight = unallocated_weights*torch.tanh(self.weight_gain*torch.tensor(prune_weight))
+            architecture_weights += prune_weight
         else:
             architecture_weights = torch.zeros((1), device=self.cell_convolution.device)
             prune_weight = torch.ones((1), device=self.cell_convolution.device)
@@ -728,40 +743,40 @@ def parse_arguments():
     parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=True)
-    parser.add_argument('-search_structure', type=str2bool, default=False)
+    parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-onnx', type=str2bool, default=True)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
-    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152], default=152, help='Run description')
+    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152], default=101, help='Run description')
 
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
     parser.add_argument('-model', type=str, default='model')
 
-    parser.add_argument('-learning_rate', type=float, default=1e-2, help='Training learning rate')
+    parser.add_argument('-learning_rate', type=float, default=1e-1, help='Training learning rate')
     parser.add_argument('-learning_rate_decay', type=float, default=0.1, help='Rate decay multiple')
-    parser.add_argument('-rate_schedule', type=json.loads, default='[30, 60, 90, 150, 160, 180]', help='Training learning rate')
+    parser.add_argument('-rate_schedule', type=json.loads, default='[80, 120, 150, 180, 190, 200]', help='Training learning rate')
+    #parser.add_argument('-rate_schedule', type=json.loads, default='[30, 50, 70, 80, 90, 100]', help='Training learning rate')
 
     parser.add_argument('-batch_size', type=int, default=100, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=300, help='Training epochs')
+    parser.add_argument('-epochs', type=int, default=200, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
-    parser.add_argument('-model_src', type=str,  default="crisp20220201_r152_t100_02")
-    parser.add_argument('-model_dest', type=str, default="crisp20220201_r152_t100_03")
+    parser.add_argument('-model_src', type=str,  default=None)
+    parser.add_argument('-model_dest', type=str, default="crisp20220204_t100_00")
     parser.add_argument('-cuda', type=bool, default=True)
-    parser.add_argument('-k_structure', type=float, default=1e0, help='Structure minimization weighting fator')
-    parser.add_argument('-target_structure', type=float, default=1.0, help='Structure minimization weighting fator')
+    parser.add_argument('-k_structure', type=float, default=1e1, help='Structure minimization weighting factor')
+    parser.add_argument('-target_structure', type=float, default=1.0, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=bool, default=True)
-    parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probabability gain')
+    parser.add_argument('-dropout_rate', type=float, default=0.1, help='Dropout probability gain')
     parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')
-    parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convoluiton channels weights')
+    parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convolution channels weights')
 
-    parser.add_argument('-augment_rotation', type=float, default=10.0, help='Input augmentation rotation degrees')
-    parser.add_argument('-augment_translate', type=float, default=10.0, help='Input augmentation rotation degrees')
-    parser.add_argument('-augment_scale_min', type=float, default=0.8, help='Input augmentation rotation degrees')
-    parser.add_argument('-augment_scale_max', type=float, default=1.2, help='Input augmentation rotation degrees')
-    parser.add_argument('-augment_translate_x', type=float, default=0.1, help='Input augmentation rotation degrees')
-    parser.add_argument('-augment_translate_y', type=float, default=0.1, help='Input augmentation rotation degrees')
-    parser.add_argument('-augment_noise', type=float, default=0.1, help='Input augmentation rotation degrees')
+    parser.add_argument('-augment_rotation', type=float, default=0.0, help='Input augmentation rotation degrees')
+    parser.add_argument('-augment_scale_min', type=float, default=0.75, help='Input augmentation scale')
+    parser.add_argument('-augment_scale_max', type=float, default=1.25, help='Input augmentation scale')
+    parser.add_argument('-augment_translate_x', type=float, default=0.25, help='Input augmentation translation')
+    parser.add_argument('-augment_translate_y', type=float, default=0.25, help='Input augmentation translation')
+    parser.add_argument('-augment_noise', type=float, default=0.25, help='Input augmentation rotation degrees')
 
     parser.add_argument('-resultspath', type=str, default=None)
     parser.add_argument('-test_dir', type=str, default=None)
@@ -1022,6 +1037,7 @@ def Test(args):
 
         if modelObj is not None:
             classify = torch.load(io.BytesIO(modelObj))
+            #classify.load_state_dict(saved_model.model.state_dict())
         else:
             print('Failed to load model {}. Exiting.'.format(args.model_src))
             return -1
@@ -1041,7 +1057,7 @@ def Test(args):
     else:
         model = classify
 
-    #sepcificy device for model
+    #specificy device for model
     classify.to(device)
 
 

@@ -48,20 +48,6 @@ class Network2d(nn.Module):
                  definition=None):
         super(Network2d, self).__init__()
 
-        if definition is not None:
-            out_channels = definition['out_channels']
-            source_channels = definition['source_channels']
-            initial_channels = definition['initial_channels']
-            is_cuda = definition['is_cuda']
-            min_search_depth = definition['min_search_depth']
-            max_search_depth = definition['max_search_depth']
-            max_cell_steps = definition['max_cell_steps']
-            channel_multiple = definition['channel_multiple']
-            batch_norm = definition['batch_norm']
-            search_structure = definition['search_structure']
-            depth = definition['depth']
-
-
         self.max_search_depth = max_search_depth
         self.min_search_depth = min_search_depth
         self.out_channels = out_channels
@@ -84,14 +70,12 @@ class Network2d(nn.Module):
         feedforward_chanels = []
 
         for i in range(self.max_search_depth-1):
-            if definition is not None and len(definition['encode_decode']) > i:
-                cell = self.cell(definition=definition['encode_decode'][i])
-            else:
-                cell = self.cell(self.max_cell_steps, 
-                             encoder_channels, 
-                             prev_encoder_chanels, 
+            convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
+                          {'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True}]
+            cell = self.cell(prev_encoder_chanels, 
                              is_cuda=self.is_cuda, 
                              batch_norm=self.batch_norm, 
+                             convolutions=convolutions,
                              search_structure=self.search_structure, 
                              depth=self.max_cell_steps)
             self.encode_decode.append(cell)
@@ -100,48 +84,49 @@ class Network2d(nn.Module):
             prev_encoder_chanels = encoder_channels
             encoder_channels = int(self.channel_multiple*encoder_channels)
 
-        if definition is not None and len(definition['encode_decode']) > i:
-            cell = self.cell(definition=definition['encode_decode'][self.max_search_depth-1])
-        else:
-            cell = self.cell(self.max_cell_steps, 
-                            encoder_channels, 
-                            prev_encoder_chanels, 
-                            is_cuda=self.is_cuda, 
-                            batch_norm=self.batch_norm, 
-                            search_structure=self.search_structure,
-                            depth=self.max_cell_steps)
+        convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
+                      {'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True}]
+
+        cell = self.cell(prev_encoder_chanels,
+                         is_cuda=self.is_cuda,
+                         batch_norm=self.batch_norm,
+                         convolutions=convolutions,
+                         search_structure=self.search_structure,
+                         depth=self.max_cell_steps)
         self.encode_decode.append(cell)
 
         for i in range(self.max_search_depth-1):
 
-            if definition is not None and len(definition['encode_decode']) > i:
-                encoder_channels = definition['encode_decode'][self.max_search_depth+i]['in1_channels']
-                self.upsample.append(nn.ConvTranspose2d(encoder_channels, encoder_channels, 2, stride=2))
-                cell = self.cell(definition=definition['encode_decode'][self.max_search_depth+i])
-            else:
-                self.upsample.append(nn.ConvTranspose2d(encoder_channels, encoder_channels, 2, stride=2))
-                prev_encoder_chanels = encoder_channels
-                encoder_channels = int(encoder_channels/self.channel_multiple)
-                cell = self.cell(self.max_cell_steps, 
-                                encoder_channels, 
-                                prev_encoder_chanels, 
-                                feedforward_chanels[-(i+1)], 
-                                is_cuda=self.is_cuda, 
-                                batch_norm=self.batch_norm, 
-                                search_structure=self.search_structure,
-                                depth=self.max_cell_steps)
+            #if definition is not None and len(definition['encode_decode']) > i:
+            #    encoder_channels = definition['encode_decode'][self.max_search_depth+i]['in1_channels']
+            #    self.upsample.append(nn.ConvTranspose2d(encoder_channels, encoder_channels, 2, stride=2))
+            #    cell = self.cell(definition=definition['encode_decode'][self.max_search_depth+i])
+            #else:
+            self.upsample.append(nn.ConvTranspose2d(encoder_channels, encoder_channels, 2, stride=2))
+            prev_encoder_chanels = encoder_channels
+            encoder_channels = int(encoder_channels/self.channel_multiple)
+            convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
+                          {'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True}]
+
+            cell = self.cell(prev_encoder_chanels, 
+                             feedforward_chanels[-(i+1)],
+                             is_cuda=self.is_cuda,
+                             batch_norm=self.batch_norm,
+                             convolutions=convolutions,
+                             search_structure=self.search_structure,
+                             depth=self.max_cell_steps)
             self.encode_decode.append(cell)       
 
-        if definition is not None and len(definition['encode_decode']) > i:
-            cell = self.cell(definition=definition['encode_decode'][-1])
-        else:
-            cell = self.cell(self.max_cell_steps, 
-                            out_channels, 
-                            encoder_channels, 
-                            is_cuda=self.is_cuda, 
-                            batch_norm=self.batch_norm, 
-                            search_structure=self.search_structure,
-                            depth=self.max_cell_steps)
+        convolutions=[{'out_channels':out_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
+                      {'out_channels':out_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True}]
+
+        cell = self.cell(out_channels,
+                         encoder_channels,
+                         is_cuda=self.is_cuda,
+                         batch_norm=self.batch_norm,
+                         convolutions=convolutions,
+                         search_structure=self.search_structure,
+                         depth=self.max_cell_steps)
         self.encode_decode.append(cell)
 
         self.pool = nn.MaxPool2d(2, 2)
@@ -333,7 +318,7 @@ def parse_arguments():
     import argparse
     parser = argparse.ArgumentParser(description='Process arguments')
 
-    parser.add_argument('-debug', action='store_true',help='Wait for debuggee attach')   
+    parser.add_argument('--debug', '-d', action='store_true',help='Wait for debuggee attach')   
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
     parser.add_argument('-fast', action='store_true', help='Fast run with a few iterations')
@@ -506,7 +491,8 @@ def Test(args):
             segment = MakeNetwork2d(class_dictionary['classes'], args)
 
         if modelObj is not None:
-            segment.load_state_dict(torch.load(io.BytesIO(modelObj)))
+            # segment.load_state_dict(torch.load(io.BytesIO(modelObj)))
+            segment = torch.load(io.BytesIO(modelObj))
         else:
             print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
             return

@@ -31,7 +31,7 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
 
     def forward(self, input: torch.Tensor, target: torch.Tensor, network) -> torch.Tensor:
         assert self.weight is None or isinstance(self.weight, torch.Tensor)
-        cross_entropy_loss = self.cross_entropy_loss(input, target.long())
+        cross_entropy_loss = 1.0*self.cross_entropy_loss(input, target.long())
 
         dims = []
         depths = []
@@ -42,7 +42,6 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
 
         if self.search_structure:
             total_loss = cross_entropy_loss + architecture_loss
-            #total_loss = architecture_loss
         else:
             total_loss = cross_entropy_loss
         return total_loss,  cross_entropy_loss, architecture_loss, arcitecture_reduction, cell_weights

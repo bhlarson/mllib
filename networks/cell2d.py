@@ -8,6 +8,7 @@ import json
 import platform
 from enum import Enum
 from copy import deepcopy
+from click import style
 import torch
 from torch._C import parse_ir
 import torch.nn as nn
@@ -107,7 +108,7 @@ class ConvBR(nn.Module):
         #print('ConvBR initialized weights {}'.format(norm))
 
     def _initialize_weights(self):
-        nn.init.normal_(self.channel_scale, mean=1.0,std=1.0)
+        nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 #nn.init.normal_(m.weight)
@@ -441,7 +442,7 @@ class Cell(nn.Module):
         #    layer_weight, _, conv_weights  = self.conv_residual.ArchitectureWeights()
         #    cell_weight.append(conv_weights)
         #    architecture_weights += layer_weight 
-        unallocated_weights = torch.tensor(0)
+        unallocated_weights  = torch.tensor(0)
         if self.cnn is not None:
             for i, l in enumerate(self.cnn): 
                 layer_weight, cnn_weight, conv_weight  = l.ArchitectureWeights()
@@ -458,8 +459,8 @@ class Cell(nn.Module):
 
             # Allocate remaining weights if pruning full channel
             prune_weight =  torch.prod(torch.cat(norm_conv_weight))
-            prune_weight = unallocated_weights*torch.tanh(self.weight_gain*torch.tensor(prune_weight))
-            architecture_weights += prune_weight
+            prune_weight = torch.tanh(self.weight_gain*prune_weight)
+            architecture_weights += unallocated_weights*prune_weight
         else:
             architecture_weights = torch.zeros((1), device=self.cell_convolution.device)
             prune_weight = torch.ones((1), device=self.cell_convolution.device)
@@ -551,32 +552,69 @@ class Resnet(Enum):
     layers_50 = 50
     layers_101 = 101
     layers_152 = 152
+    cifar_20 = 20
+    cifar_32 = 32
+    cifar_44 = 44
+    cifar_56 = 56
+    cifar_110 = 110
+
 
 def ResnetCells(size = Resnet.layers_50):
     resnetCells = []
-    network_channels = [64, 128, 256, 512]
     
     sizes = {
         'layers_18': [2, 2, 2, 2], 
         'layers_34': [3, 4, 6, 3], 
         'layers_50': [3, 4, 6, 3], 
         'layers_101': [3, 4, 23, 3], 
-        'layers_152': [3, 8, 36, 3]
+        'layers_152': [3, 8, 36, 3],
+        'cifar_20' : [7,6,6],
+        'cifar_32' : [11,10,10],
+        'cifar_44' : [15,14,14],
+        'cifar_56' : [19,18,18],
+        'cifar_110' : [37,36,36],
         }
     bottlenecks = {
         'layers_18': False, 
         'layers_34': False, 
         'layers_50': True, 
         'layers_101': True, 
-        'layers_152': True
-        #'layers_50': False, 
-        #'layers_101': False, 
-        #'layers_152': False
+        'layers_152': True,
+        'cifar_20': False, 
+        'cifar_32': False, 
+        'cifar_44': False,
+        'cifar_56': False, 
+        'cifar_110': False
+        }
+
+    cifar_style = {
+        'layers_18': False, 
+        'layers_34': False, 
+        'layers_50': False, 
+        'layers_101': False, 
+        'layers_152': False,
+        'cifar_20': True, 
+        'cifar_32': True, 
+        'cifar_44': True,
+        'cifar_56': True, 
+        'cifar_110': True
         }
 
     resnet_cells = []
     block_sizes = sizes[size.name]
     bottleneck = bottlenecks[size.name]
+    is_cifar_style = cifar_style[size.name]
+
+    cell = []
+    if is_cifar_style:
+        network_channels = [32, 16, 8]
+        cell.append({'out_channels':network_channels[0], 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True})
+    else:
+        network_channels = [64, 128, 256, 512]
+        cell.append({'out_channels':network_channels[0], 'kernel_size': 7, 'stride': 3, 'dilation': 1, 'search_structure':True})
+
+    resnetCells.append({'residual':False, 'cell':cell})
+
     for i, layer_size in enumerate(block_sizes):
         block_channels = network_channels[i]
         for j in range(layer_size):
@@ -596,9 +634,8 @@ def ResnetCells(size = Resnet.layers_50):
                 cell.append({'out_channels':4*network_channels[i], 'kernel_size': 1, 'stride': 1, 'dilation': 1, 'search_structure':False})
             else:
                 cell.append({'out_channels':network_channels[i], 'kernel_size': 3, 'stride': stride, 'dilation': 1, 'search_structure':True})
-                cell.append({'out_channels':network_channels[i], 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True})
-                cell.append({'out_channels':network_channels[i], 'kernel_size': 1, 'stride': 1, 'dilation': 1, 'search_structure':False})
-            resnetCells.append(cell)
+                cell.append({'out_channels':network_channels[i], 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':False})
+            resnetCells.append({'residual':True, 'cell':cell})
         
     return resnetCells
 
@@ -647,11 +684,12 @@ class Classify(nn.Module):
                 is_cuda=self.is_cuda,  
                 weight_gain = self.weight_gain,
                 convMaskThreshold = self.convMaskThreshold,
-                convolutions=cell_convolutions,  
+                residual=cell_convolutions['residual'],
+                convolutions=cell_convolutions['cell'],  
                 dropout_rate=self.dropout_rate, 
                 search_structure=self.search_structure, 
                 sigmoid_scale=self.sigmoid_scale)
-            in_channels = cell_convolutions[-1]['out_channels']
+            in_channels = cell_convolutions['cell'][-1]['out_channels']
             self.cells.append(cell)
 
         self.maxpool = nn.MaxPool2d(2, 2)
@@ -747,36 +785,38 @@ def parse_arguments():
     parser.add_argument('-onnx', type=str2bool, default=True)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
-    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152], default=101, help='Run description')
+    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152, 20, 32, 44, 56, 110], default=56, help='Run description')
 
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
     parser.add_argument('-model', type=str, default='model')
 
     parser.add_argument('-learning_rate', type=float, default=1e-1, help='Training learning rate')
     parser.add_argument('-learning_rate_decay', type=float, default=0.1, help='Rate decay multiple')
-    parser.add_argument('-rate_schedule', type=json.loads, default='[80, 120, 150, 180, 190, 200]', help='Training learning rate')
-    #parser.add_argument('-rate_schedule', type=json.loads, default='[30, 50, 70, 80, 90, 100]', help='Training learning rate')
+    #parser.add_argument('-rate_schedule', type=json.loads, default='[50, 70, 80, 90, 95, 100]', help='Training learning rate')
+    parser.add_argument('-rate_schedule', type=json.loads, default='[30, 50, 60, 70, 75, 80]', help='Training learning rate')
+    parser.add_argument('-momentum', type=float, default=0.9, help='Learning Momentum')
+    parser.add_argument('-weight_decay', type=float, default=0.0001)
 
-    parser.add_argument('-batch_size', type=int, default=100, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=200, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=400, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=80, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
     parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default="crisp20220204_t100_00")
+    parser.add_argument('-model_dest', type=str, default="crisp20220208_t100_00")
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-k_structure', type=float, default=1e1, help='Structure minimization weighting factor')
-    parser.add_argument('-target_structure', type=float, default=1.0, help='Structure minimization weighting factor')
+    parser.add_argument('-target_structure', type=float, default=1.00, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=bool, default=True)
-    parser.add_argument('-dropout_rate', type=float, default=0.1, help='Dropout probability gain')
+    parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
     parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')
     parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convolution channels weights')
 
     parser.add_argument('-augment_rotation', type=float, default=0.0, help='Input augmentation rotation degrees')
-    parser.add_argument('-augment_scale_min', type=float, default=0.75, help='Input augmentation scale')
-    parser.add_argument('-augment_scale_max', type=float, default=1.25, help='Input augmentation scale')
-    parser.add_argument('-augment_translate_x', type=float, default=0.25, help='Input augmentation translation')
-    parser.add_argument('-augment_translate_y', type=float, default=0.25, help='Input augmentation translation')
-    parser.add_argument('-augment_noise', type=float, default=0.25, help='Input augmentation rotation degrees')
+    parser.add_argument('-augment_scale_min', type=float, default=1.0, help='Input augmentation scale')
+    parser.add_argument('-augment_scale_max', type=float, default=1.0, help='Input augmentation scale')
+    parser.add_argument('-augment_translate_x', type=float, default=0.125, help='Input augmentation translation')
+    parser.add_argument('-augment_translate_y', type=float, default=0.125, help='Input augmentation translation')
+    parser.add_argument('-augment_noise', type=float, default=0.0, help='Input augmentation rotation degrees')
 
     parser.add_argument('-resultspath', type=str, default=None)
     parser.add_argument('-test_dir', type=str, default=None)
@@ -994,19 +1034,20 @@ def Test(args):
             return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
 
     # Load dataset
-    train_transform = transforms.Compose([transforms.RandomHorizontalFlip(),
-        transforms.RandomAffine(degrees=args.augment_rotation, 
-            translate=(args.augment_translate_x, args.augment_translate_y), 
-            scale=(args.augment_scale_min, args.augment_scale_max), 
-            interpolation=transforms.InterpolationMode.BILINEAR),
+    IMAGE_SIZE = 32
+    train_transform = transforms.Compose([transforms.RandomHorizontalFlip(p=0.5),
+        #transforms.RandomAffine(degrees=args.augment_rotation, 
+        #    translate=(args.augment_translate_x, args.augment_translate_y), 
+        #    scale=(args.augment_scale_min, args.augment_scale_max), 
+        #    interpolation=transforms.InterpolationMode.BILINEAR),
+        transforms.RandomCrop(size=IMAGE_SIZE, padding=4),
         transforms.ToTensor(), 
-        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)), # Imagenet mean and standard deviation
-        AddGaussianNoise(0., args.augment_noise)
+        transforms.Normalize((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), # Imagenet mean and standard deviation
+        #AddGaussianNoise(0., args.augment_noise)
     ])
 
-    test_transform = transforms.Compose([transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(), 
-        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)) # Imagenet mean and standard deviation
+    test_transform = transforms.Compose([transforms.ToTensor(), 
+        transforms.Normalize((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)) # Imagenet mean and standard deviation
     ])
 
     trainingset = torchvision.datasets.CIFAR10(root=args.dataset_path, train=True, download=True, transform=train_transform)
@@ -1065,8 +1106,8 @@ def Test(args):
     # Define a Loss function and optimizer
     target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32)
     criterion = TotalLoss(args.cuda, k_structure=args.k_structure, target_structure=target_structure, search_structure=args.search_structure)
-    #optimizer = optim.SGD(classify.parameters(), lr=args.learning_rate)
-    optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate)
+    optimizer = optim.SGD(classify.parameters(), lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay )
+    #optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate)
     #optimizer = adabound.AdaBound(classify.parameters(), lr=args.learning_rate, final_lr=args.learning_rate)
     plotsearch = PlotSearch(classify)
     plotgrads = PlotGradients(classify)

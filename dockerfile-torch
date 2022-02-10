@@ -43,8 +43,7 @@ RUN pip3 --no-cache-dir install \
         onnxruntime-gpu \
         pycuda \
         PyYAML \
-        mlflow \
-        adabound
+        mlflow
 
 # ZED Python API https://stackoverflow.com/a/63457606/7036639
 RUN wget download.stereolabs.com/zedsdk/pyzed -O /usr/local/zed/get_python_api.py && \

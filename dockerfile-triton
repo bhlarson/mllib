@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/cuda:11.4.1-cudnn8-runtime-ubuntu20.04
+FROM nvcr.io/nvidia/tritonserver:21.09-py3
 LABEL maintainer="Brad Larson"
 
 # RUN apt-get install -y libsm6 libxext6 ffmpeg # required by opencv-python==4.4.0.42

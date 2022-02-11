@@ -375,13 +375,21 @@ class Cell(nn.Module):
                 if cnn.out_channels == 0: # Prune convolutions
                     self.cnn = None
                     out_channel_mask = None
+
+                    layermsg = "Prune cell because out_channels == 0"
+                    if msg is not None:
+                        layermsg = "{} {} ".format(msg, layermsg)
+                    print(layermsg)
                     break
 
-            if len(norm_conv_weight) > 0:
-                prune_weight =  torch.prod(torch.cat(norm_conv_weight))
-                prune_weight = torch.tanh(self.weight_gain*torch.tensor(prune_weight))
+            if self.cnn is not None and len(norm_conv_weight) > 0:
+                prune_weight =  torch.tanh(self.weight_gain*torch.prod(torch.cat(norm_conv_weight)))
                 if prune_weight < self.feature_threshold:
                     self.cnn = None
+                    layermsg = "Prune cell because prune_weight {} < feature_threshold {}".format(prune_weight, self.feature_threshold)
+                    if msg is not None:
+                        layermsg = "{} {} ".format(msg, layermsg)
+                    print(layermsg)
 
         else:
             out_channel_mask = None
@@ -398,10 +406,18 @@ class Cell(nn.Module):
         #if self.convMaskThreshold > prune_weight:
         #    self.cnn = None
         #    #if self.convolutions[-1]['out_channels'] == self.in1_channels+self.in2_channels:
-        #    #    self.conv_residual = None   
-        
-        print('Pruning cell weights={} in1_channels={} in2_channels={} out_channels={}'.format(self.total_trainable_weights, self.in1_channels, self.in2_channels, self.convolutions[-1]['out_channels']))
-        
+        #    #    self.conv_residual = None          
+        layermsg = "cell summary: weights={} in1_channels={} in2_channels={} out_channels={} residual={} search_structure={}".format(
+            self.total_trainable_weights, 
+            self.in1_channels, 
+            self.in2_channels, 
+            self.convolutions[-1]['out_channels'],
+            self.residual,
+            self.search_structure)
+        if msg is not None:
+            layermsg = "{} {} ".format(msg, layermsg)
+        print(layermsg)
+
 
         return out_channel_mask
 
@@ -716,6 +732,7 @@ class Classify(nn.Module):
         #in_channel_mask = self.resnet_conv1.ApplyStructure(msg=layer_msg)
         in_channel_mask = None
         for i, cell in enumerate(self.cells):
+            layer_msg = 'Cell {}'.format(i)
             out_channel_mask = cell.ApplyStructure(in1_channel_mask=in_channel_mask, msg=layer_msg)
             in_channel_mask = out_channel_mask
 
@@ -789,7 +806,7 @@ def parse_arguments():
     parser.add_argument('-description', type=str, default="", help='Training description to record with resuts')
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 
-    parser.add_argument('-prune', type=str2bool, default=False)
+    parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=True)
     parser.add_argument('-search_structure', type=str2bool, default=True)
@@ -801,22 +818,25 @@ def parse_arguments():
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
     parser.add_argument('-model', type=str, default='model')
 
+    parser.add_argument('-epochs', type=int, default=20, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=400, help='Training batch size') 
+
     parser.add_argument('-learning_rate', type=float, default=1e-1, help='Training learning rate')
     parser.add_argument('-learning_rate_decay', type=float, default=0.1, help='Rate decay multiple')
-    parser.add_argument('-rate_schedule', type=json.loads, default='[60, 80, 100, 105, 110, 115]', help='Training learning rate')
-    #parser.add_argument('-rate_schedule', type=json.loads, default='[10, 15, 17, 19, 30, 32]', help='Training learning rate')
+    #parser.add_argument('-rate_schedule', type=json.loads, default='[60, 80, 85]', help='Training learning rate')
+    #parser.add_argument('-rate_schedule', type=json.loads, default='[40, 60, 65]', help='Training learning rate')
+    parser.add_argument('-rate_schedule', type=json.loads, default='[10, 15, 17]', help='Training learning rate')
+    
     parser.add_argument('-momentum', type=float, default=0.9, help='Learning Momentum')
     parser.add_argument('-weight_decay', type=float, default=0.0001)
 
-    parser.add_argument('-batch_size', type=int, default=400, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=20, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
-    parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default="crisp20220209_t50_00")
+    parser.add_argument('-model_src', type=str,  default="crisp20220210_t80_00")
+    parser.add_argument('-model_dest', type=str, default="crisp20220210_t80_01")
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-k_structure', type=float, default=1e1, help='Structure minimization weighting factor')
-    parser.add_argument('-target_structure', type=float, default=0.5, help='Structure minimization weighting factor')
+    parser.add_argument('-target_structure', type=float, default=0.80, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=bool, default=True)
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
     parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')
@@ -1210,8 +1230,8 @@ def Test(args):
 
                     log_metric("accuracy", test_accuracy.item())
 
-                    cv2.imwrite('class_weights.png', plotsearch.plot(cell_weights))
-                    cv2.imwrite('gradient_norm.png', plotgrads.plot(classify))
+                cv2.imwrite('class_weights.png', plotsearch.plot(cell_weights))
+                cv2.imwrite('gradient_norm.png', plotgrads.plot(classify))
 
                 iSave = 2000
                 if i % iSave == iSave-1:    # print every 20 mini-batches

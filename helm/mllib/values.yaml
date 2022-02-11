@@ -4,6 +4,7 @@ app: mllib
 
 objectstore:
   name: mlstore
+  url: mlstore
   apinodePort: 30990
   consolenodePort: 30991
   size: 900Gi

@@ -652,7 +652,7 @@ data:
     archiveLogs: true
     s3:
       bucket:  {{.Values.workflow_server.s3.bucket}}
-      endpoint: {{.Values.objectstore.name}}:9000
+      endpoint: {{.Values.objectstore.url}}:{{.Values.objectstore.apinodePort}}
       insecure: true
       accessKeySecret:
         name: {{.Values.objectstore.credentials.name}}
@@ -665,7 +665,7 @@ data:
     archiveLogs: true
     s3:
       bucket:  {{.Values.workflow_server.s3.bucket}}
-      endpoint: {{.Values.objectstore.name}}:9000
+      endpoint: {{.Values.objectstore.url}}:{{.Values.objectstore.apinodePort}}
       insecure: true
       accessKeySecret:
         name: {{.Values.objectstore.credentials.name}}
@@ -684,7 +684,7 @@ data:
   artifactRepository: |
     s3:
       bucket:  {{.Values.workflow_server.s3.bucket}}
-      endpoint: {{.Values.objectstore.name}}:9000
+      endpoint: {{.Values.objectstore.url}}:{{.Values.objectstore.apinodePort}}
       insecure: true
       accessKeySecret:
         name: {{.Values.objectstore.credentials.name}}

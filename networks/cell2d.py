@@ -819,7 +819,7 @@ def parse_arguments():
     parser.add_argument('-model', type=str, default='model')
 
     parser.add_argument('-epochs', type=int, default=20, help='Training epochs')
-    parser.add_argument('-batch_size', type=int, default=400, help='Training batch size') 
+    parser.add_argument('-batch_size', type=int, default=800, help='Training batch size') 
 
     parser.add_argument('-learning_rate', type=float, default=1e-1, help='Training learning rate')
     parser.add_argument('-learning_rate_decay', type=float, default=0.1, help='Rate decay multiple')

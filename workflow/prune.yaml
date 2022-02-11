@@ -17,7 +17,7 @@ workflow:
         - name: log_name
           value: t12
         - name: batch_size
-          value: 50
+          value: 800
     entrypoint: train-crisp
     templates:
     - name: train-crisp

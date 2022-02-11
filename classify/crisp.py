@@ -57,12 +57,12 @@ def parse_arguments():
 
     parser.add_argument('-learning_rate', type=float, default=1e-1, help='Training learning rate')
     parser.add_argument('-learning_rate_decay', type=float, default=0.1, help='Rate decay multiple')
-    parser.add_argument('-rate_schedule', type=json.loads, default='[60, 80, 100, 105, 110, 115]', help='Training learning rate')
-    #parser.add_argument('-rate_schedule', type=json.loads, default='[10, 15, 17, 19, 30, 32]', help='Training learning rate')
+    #parser.add_argument('-rate_schedule', type=json.loads, default='[60, 80, 85]', help='Training learning rate')
+    parser.add_argument('-rate_schedule', type=json.loads, default='[10, 15, 17]', help='Training learning rate')
     parser.add_argument('-momentum', type=float, default=0.9, help='Learning Momentum')
     parser.add_argument('-weight_decay', type=float, default=0.0001)
 
-    parser.add_argument('-batch_size', type=int, default=500, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=800, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=20, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')

@@ -29,65 +29,61 @@ from utils.s3 import s3store, Connect
 from torch.utils.tensorboard import SummaryWriter
 from networks.totalloss import TotalLoss
 from networks.cell2d import Resnet, ResnetCells, Classify, PlotSearch, PlotGradients
-
+from networks.resnet_torchvision import resnet50
 
 
 def parse_arguments():
     import argparse
     parser = argparse.ArgumentParser(description='Process arguments')
 
-    parser.add_argument('-d', '--debug', action='store_true',help='Wait for debuggee attach')   
+    parser.add_argument('-debug', action='store_true',help='Wait for debuggee attach')   
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
     parser.add_argument('-fast', action='store_true', help='Fast run with a few iterations')
     parser.add_argument('-description', type=str, default="", help='Training description to record with resuts')
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 
-    parser.add_argument('-prune', type=str2bool, default=False)
+    parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=True)
     parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-onnx', type=str2bool, default=True)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
-    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152, 20, 32, 44, 56, 110], default=56, help='Run description')
+    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152], default=50, help='Run description')
 
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
     parser.add_argument('-model', type=str, default='model')
 
     parser.add_argument('-learning_rate', type=float, default=1e-1, help='Training learning rate')
-    parser.add_argument('-learning_rate_decay', type=float, default=0.1, help='Rate decay multiple')
-    parser.add_argument('-rate_schedule', type=json.loads, default='[60, 80, 100, 105, 110, 115]', help='Training learning rate')
-    #parser.add_argument('-rate_schedule', type=json.loads, default='[10, 15, 17, 19, 30, 32]', help='Training learning rate')
-    parser.add_argument('-momentum', type=float, default=0.9, help='Learning Momentum')
-    parser.add_argument('-weight_decay', type=float, default=0.0001)
-
-    parser.add_argument('-batch_size', type=int, default=500, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=20, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=2000, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=120, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
-    parser.add_argument('-model_src', type=str,  default='crisp20220210_t100_00')
-    parser.add_argument('-model_dest', type=str, default="crisp20220210_t60_00")
+    parser.add_argument('-model_src', type=str,  default=None)
+    parser.add_argument('-model_dest', type=str, default="crisp20220125_00")
     parser.add_argument('-cuda', type=bool, default=True)
-    parser.add_argument('-k_structure', type=float, default=1e1, help='Structure minimization weighting factor')
-    parser.add_argument('-target_structure', type=float, default=0.60, help='Structure minimization weighting factor')
+    parser.add_argument('-k_structure', type=float, default=1.0e0, help='Structure minimization weighting fator')
+    parser.add_argument('-target_structure', type=float, default=0.0e0, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=True)
-    parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
+    parser.add_argument('-dropout_rate', type=float, default=0.2, help='Dropout probabability gain')
     parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')
-    parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convolution channels weights')
-    parser.add_argument('-feature_threshold', type=float, default=0.5, help='tanh pruning threshold')
+    parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convoluiton channels weights')
 
-    parser.add_argument('-augment_rotation', type=float, default=0.0, help='Input augmentation rotation degrees')
-    parser.add_argument('-augment_scale_min', type=float, default=1.00, help='Input augmentation scale')
-    parser.add_argument('-augment_scale_max', type=float, default=1.00, help='Input augmentation scale')
-    parser.add_argument('-augment_translate_x', type=float, default=0.125, help='Input augmentation translation')
-    parser.add_argument('-augment_translate_y', type=float, default=0.125, help='Input augmentation translation')
-    parser.add_argument('-augment_noise', type=float, default=0.1, help='Augment image noise')
+    parser.add_argument('-augment_rotation', type=float, default=10.0, help='Input augmentation rotation degrees')
+    parser.add_argument('-augment_translate', type=float, default=10.0, help='Input augmentation rotation degrees')
+    parser.add_argument('-augment_scale_min', type=float, default=0.8, help='Input augmentation rotation degrees')
+    parser.add_argument('-augment_scale_max', type=float, default=1.2, help='Input augmentation rotation degrees')
+    parser.add_argument('-augment_translate_x', type=float, default=0.1, help='Input augmentation rotation degrees')
+    parser.add_argument('-augment_translate_y', type=float, default=0.1, help='Input augmentation rotation degrees')
+    parser.add_argument('-augment_noise', type=float, default=0.1, help='Input augmentation rotation degrees')
 
     parser.add_argument('-resultspath', type=str, default=None)
     parser.add_argument('-test_dir', type=str, default=None)
     parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
-        help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
+        help='to launch the tensorboard server, in the console, enter: tensorboard --logdir /store/test/nassegtb --bind_all')
+
+
 
     args = parser.parse_args()
     return args
@@ -148,85 +144,45 @@ def main(args):
         pin_memory = True
 
     # Load dataset
-    train_transform = transforms.Compose([transforms.RandomHorizontalFlip(),
+    transform = transforms.Compose([transforms.RandomHorizontalFlip(),
         transforms.RandomAffine(degrees=args.augment_rotation, 
             translate=(args.augment_translate_x, args.augment_translate_y), 
             scale=(args.augment_scale_min, args.augment_scale_max), 
             interpolation=transforms.InterpolationMode.BILINEAR),
         transforms.ToTensor(), 
-        transforms.Normalize((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), # Imagenet mean and standard deviation
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
         AddGaussianNoise(0., args.augment_noise)
     ])
 
-    test_transform = transforms.Compose([transforms.ToTensor(), 
-        transforms.Normalize((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)) # Imagenet mean and standard deviation
-    ])
-
-    trainingset = torchvision.datasets.CIFAR10(root=args.dataset_path, train=True, download=True, transform=train_transform)
+    trainingset = torchvision.datasets.CIFAR10(root=args.dataset_path, train=True, download=True, transform=transform)
     train_batches=int(trainingset.__len__()/args.batch_size)
     trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=pin_memory)
 
-    testset = torchvision.datasets.CIFAR10(root=args.dataset_path, train=False, download=True, transform=test_transform)
+    testset = torchvision.datasets.CIFAR10(root=args.dataset_path, train=False, download=True, transform=transform)
     test_batches=int(testset.__len__()/args.batch_size)
     testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
     test_freq = int(math.ceil(train_batches/test_batches))
 
-    # Create classifiers
-    # Create Default classifier
-    resnetCells = ResnetCells(Resnet(args.resnet_len))
-    classify = Classify(convolutions=resnetCells, 
-                        is_cuda=args.cuda, 
-                        weight_gain=args.weight_gain, 
-                        dropout_rate=args.dropout_rate, 
-                        search_structure=args.search_structure, 
-                        sigmoid_scale=args.sigmoid_scale,
-                        batch_norm = args.batch_norm,
-                        feature_threshold = args.feature_threshold
-                        )
 
-    total_parameters = count_parameters(classify)
+    classify = resnet50(pretrained=True)
 
-    if(args.model_src and args.model_src != ''):
-        #modeldict = s3.GetDict(s3def['sets']['model']['bucket'], '{}/{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
-        modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
-
-        if modelObj is not None:
-            classify = torch.load(io.BytesIO(modelObj))
-            #classify.load_state_dict(saved_model.model.state_dict())
-        else:
-            print('Failed to load model {}. Exiting.'.format(args.model_src))
-            return -1
-
-    if args.prune:
-        classify.ApplyStructure()
-        reduced_parameters = count_parameters(classify)
-        print('Reduced parameters {}/{} = {}'.format(reduced_parameters, total_parameters, reduced_parameters/total_parameters))
-        save(classify, s3, s3def, args)
-
-    # Enable multi-gpu processing
-    if torch.cuda.device_count() > 1:
-        print("Let's use", torch.cuda.device_count(), "GPUs!")
-        # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-        model = nn.DataParallel(classify)
-        classify = model.module
-    else:
-        model = classify
-
-    #specificy device for model
+    #sepcificy device for model
     classify.to(device)
 
 
 
     # Define a Loss function and optimizer
     target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32)
-    criterion = TotalLoss(args.cuda, k_structure=args.k_structure, target_structure=target_structure, search_structure=args.search_structure)
-    optimizer = optim.SGD(classify.parameters(), lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay )
+    #compute_loss = TotalLoss(args.cuda, k_structure=args.k_structure, target_structure=target_structure, search_structure=args.search_structure)
+    compute_loss = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(classify.parameters(), lr=args.learning_rate)
     #optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate)
-    plotsearch = PlotSearch(classify)
-    plotgrads = PlotGradients(classify)
+
     scheduler1 = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
-    scheduler2 = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.rate_schedule, gamma=args.learning_rate_decay)
+    scheduler2 = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[20,40, 60, 80, 100], gamma=0.1)
+
     iSample = 0
+    lr = args.learning_rate
 
     # Train
     test_results['train'] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'arcitecture_reduction':[]}
@@ -246,8 +202,9 @@ def main(args):
 
                 # zero the parameter gradients
                 optimizer.zero_grad()
-                outputs = model(inputs, isTraining=True)
-                loss, cross_entropy_loss, architecture_loss, arcitecture_reduction, cell_weights  = criterion(outputs, labels, classify)
+                outputs = classify(inputs)
+                #loss, cross_entropy_loss, architecture_loss, arcitecture_reduction, cell_weights  = compute_loss(outputs, labels, classify)
+                loss = compute_loss(outputs, labels)
                 loss.backward()
                 optimizer.step()
 
@@ -255,10 +212,9 @@ def main(args):
                 running_loss += loss.item()
 
                 writer.add_scalar('loss/train', loss, iSample)
-                writer.add_scalar('loss/train', loss, iSample)
-                writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, iSample)
-                writer.add_scalar('architecture_loss/train', architecture_loss, iSample)
-                writer.add_scalar('arcitecture_reduction/train', arcitecture_reduction, iSample)
+                #writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, iSample)
+                #writer.add_scalar('architecture_loss/train', architecture_loss, iSample)
+                #writer.add_scalar('arcitecture_reduction/train', arcitecture_reduction, iSample)
 
                 if i % test_freq == test_freq-1:    # Save image and run test
 
@@ -274,16 +230,19 @@ def main(args):
                         labels = labels.cuda()
 
                     #optimizer.zero_grad()
-                    outputs = model(inputs)
+                    outputs = classify(inputs)
                     classifications = torch.argmax(outputs, 1)
                     results = (classifications == labels).float()
                     test_accuracy = torch.sum(results)/len(results)
 
-                    loss, cross_entropy_loss, architecture_loss, arcitecture_reduction, cell_weights  = criterion(outputs, labels, classify)
+                    #loss, cross_entropy_loss, architecture_loss, arcitecture_reduction, cell_weights  = compute_loss(outputs, labels, classify)
+                    loss = compute_loss(outputs, labels)
 
                     running_loss /=test_freq
-                    msg = '[{:3}/{}, {:6d}/{}]  accuracy: {:05f}|{:05f} loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test)'.format(
-                        epoch + 1,args.epochs, i + 1, trainingset.__len__()/args.batch_size, training_accuracy, test_accuracy, running_loss, loss, arcitecture_reduction)
+                    #msg = '[{:3}/{}, {:6d}/{}]  accuracy: {:03f}|{:03f} loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test)'.format(
+                    #    epoch + 1,args.epochs, i + 1, trainingset.__len__()/args.batch_size, training_accuracy, test_accuracy, running_loss, loss, arcitecture_reduction)
+                    msg = '[{:3}/{}, {:6d}/{}]  accuracy: {:03f}|{:03f} loss: {:0.5e}|{:0.5e} (train|test)'.format(
+                        epoch + 1,args.epochs, i + 1, trainingset.__len__()/args.batch_size, training_accuracy, test_accuracy, running_loss, loss)
                     if args.job is True:
                         print(msg)
                     else:
@@ -293,14 +252,14 @@ def main(args):
                     writer.add_scalar('accuracy/train', training_accuracy, iSample)
                     writer.add_scalar('accuracy/test', test_accuracy, iSample)
                     writer.add_scalar('loss/test', loss, iSample)
-                    writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, iSample)
-                    writer.add_scalar('architecture_loss/test', architecture_loss, iSample)
-                    writer.add_scalar('arcitecture_reduction/train', arcitecture_reduction, iSample)
+                    #writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, iSample)
+                    #writer.add_scalar('architecture_loss/test', architecture_loss, iSample)
+                    #writer.add_scalar('arcitecture_reduction/train', arcitecture_reduction, iSample)
 
                     log_metric("accuracy", test_accuracy.item())
 
-                    cv2.imwrite('class_weights.png', plotsearch.plot(cell_weights))
-                    cv2.imwrite('gradient_norm.png', plotgrads.plot(classify))
+                    #cv2.imwrite('class_weights.png', plotsearch.plot(cell_weights))
+                    #cv2.imwrite('gradient_norm.png', plotgrads.plot(classify))
 
                 iSave = 2000
                 if i % iSave == iSave-1:    # print every iSave mini-batches
@@ -313,6 +272,9 @@ def main(args):
 
             # scheduler1.step()
             scheduler2.step()
+
+
+            '''
             compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
             img = plotsearch.plot(cell_weights)
             is_success, buffer = cv2.imencode(".png", img, compression_params)
@@ -326,6 +288,7 @@ def main(args):
             img_enc = io.BytesIO(buffer).read()
             filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
             s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+            '''
 
             save(classify, s3, s3def, args)
 
@@ -351,7 +314,7 @@ def main(args):
         log_metric("test_accuracy", accuracy)
         print("test_accuracy={}".format(accuracy))
         test_results['test_accuracy'] = accuracy
-        test_results['current_weights'], test_results['original_weights'], test_results['remnent'] = classify.Parameters()
+        #test_results['current_weights'], test_results['original_weights'], test_results['remnent'] = classify.Parameters()
 
         s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}/{}_results.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), test_results)
 

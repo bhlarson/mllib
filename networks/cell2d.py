@@ -22,11 +22,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import cv2
 from mlflow import log_metric, log_param, log_artifacts
-#import adabound
 
 sys.path.insert(0, os.path.abspath(''))
 from utils.torch_util import count_parameters, model_stats, model_weights
-from utils.jsonutil import ReadDictJson, WriteDictJson
+from utils.jsonutil import ReadDictJson, WriteDictJson, str2bool
 from utils.s3 import s3store, Connect
 from torch.utils.tensorboard import SummaryWriter
 from networks.totalloss import TotalLoss
@@ -797,6 +796,7 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def parse_arguments():
+    import argparse
     parser = argparse.ArgumentParser(description='Process arguments')
 
     parser.add_argument('-d', '--debug', action='store_true',help='Wait for debuggee attach')   
@@ -806,7 +806,7 @@ def parse_arguments():
     parser.add_argument('-description', type=str, default="", help='Training description to record with resuts')
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 
-    parser.add_argument('-prune', type=str2bool, default=True)
+    parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=True)
     parser.add_argument('-search_structure', type=str2bool, default=True)
@@ -837,6 +837,7 @@ def parse_arguments():
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-k_structure', type=float, default=1e1, help='Structure minimization weighting factor')
     parser.add_argument('-target_structure', type=float, default=0.70, help='Structure minimization weighting factor')
+
     parser.add_argument('-batch_norm', type=bool, default=True)
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
     parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')
@@ -1016,6 +1017,19 @@ class PlotGradients():
         return img
 
 
+
+
+class AddGaussianNoise(object):
+    def __init__(self, mean=0., std=1.):
+        self.std = std
+        self.mean = mean
+        
+    def __call__(self, tensor):
+        return tensor + torch.randn(tensor.size()) * self.std + self.mean
+    
+    def __repr__(self):
+        return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
+
 # Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
 def Test(args):
     import torchvision
@@ -1054,25 +1068,12 @@ def Test(args):
         device = torch.device('cuda')
         pin_memory = True
 
-    class AddGaussianNoise(object):
-        def __init__(self, mean=0., std=1.):
-            self.std = std
-            self.mean = mean
-            
-        def __call__(self, tensor):
-            return tensor + torch.randn(tensor.size()) * self.std + self.mean
-        
-        def __repr__(self):
-            return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
-
     # Load dataset
-    IMAGE_SIZE = 32
     train_transform = transforms.Compose([transforms.RandomHorizontalFlip(p=0.5),
         transforms.RandomAffine(degrees=args.augment_rotation, 
             translate=(args.augment_translate_x, args.augment_translate_y), 
             scale=(args.augment_scale_min, args.augment_scale_max), 
             interpolation=transforms.InterpolationMode.BILINEAR),
-        #transforms.RandomCrop(size=IMAGE_SIZE, padding=4),
         transforms.ToTensor(), 
         transforms.Normalize((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), # Imagenet mean and standard deviation
         AddGaussianNoise(0., args.augment_noise)
@@ -1142,7 +1143,6 @@ def Test(args):
     criterion = TotalLoss(args.cuda, k_structure=args.k_structure, target_structure=target_structure, search_structure=args.search_structure)
     optimizer = optim.SGD(classify.parameters(), lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay )
     #optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate)
-    #optimizer = adabound.AdaBound(classify.parameters(), lr=args.learning_rate, final_lr=args.learning_rate)
     plotsearch = PlotSearch(classify)
     plotgrads = PlotGradients(classify)
     scheduler1 = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
@@ -1234,7 +1234,7 @@ def Test(args):
                 cv2.imwrite('gradient_norm.png', plotgrads.plot(classify))
 
                 iSave = 2000
-                if i % iSave == iSave-1:    # print every 20 mini-batches
+                if i % iSave == iSave-1:    # print every iSave mini-batches
                     save(classify, s3, s3def, args)
 
                 if args.fast and i+1 >= test_freq:
@@ -1293,7 +1293,6 @@ def Test(args):
     return 0
 
 if __name__ == '__main__':
-    import argparse
     args = parse_arguments()
 
     if args.debug:
@@ -1326,9 +1325,7 @@ if __name__ == '__main__':
         '''
 
         debugpy.listen(address=(args.debug_address, args.debug_port))
-        # Pause the program until a remote debugger is attached
-
-        debugpy.wait_for_client()
+        debugpy.wait_for_client() # Pause the program until a remote debugger is attached
         print("Debugger attached")
 
     result = Test(args)

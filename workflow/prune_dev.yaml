@@ -13,11 +13,11 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: target_structure
-          value: 0.15
+          value: 1.00
         - name: log_name
-          value: t15
+          value: t100
         - name: batch_size
-          value: 256
+          value: 400
     entrypoint: train-crisp
     templates:
     - name: train-crisp
@@ -30,22 +30,23 @@ workflow:
               {name: prune, value: false},
               {name: search_structure, value: true},
               {name: target_structure, value: "{{workflow.parameters.target_structure}}"},
-              {name: epochs, value: 20},
+              {name: epochs, value: 120},
+              {name: rate_schedule, value: [60, 90, 110]},
               {name: model_src, value: ""},
               {name: model_dest, value: "crisp20220210_{{workflow.parameters.log_name}}_00"},
               {name: description, value: "Train network for target size"}]
-        - name: prune-finetuning
-          dependencies: [target-size]
-          template: train
-          arguments:
-            parameters: [
-              {name: prune, value: true},
-              {name: search_structure, value: true},
-              {name: target_structure, value: '{{workflow.parameters.target_structure}}'},
-              {name: epochs, value: 20},
-              {name: model_src, value: "crisp20220210_{{workflow.parameters.log_name}}_00"},
-              {name: model_dest, value: "crisp20220210_{{workflow.parameters.log_name}}_01"},
-              {name: description, value: "Prune and fine tune"}]
+        #- name: prune-finetuning
+        #  dependencies: [target-size]
+        #  template: train
+        #  arguments:
+        #    parameters: [
+        #      {name: prune, value: true},
+        #      {name: search_structure, value: true},
+        #      {name: target_structure, value: '{{workflow.parameters.target_structure}}'},
+        #      {name: epochs, value: 20},
+        #      {name: model_src, value: "crisp20220210_{{workflow.parameters.log_name}}_00"},
+        #      {name: model_dest, value: "crisp20220210_{{workflow.parameters.log_name}}_01"},
+        #      {name: description, value: "Prune and fine tune"}]
 
     - name: train
       inputs:
@@ -55,7 +56,8 @@ workflow:
           {name: target_structure, value: 1.0},
           {name: epochs, value: 20},
           {name: k_structure, value: 1e1},
-          {name: learning_rate, value: 1e-1},
+          {name: learning_rate, value: 1e-2},
+          {name: rate_schedule, value: [60, 90, 110]},
           {name: model_src, value: ""},
           {name: model_dest, value: "crisp00"},
           {name: description, value: "Default network training"}]
@@ -77,6 +79,7 @@ workflow:
         - -epochs={{inputs.parameters.epochs}}
         - -k_structure={{inputs.parameters.k_structure}}
         - -learning_rate={{inputs.parameters.learning_rate}}
+        - -rate_schedule={{inputs.parameters.rate_schedule}}
         - -model_src={{inputs.parameters.model_src}}
         - -model_dest={{inputs.parameters.model_dest}}
         - -description={{inputs.parameters.description}}

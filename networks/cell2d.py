@@ -818,25 +818,25 @@ def parse_arguments():
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
     parser.add_argument('-model', type=str, default='model')
 
-    parser.add_argument('-epochs', type=int, default=20, help='Training epochs')
-    parser.add_argument('-batch_size', type=int, default=800, help='Training batch size') 
+    parser.add_argument('-epochs', type=int, default=120, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=400, help='Training batch size') 
 
-    parser.add_argument('-learning_rate', type=float, default=1e-1, help='Training learning rate')
+    parser.add_argument('-learning_rate', type=float, default=1e-2, help='Training learning rate')
     parser.add_argument('-learning_rate_decay', type=float, default=0.1, help='Rate decay multiple')
-    #parser.add_argument('-rate_schedule', type=json.loads, default='[60, 80, 85]', help='Training learning rate')
+    parser.add_argument('-rate_schedule', type=json.loads, default='[60, 90, 110]', help='Training learning rate')
     #parser.add_argument('-rate_schedule', type=json.loads, default='[40, 60, 65]', help='Training learning rate')
-    parser.add_argument('-rate_schedule', type=json.loads, default='[10, 15, 17]', help='Training learning rate')
+    #parser.add_argument('-rate_schedule', type=json.loads, default='[10, 15, 17]', help='Training learning rate')
     
     parser.add_argument('-momentum', type=float, default=0.9, help='Learning Momentum')
-    parser.add_argument('-weight_decay', type=float, default=0.0001)
+    parser.add_argument('-weight_decay', type=float, default=0.001)
 
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
-    parser.add_argument('-model_src', type=str,  default="crisp20220210_t70_00")
-    parser.add_argument('-model_dest', type=str, default="crisp20220210_t70_01")
+    parser.add_argument('-model_src', type=str,  default=None)
+    parser.add_argument('-model_dest', type=str, default="crisp20220210_t00_00")
     parser.add_argument('-cuda', type=bool, default=True)
-    parser.add_argument('-k_structure', type=float, default=1e1, help='Structure minimization weighting factor')
-    parser.add_argument('-target_structure', type=float, default=0.70, help='Structure minimization weighting factor')
+    parser.add_argument('-k_structure', type=float, default=1e0, help='Structure minimization weighting factor')
+    parser.add_argument('-target_structure', type=float, default=0.00, help='Structure minimization weighting factor')
 
     parser.add_argument('-batch_norm', type=bool, default=True)
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
@@ -1141,11 +1141,11 @@ def Test(args):
     # Define a Loss function and optimizer
     target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32)
     criterion = TotalLoss(args.cuda, k_structure=args.k_structure, target_structure=target_structure, search_structure=args.search_structure)
-    optimizer = optim.SGD(classify.parameters(), lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay )
-    #optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate)
+    #optimizer = optim.SGD(classify.parameters(), lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay )
+    optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay )
     plotsearch = PlotSearch(classify)
     plotgrads = PlotGradients(classify)
-    scheduler1 = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
+    #scheduler1 = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.999)
     scheduler2 = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.rate_schedule, gamma=args.learning_rate_decay)
     iSample = 0
 
@@ -1230,9 +1230,6 @@ def Test(args):
 
                     log_metric("accuracy", test_accuracy.item())
 
-                cv2.imwrite('class_weights.png', plotsearch.plot(cell_weights))
-                cv2.imwrite('gradient_norm.png', plotgrads.plot(classify))
-
                 iSave = 2000
                 if i % iSave == iSave-1:    # print every iSave mini-batches
                     save(classify, s3, s3def, args)
@@ -1242,7 +1239,10 @@ def Test(args):
 
                 iSample += 1
 
-            # scheduler1.step()
+            cv2.imwrite('class_weights.png', plotsearch.plot(cell_weights))
+            cv2.imwrite('gradient_norm.png', plotgrads.plot(classify))
+
+            #scheduler1.step()
             scheduler2.step()
             compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
             img = plotsearch.plot(cell_weights)

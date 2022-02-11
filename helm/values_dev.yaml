@@ -1,4 +1,2 @@
 objectstore:
-  size: 100Gi
-  hostPath:
-    path: /store/mlstore
+  url: 198.211.145.1

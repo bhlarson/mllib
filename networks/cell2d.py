@@ -832,11 +832,12 @@ def parse_arguments():
 
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
-    parser.add_argument('-model_src', type=str,  default="crisp20220210_t100_00")
-    parser.add_argument('-model_dest', type=str, default="crisp20220210_t60_00")
+    parser.add_argument('-model_src', type=str,  default="crisp20220210_t70_00")
+    parser.add_argument('-model_dest', type=str, default="crisp20220210_t70_01")
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-k_structure', type=float, default=1e1, help='Structure minimization weighting factor')
-    parser.add_argument('-target_structure', type=float, default=0.60, help='Structure minimization weighting factor')
+    parser.add_argument('-target_structure', type=float, default=0.70, help='Structure minimization weighting factor')
+
     parser.add_argument('-batch_norm', type=bool, default=True)
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
     parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')

@@ -29,8 +29,7 @@ from utils.metrics import similarity, jaccard, DatasetResults
 from networks.totalloss import TotalLoss
 
 
-
-DefaultMaxDepth = 7
+DefaultMaxDepth = 4
 class Network2d(nn.Module):
     def __init__(self, 
                  out_channels=1, 
@@ -40,12 +39,17 @@ class Network2d(nn.Module):
                  min_search_depth=3, 
                  max_search_depth=DefaultMaxDepth, 
                  max_cell_steps=6, 
-                 channel_multiple=1.5, 
+                 channel_multiple=2, 
                  batch_norm=True, 
                  cell=Cell, 
                  search_structure=True,
+                 residual = False,
                  depth = float(DefaultMaxDepth),
-                 definition=None):
+                 feature_threshold=0.5,
+                 weight_gain = 11.0,
+                 convMaskThreshold=0.5,
+                 dropout_rate = 0.2,
+                 sigmoid_scale = 5.0):
         super(Network2d, self).__init__()
 
         self.max_search_depth = max_search_depth
@@ -64,38 +68,54 @@ class Network2d(nn.Module):
         self.upsample = torch.nn.ModuleList()
         self.final_conv = torch.nn.ModuleList()
         self.search_structure = search_structure
+        self.residual = residual
+
+        self.feature_threshold=feature_threshold
+        self.weight_gain = weight_gain
+        self.convMaskThreshold=convMaskThreshold
+        self.dropout_rate = dropout_rate
+        self.sigmoid_scale = sigmoid_scale
 
         encoder_channels = self.initial_channels
         prev_encoder_chanels = self.source_channels
         feedforward_chanels = []
 
+        convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':self.search_structure},
+                        {'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':self.search_structure}]
         for i in range(self.max_search_depth-1):
-            convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
-                          {'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True}]
+            for convoluiton in convolutions:
+                convoluiton['out_channels'] = encoder_channels
+
             cell = self.cell(prev_encoder_chanels, 
-                             is_cuda=self.is_cuda, 
                              batch_norm=self.batch_norm, 
+                             is_cuda=self.is_cuda,
                              convolutions=convolutions,
-                             search_structure=self.search_structure, 
-                             depth=self.max_cell_steps)
+                             search_structure=self.search_structure,
+                             residual=self.residual,
+                             dropout_rate=self.dropout_rate, 
+                             sigmoid_scale=self.sigmoid_scale, 
+                             feature_threshold=self.feature_threshold)
             self.encode_decode.append(cell)
 
             feedforward_chanels.append(encoder_channels)
             prev_encoder_chanels = encoder_channels
             encoder_channels = int(self.channel_multiple*encoder_channels)
 
-        convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
-                      {'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True}]
+        for convoluiton in convolutions:
+            convoluiton['out_channels'] = encoder_channels
 
         cell = self.cell(prev_encoder_chanels,
-                         is_cuda=self.is_cuda,
                          batch_norm=self.batch_norm,
+                         is_cuda=self.is_cuda,
                          convolutions=convolutions,
                          search_structure=self.search_structure,
-                         depth=self.max_cell_steps)
+                         residual=self.residual,
+                         dropout_rate=self.dropout_rate, 
+                         sigmoid_scale=self.sigmoid_scale, 
+                         feature_threshold=self.feature_threshold)
         self.encode_decode.append(cell)
 
-        for i in range(self.max_search_depth-1):
+        for i in range(self.max_search_depth-2):
 
             #if definition is not None and len(definition['encode_decode']) > i:
             #    encoder_channels = definition['encode_decode'][self.max_search_depth+i]['in1_channels']
@@ -105,28 +125,38 @@ class Network2d(nn.Module):
             self.upsample.append(nn.ConvTranspose2d(encoder_channels, encoder_channels, 2, stride=2))
             prev_encoder_chanels = encoder_channels
             encoder_channels = int(encoder_channels/self.channel_multiple)
-            convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
-                          {'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True}]
+
+            convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':self.search_structure},
+                          {'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':self.search_structure},
+                          {'out_channels':int(encoder_channels/2), 'kernel_size': 2, 'stride': 2, 'dilation': 1, 'search_structure':self.search_structure}]
 
             cell = self.cell(prev_encoder_chanels, 
                              feedforward_chanels[-(i+1)],
-                             is_cuda=self.is_cuda,
                              batch_norm=self.batch_norm,
+                             is_cuda=self.is_cuda,
                              convolutions=convolutions,
                              search_structure=self.search_structure,
-                             depth=self.max_cell_steps)
-            self.encode_decode.append(cell)       
+                             residual=self.residual,
+                             dropout_rate=self.dropout_rate, 
+                             sigmoid_scale=self.sigmoid_scale, 
+                             feature_threshold=self.feature_threshold)
+            self.encode_decode.append(cell)
 
-        convolutions=[{'out_channels':out_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
-                      {'out_channels':out_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True}]
+        prev_encoder_chanels = encoder_channels
+        convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
+                      {'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
+                      {'out_channels':self.out_channels, 'kernel_size': 1, 'stride': 1, 'dilation': 1, 'search_structure':True}]
 
-        cell = self.cell(out_channels,
-                         encoder_channels,
+        cell = self.cell(prev_encoder_chanels,
+                         feedforward_chanels[0],
                          is_cuda=self.is_cuda,
                          batch_norm=self.batch_norm,
                          convolutions=convolutions,
                          search_structure=self.search_structure,
-                         depth=self.max_cell_steps)
+                         residual=self.residual,
+                         dropout_rate=self.dropout_rate, 
+                         sigmoid_scale=self.sigmoid_scale, 
+                         feature_threshold=self.feature_threshold)
         self.encode_decode.append(cell)
 
         self.pool = nn.MaxPool2d(2, 2)
@@ -336,8 +366,8 @@ def parse_arguments():
     parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20211126_00')
-    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20211207_00')
+    parser.add_argument('-model_src', type=str,  default=None)
+    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20220211_00')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
@@ -347,15 +377,21 @@ def parse_arguments():
     parser.add_argument('-max_search_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-min_search_depth', type=int, default=2, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
-    parser.add_argument('-channel_multiple', type=float, default=1.5, help='maximum number of layers to grow per level')
+    parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
     parser.add_argument('-k_structure', type=float, default=1.0e-4, help='Structure minimization weighting fator')
     parser.add_argument('-target_structure', type=float, default=0.01, help='Structure minimization weighting fator')
     parser.add_argument('-batch_norm', type=bool, default=False)
+    parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
+    parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')
+    parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convolution channels weights')
+    parser.add_argument('-feature_threshold', type=float, default=0.5, help='tanh pruning threshold')
+    parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='sigmoid level to prune convolution chanmels')
+    parser.add_argument('-residual', type=bool, default=False, help='Residual convolution functionss')
 
     parser.add_argument('-prune', type=bool, default=False)
     parser.add_argument('-train', type=bool, default=False)
     parser.add_argument('-infer', type=bool, default=True)
-    parser.add_argument('-search_structure', type=bool, default=False)
+    parser.add_argument('-search_structure', type=bool, default=True)
     parser.add_argument('-onnx', type=bool, default=False)
 
     parser.add_argument('-test_dir', type=str, default=None)
@@ -376,7 +412,14 @@ def MakeNetwork2d(classes, args):
             max_cell_steps=args.max_cell_steps, 
             channel_multiple=args.channel_multiple,
             batch_norm=args.batch_norm,
-            search_structure=args.search_structure)
+            search_structure=args.search_structure,
+            residual=args.residual,
+            depth = args.max_search_depth,
+            feature_threshold = args.feature_threshold,
+            weight_gain = args.weight_gain,
+            convMaskThreshold = args.convMaskThreshold,
+            dropout_rate = args.dropout_rate,
+            sigmoid_scale = args.sigmoid_scale)
 
 def save(model, s3, s3def, args):
     out_buffer = io.BytesIO()
@@ -480,15 +523,10 @@ def Test(args):
         test_freq = int(math.ceil(train_batches/test_batches))
 
     if(args.model_src and args.model_src != ''):
-        modeldict = s3.GetDict(s3def['sets']['model']['bucket'], '{}/{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
+        #modeldict = s3.GetDict(s3def['sets']['model']['bucket'], '{}/{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
         modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
 
-        if modeldict is not None:
-            segment = Network2d(definition=modeldict)
-        else:
-            print('Unable to load model definition {}/{}/{}/{}. Creating default model.'.format(
-                s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
-            segment = MakeNetwork2d(class_dictionary['classes'], args)
+        segment = MakeNetwork2d(class_dictionary['classes'], args)
 
         if modelObj is not None:
             # segment.load_state_dict(torch.load(io.BytesIO(modelObj)))

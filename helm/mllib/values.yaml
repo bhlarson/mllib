@@ -1,5 +1,5 @@
 release: latest
-server: 192.168.0.155
+#server: 192.168.0.155
 app: mllib
 
 objectstore:

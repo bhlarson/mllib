@@ -30,10 +30,10 @@ workflow:
               {name: prune, value: false},
               {name: search_structure, value: true},
               {name: target_structure, value: "{{workflow.parameters.target_structure}}"},
-              {name: epochs, value: 120},
-              {name: rate_schedule, value: [60, 90, 110]},
+              {name: epochs, value: 600},
+              {name: rate_schedule, value: "[50, 100, 150, 200, 250, 300, 350, 400, 450, 500]"},
               {name: model_src, value: ""},
-              {name: model_dest, value: "crisp20220210_{{workflow.parameters.log_name}}_00"},
+              {name: model_dest, value: "crisp20220211_{{workflow.parameters.log_name}}_00"},
               {name: description, value: "Train network for target size"}]
         #- name: prune-finetuning
         #  dependencies: [target-size]
@@ -44,8 +44,8 @@ workflow:
         #      {name: search_structure, value: true},
         #      {name: target_structure, value: '{{workflow.parameters.target_structure}}'},
         #      {name: epochs, value: 20},
-        #      {name: model_src, value: "crisp20220210_{{workflow.parameters.log_name}}_00"},
-        #      {name: model_dest, value: "crisp20220210_{{workflow.parameters.log_name}}_01"},
+        #      {name: model_src, value: "crisp20220211_{{workflow.parameters.log_name}}_00"},
+        #      {name: model_dest, value: "crisp20220211_{{workflow.parameters.log_name}}_01"},
         #      {name: description, value: "Prune and fine tune"}]
 
     - name: train
@@ -55,9 +55,9 @@ workflow:
           {name: search_structure, value: true},
           {name: target_structure, value: 1.0},
           {name: epochs, value: 20},
-          {name: k_structure, value: 1e1},
-          {name: learning_rate, value: 1e-2},
-          {name: rate_schedule, value: [60, 90, 110]},
+          {name: k_structure, value: 1e0},
+          {name: learning_rate, value: 1e-1},
+          {name: rate_schedule, value: "[10, 15, 18]"},
           {name: model_src, value: ""},
           {name: model_dest, value: "crisp00"},
           {name: description, value: "Default network training"}]

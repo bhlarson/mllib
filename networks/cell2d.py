@@ -156,14 +156,12 @@ class ConvBR(nn.Module):
             weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)
             #norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
             #conv_scale = torch.tanh(self.weight_gain*norm)
-            #conv_weights = (torch.tanh(self.weight_gain*norm)+weight_scale)/2.0
             #conv_weights = conv_scale*weight_scale
             conv_weights = weight_scale
             #conv_weights = torch.tanh(self.weight_gain*norm)
 
         else:
-            norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
-            conv_weights = torch.ones_like(norm)          
+            conv_weights = torch.ones_like(self.channel_scale)          
 
         cell_weights = model_weights(self)
 
@@ -850,8 +848,8 @@ def parse_arguments():
 
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
-    parser.add_argument('-model_src', type=str,  default="crisp20220210_t00_00")
-    parser.add_argument('-model_dest', type=str, default="crisp20220210_t00_01")
+    parser.add_argument('-model_src', type=str,  default=None)
+    parser.add_argument('-model_dest', type=str, default="crisp20220210_t00_00")
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-k_structure', type=float, default=1e0, help='Structure minimization weighting factor')
     parser.add_argument('-target_structure', type=float, default=0.00, help='Structure minimization weighting factor')

@@ -134,9 +134,11 @@ class ConvBR(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-    def ApplyParameters(self, search_structure=False, dropout=False):
-       self.search_structure = search_structure
-       self.self.use_dropout = dropout
+    def ApplyParameters(self, search_structure=None, dropout=None):
+        if search_structure is not None:
+            self.search_structure = search_structure
+        if dropout is not None:
+            self.self.use_dropout = dropout
 
     def forward(self, x):
         if self.out_channels > 0:

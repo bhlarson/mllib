@@ -41,10 +41,11 @@ class Network2d(nn.Module):
                  max_search_depth=DefaultMaxDepth, 
                  max_cell_steps=6, 
                  channel_multiple=2, 
-                 batch_norm=True, 
+                 batch_norm=False, 
                  cell=Cell, 
                  search_structure=True,
                  residual = False,
+                 dropout = False,
                  depth = float(DefaultMaxDepth),
                  feature_threshold=0.5,
                  weight_gain = 11.0,
@@ -70,6 +71,7 @@ class Network2d(nn.Module):
         self.final_conv = torch.nn.ModuleList()
         self.search_structure = search_structure
         self.residual = residual
+        self.dropout = dropout
 
         self.feature_threshold=feature_threshold
         self.weight_gain = weight_gain
@@ -93,6 +95,7 @@ class Network2d(nn.Module):
                              convolutions=convolutions,
                              search_structure=self.search_structure,
                              residual=self.residual,
+                             dropout=self.dropout,
                              dropout_rate=self.dropout_rate, 
                              sigmoid_scale=self.sigmoid_scale, 
                              feature_threshold=self.feature_threshold)
@@ -133,6 +136,7 @@ class Network2d(nn.Module):
                              convolutions=convolutions,
                              search_structure=self.search_structure,
                              residual=self.residual,
+                             dropout=self.dropout,
                              dropout_rate=self.dropout_rate, 
                              sigmoid_scale=self.sigmoid_scale, 
                              feature_threshold=self.feature_threshold)
@@ -169,6 +173,13 @@ class Network2d(nn.Module):
         definition_dict['total_trainable_weights']= total_trainable_weights.item()
 
         return definition_dict'''
+
+    def ApplyParameters(self, search_structure=False, dropout=False): # Apply a parameter change
+        self.search_structure = search_structure
+        self.dropout = dropout
+
+        for cell in self.cells:
+            cell.ApplyParameters(self.search_structure, self.dropout)
 
     def forward_depth(self, x, depth):
         feed_forward = []
@@ -278,31 +289,32 @@ class Network2d(nn.Module):
 
         encoder_channel_mask = None
         feedforward_channel_mask = []
-        new_encode_decode = torch.nn.ModuleList()
+        #new_encode_decode = torch.nn.ModuleList()
         new_upsample = torch.nn.ModuleList()
         
         for i in range(new_depth-1):
             encoder_channel_mask = self.cells[i].ApplyStructure(encoder_channel_mask)
-            new_encode_decode.append(self.cells[i])
+            #new_encode_decode.append(self.cells[i])
             feedforward_channel_mask.append(encoder_channel_mask)
 
         encoder_channel_mask = self.cells[new_depth-1].ApplyStructure(encoder_channel_mask)
-        new_encode_decode.append(self.cells[new_depth-1])
+        #new_encode_decode.append(self.cells[new_depth-1])
 
         for i in range(new_depth-1):
-            iUpsample = i+self.max_search_depth-new_depth
-            self.ApplyStructureConvTranspose2d(self.upsample[iUpsample], encoder_channel_mask, encoder_channel_mask) # Remove same input and output channels
-            new_upsample.append(self.upsample[iUpsample])
-            iEncDec = i+2*self.max_search_depth-new_depth
+            #iUpsample = i+self.max_search_depth-new_depth
+            #self.ApplyStructureConvTranspose2d(self.upsample[iUpsample], encoder_channel_mask, encoder_channel_mask) # Remove same input and output channels
+            #new_upsample.append(self.upsample[iUpsample])
+            #iEncDec = i+2*self.max_search_depth-new_depth
+            iEncDec = i+new_depth
             encoder_channel_mask = self.cells[iEncDec].ApplyStructure(encoder_channel_mask, feedforward_channel_mask[-(i+1)])
-            new_encode_decode.append(self.cells[iEncDec])
+            #new_encode_decode.append(self.cells[iEncDec])
 
-        encoder_channel_mask = self.cells[-1].ApplyStructure(encoder_channel_mask) # Final resize to output features
-        new_encode_decode.append(self.cells[-1])
+        #encoder_channel_mask = self.cells[-1].ApplyStructure(encoder_channel_mask) # Final resize to output features
+        #new_encode_decode.append(self.cells[-1])
 
-        self.cells = new_encode_decode
-        self.upsample = new_upsample
-        self.max_search_depth = new_depth
+        #self.cells = new_encode_decode
+        #self.upsample = new_upsample
+        #self.max_search_depth = new_depth
 
         return encoder_channel_mask
 
@@ -359,6 +371,17 @@ class Network2d(nn.Module):
             
         return architecture_weights, model_weights(self), conv_weights
 
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, int):
+        return not(v==0)
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def parse_arguments():
     import argparse
@@ -374,18 +397,18 @@ def parse_arguments():
     parser.add_argument('-trainingset', type=str, default='data/coco/annotations/instances_train2017.json', help='Coco dataset instance json file.')
     parser.add_argument('-validationset', type=str, default='data/coco/annotations/instances_val2017.json', help='Coco dataset instance json file.')
     parser.add_argument('-train_image_path', type=str, default='data/coco/train2017', help='Coco image path for dataset.')
-    parser.add_argument('-imStatistics', type=bool, default=False, help='Record individual image statistics')
+    parser.add_argument('-imStatistics', type=str2bool, default=False, help='Record individual image statistics')
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=20, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=8, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=4, help='Training epochs')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20220215_00')
-    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20220215_01')
+    parser.add_argument('-model_src', type=str,  default=None)
+    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20220217_00_T100')
     parser.add_argument('-test_results', type=str, default='test_results.json')
-    parser.add_argument('-cuda', type=bool, default=True)
+    parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
     parser.add_argument('-width', type=int, default=512, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')
@@ -394,27 +417,28 @@ def parse_arguments():
     parser.add_argument('-min_search_depth', type=int, default=2, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
-    parser.add_argument('-k_structure', type=float, default=1.0e-1, help='Structure minimization weighting fator')
-    parser.add_argument('-target_structure', type=float, default=1.00, help='Structure minimization weighting fator')
-    parser.add_argument('-batch_norm', type=bool, default=False)
+    parser.add_argument('-k_structure', type=float, default=2.5e-1, help='Structure minimization weighting factor')
+    parser.add_argument('-target_structure', type=float, default=1.00, help='Structure minimization weighting factor')
+    parser.add_argument('-batch_norm', type=str2bool, default=False)
+    parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
     parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')
     parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convolution channels weights')
     parser.add_argument('-feature_threshold', type=float, default=0.5, help='tanh pruning threshold')
-    parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='sigmoid level to prune convolution chanmels')
-    parser.add_argument('-residual', type=bool, default=False, help='Residual convolution functionss')
+    parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='sigmoid level to prune convolution channels')
+    parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
 
-    parser.add_argument('-prune', type=bool, default=False)
-    parser.add_argument('-train', type=bool, default=True)
-    parser.add_argument('-infer', type=bool, default=True)
-    parser.add_argument('-search_structure', type=bool, default=True)
-    parser.add_argument('-onnx', type=bool, default=False)
+    parser.add_argument('-prune', type=str2bool, default=False)
+    parser.add_argument('-train', type=str2bool, default=True)
+    parser.add_argument('-infer', type=str2bool, default=True)
+    parser.add_argument('-search_structure', type=str2bool, default=False)
+    parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
     parser.add_argument('-test_dir', type=str, default='/store/data/network2d')
     parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
-    parser.add_argument('-class_weight', type=json.loads, default='[1.0,1.0, 1.0, 1.0]', help='Loss class weight ') 
+    parser.add_argument('-class_weight', type=json.loads, default='[0.05, 0.5, 1.0, 1.0]', help='Loss class weight ') 
 
     parser.add_argument('-description', type=json.loads, default='{"description":"NAS segmentation"}', help='Test description')
 
@@ -431,6 +455,7 @@ def MakeNetwork2d(classes, args):
             batch_norm=args.batch_norm,
             search_structure=args.search_structure,
             residual=args.residual,
+            dropout=args.dropout,
             depth = args.max_search_depth,
             feature_threshold = args.feature_threshold,
             weight_gain = args.weight_gain,
@@ -482,9 +507,9 @@ def InferLoss(inputs, labels, args, model, criterion, optimizer):
 
     #with torch.cuda.amp.autocast():
     outputs = model(inputs)
-    loss, cross_entropy_loss, architecture_loss, arcitecture_reduction, cell_weights = criterion(outputs, labels, model)
+    loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights = criterion(outputs, labels, model)
 
-    return outputs, loss, cross_entropy_loss, architecture_loss, arcitecture_reduction, cell_weights
+    return outputs, loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights
 
 def DisplayImgAn(image, label, segmentation, trainingset, mean, stdev):
     image = np.squeeze(image)
@@ -528,50 +553,22 @@ def Test(args):
         device = "cuda"
         pin_memory = True
 
-    test_freq = 20
-    if args.train:
-        trainingset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.trainingset, 
-            image_paths=args.train_image_path,
-            class_dictionary=class_dictionary, 
-            height=args.height, 
-            width=args.width, 
-            imflags=args.imflags, 
-            astype='float32', 
-            enable_transform=True)
-
-        train_batches=int(trainingset.__len__()/args.batch_size)
-        trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=pin_memory)
-
-        testset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
-            image_paths=args.val_image_path,
-            class_dictionary=class_dictionary, 
-            height=args.height, 
-            width=args.width, 
-            imflags=args.imflags, 
-            astype='float32',
-            enable_transform=False)
-        test_batches=int(testset.__len__()/args.batch_size)
-        testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
-        test_freq = int(math.ceil(train_batches/test_batches))
-
     if(args.model_src and args.model_src != ''):
         #modeldict = s3.GetDict(s3def['sets']['model']['bucket'], '{}/{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
         modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
 
-        segment = MakeNetwork2d(class_dictionary['classes'], args)
+        #segment = MakeNetwork2d(class_dictionary['classes'], args)
 
         if modelObj is not None:
             #segment.load_state_dict(torch.load(io.BytesIO(modelObj)))
             segment = torch.load(io.BytesIO(modelObj))
+            segment.ApplyParameters(args.search_structure)
         else:
             print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
             return
     else:
         # Create Default segmenter
         segment = MakeNetwork2d(class_dictionary['classes'], args)
-
-    #sepcificy device for model
-    segment.to(device)
 
     total_parameters = count_parameters(segment)
 
@@ -580,6 +577,18 @@ def Test(args):
         reduced_parameters = count_parameters(segment)
         save(segment, s3, s3def, args)
         print('Reduced parameters {}/{} = {}'.format(reduced_parameters, total_parameters, reduced_parameters/total_parameters))
+
+    # Enable multi-gpu processing
+    if torch.cuda.device_count() > 1:
+        print("Let's use", torch.cuda.device_count(), "GPUs!")
+        # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+        model = nn.DataParallel(segment)
+        segment = model.module
+    else:
+        model = segment
+
+    #specify device for model
+    segment.to(device)
 
     # Define a Loss function and optimizer
     target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32)
@@ -599,13 +608,37 @@ def Test(args):
         target_structure = target_structure.cuda()
         class_weight = class_weight.cuda()
     criterion = TotalLoss(args.cuda, k_structure=args.k_structure, target_structure=target_structure, class_weight=class_weight, search_structure=args.search_structure)
-    #optimizer = optim.SGD(segment.parameters(), lr=args.learning_rate), momentum=0.9)
+    #optimizer = optim.SGD(segment.parameters(), lr=args.learning_rate, momentum=0.9)
     optimizer = optim.Adam(segment.parameters(), lr= args.learning_rate)
     plotsearch = PlotSearch(segment)
     plotgrads = PlotGradients(segment)
     iSample = 0
     # Train
     if args.train:
+
+        trainingset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.trainingset, 
+            image_paths=args.train_image_path,
+            class_dictionary=class_dictionary, 
+            height=args.height, 
+            width=args.width, 
+            imflags=args.imflags, 
+            astype='float32', 
+            enable_transform=True)
+
+        train_batches=int(trainingset.__len__()/args.batch_size)
+        trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=args.batch_size, pin_memory=pin_memory)
+
+        testset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
+            image_paths=args.val_image_path,
+            class_dictionary=class_dictionary, 
+            height=args.height, 
+            width=args.width, 
+            imflags=args.imflags, 
+            astype='float32',
+            enable_transform=False)
+        test_batches=int(testset.__len__()/args.batch_size)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
+        test_freq = int(math.ceil(train_batches/test_batches))
 
         with torch.profiler.profile(
                 schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
@@ -621,7 +654,20 @@ def Test(args):
                     # get the inputs; data is a list of [inputs, labels]
                     inputs, labels, mean, stdev = data
 
-                    outputs, loss, cross_entropy_loss, architecture_loss, arcitecture_reduction, cell_weights = InferLoss(inputs, labels, args, segment, criterion, optimizer)
+                    if args.cuda:
+                        inputs = inputs.cuda()
+                        labels = labels.cuda()
+
+                    # zero the parameter gradients
+                    optimizer.zero_grad(set_to_none=True)
+
+                    #with torch.cuda.amp.autocast():
+                    outputs = model(inputs)
+                    loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights = criterion(outputs, labels, model)
+
+
+
+                    #outputs, loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights = InferLoss(inputs, labels, args, segment, criterion, optimizer)
 
                     loss.backward()
                     optimizer.step()
@@ -649,16 +695,16 @@ def Test(args):
 
                         data = next(iTest)
                         inputs, labels, mean, stdev = data
-                        outputs, loss, cross_entropy_loss, architecture_loss, arcitecture_reduction, cell_weights = InferLoss(inputs, labels, args, segment, criterion, optimizer)
+                        outputs, loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights = InferLoss(inputs, labels, args, segment, criterion, optimizer)
 
                         writer.add_scalar('loss/test', loss, iSample)
                         writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, iSample)
                         writer.add_scalar('architecture_loss/test', architecture_loss, iSample)
-                        writer.add_scalar('arcitecture_reduction/train', arcitecture_reduction, iSample)
+                        writer.add_scalar('architecture_reduction/train', architecture_reduction, iSample)
 
                         running_loss /=test_freq
                         msg = '[{:3}/{}, {:6d}/{}]  loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test)'.format(
-                            epoch + 1,args.epochs, i + 1, len(trainingset)/args.batch_size, running_loss, loss.item(), arcitecture_reduction.item())
+                            epoch + 1,args.epochs, i + 1, len(trainingset)/args.batch_size, running_loss, loss.item(), architecture_reduction.item())
                         if args.job is True:
                             print(msg)
                         else:
@@ -676,8 +722,8 @@ def Test(args):
 
                     iSave = 1000
                     if i % iSave == iSave-1:    # print every iSave mini-batches
-                        cv2.imwrite('class_weights.png', im_class_weights)
-                        cv2.imwrite('gradient_norm.png', im_grad_norm)
+                        cv2.imwrite('class_weights.png', plotsearch.plot(cell_weights))
+                        cv2.imwrite('gradient_norm.png', plotgrads.plot(segment))
                         # Save calls zero_grads so call it after plotgrads.plot
                         save(segment, s3, s3def, args)
 
@@ -705,7 +751,7 @@ def Test(args):
             astype='float32',
             enable_transform=False)
 
-        testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=args.batch_size, pin_memory=pin_memory)
 
         if args.test_dir is not None:
             outputdir = '{}/{}'.format(args.test_dir,args.model_class)
@@ -739,7 +785,7 @@ def Test(args):
 
                 dsResults.infer_results(i, images, labels, segmentations, mean.numpy(), stdev.numpy(), dt)
 
-                if args.fast and i+1 >= test_freq:
+                if args.fast and i+1 >= 10:
                     break
                 prof.step() 
 

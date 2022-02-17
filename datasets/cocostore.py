@@ -388,6 +388,8 @@ class CocoDataset(Dataset):
         else:
             image=None
             label=None
+            imgMean = None
+            imgStd = None
             print('CocoDataset.__getitem__ idx {} returned result=None.'.format(idx))
         return image, label, imgMean, imgStd
 

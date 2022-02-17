@@ -138,7 +138,7 @@ class ConvBR(nn.Module):
         if search_structure is not None:
             self.search_structure = search_structure
         if dropout is not None:
-            self.self.use_dropout = dropout
+            self.use_dropout = dropout
 
     def forward(self, x):
         if self.out_channels > 0:

@@ -14,6 +14,8 @@ from torch._C import parse_ir
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import torch.profiler
+from torch.utils.tensorboard import SummaryWriter
 from collections import namedtuple
 from collections import OrderedDict
 from typing import Callable, Optional
@@ -27,7 +29,6 @@ sys.path.insert(0, os.path.abspath(''))
 from utils.torch_util import count_parameters, model_stats, model_weights
 from utils.jsonutil import ReadDictJson, WriteDictJson, str2bool
 from utils.s3 import s3store, Connect
-from torch.utils.tensorboard import SummaryWriter
 from networks.totalloss import TotalLoss
 
 # Inner neural architecture cell repetition structure
@@ -86,7 +87,7 @@ class ConvBR(nn.Module):
         self.sigmoid_scale = sigmoid_scale
         self.search_structure = search_structure
         self.residual = residual
-        self.dropout = dropout
+        self.use_dropout = dropout
         self.conv_transpose = conv_transpose
 
         self.channel_scale = nn.Parameter(torch.zeros(self.out_channels, dtype=torch.float))
@@ -113,7 +114,10 @@ class ConvBR(nn.Module):
 
         self.sigmoid = nn.Sigmoid()
         self.total_trainable_weights = model_weights(self)
-        self.dropout = nn.Dropout(p=self.dropout_rate)
+        if self.use_dropout:
+            self.dropout = nn.Dropout(p=self.dropout_rate)
+        else:
+            self.dropout = None
 
         self._initialize_weights()
         #norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
@@ -130,9 +134,13 @@ class ConvBR(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
+    def ApplyParameters(self, search_structure=False, dropout=False):
+       self.search_structure = search_structure
+       self.self.use_dropout = dropout
+
     def forward(self, x):
         if self.out_channels > 0:
-            if self.dropout:
+            if self.use_dropout:
                 x = self.dropout(x)
                 
             x = self.conv(x)
@@ -183,7 +191,10 @@ class ConvBR(nn.Module):
 
         if in_channel_mask is not None:
             if len(in_channel_mask) == self.in_channels:
-                self.conv.weight.data = self.conv.weight[:, in_channel_mask!=0]
+                if self.conv_transpose:
+                    self.conv.weight.data = self.conv.weight[in_channel_mask!=0, :]
+                else:
+                    self.conv.weight.data = self.conv.weight[:, in_channel_mask!=0]
                 self.in_channels = len(in_channel_mask[in_channel_mask!=0])
             else:
                 raise ValueError("{} len(in_channel_mask)={} must be equal to self.in_channels={}".format(prefix, len(in_channel_mask), self.in_channels))
@@ -215,7 +226,10 @@ class ConvBR(nn.Module):
                 conv_mask = ~conv_mask # Residual connection becomes a straight through connection
             else:
                 self.conv.bias.data = self.conv.bias[conv_mask!=0]
-                self.conv.weight.data = self.conv.weight[conv_mask!=0]
+                if self.conv_transpose:
+                    self.conv.weight.data = self.conv.weight[:, conv_mask!=0]
+                else:
+                    self.conv.weight.data = self.conv.weight[conv_mask!=0]
 
                 self.channel_scale.data = self.channel_scale.data[conv_mask!=0]
 
@@ -246,6 +260,7 @@ class Cell(nn.Module):
                  bias=True, 
                  padding_mode='zeros',
                  residual=True,
+                 dropout=False,
                  is_cuda=False,
                  feature_threshold=0.5,
                  cell_convolution=DefaultMaxDepth,
@@ -270,6 +285,7 @@ class Cell(nn.Module):
         self.bias = bias
         self.padding_mode = padding_mode
         self.residual = residual
+        self.dropout = dropout
         self.is_cuda = is_cuda
         self.feature_threshold = feature_threshold
         self.search_structure = search_structure
@@ -310,6 +326,7 @@ class Cell(nn.Module):
                 search_structure=convdev['search_structure'] and self.search_structure ,
                 sigmoid_scale = self.sigmoid_scale,
                 residual=False, 
+                dropout=self.dropout,
                 conv_transpose=conv_transpose,)
             self.cnn.append(conv)
 
@@ -331,7 +348,8 @@ class Cell(nn.Module):
                 convMaskThreshold=self.convMaskThreshold, 
                 dropout_rate=self.dropout_rate,
                 search_structure=False,
-                residual=True)
+                residual=True,
+                dropout=self.dropout)
         else:
             self.conv_residual = None
 
@@ -346,6 +364,13 @@ class Cell(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+
+    def ApplyParameters(self, search_structure=False, dropout=False): # Apply a parameter change
+        self.search_structure = search_structure
+        self.dropout = dropout
+
+        for conv in self.cnn:
+            conv.ApplyParameters(self.search_structure, self.dropout)
 
     def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None, msg=None):
 
@@ -855,6 +880,7 @@ def parse_arguments():
     parser.add_argument('-target_structure', type=float, default=0.00, help='Structure minimization weighting factor')
 
     parser.add_argument('-batch_norm', type=bool, default=True)
+    parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
     parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')
     parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convolution channels weights')
@@ -1158,8 +1184,8 @@ def Test(args):
     iSample = 0
 
     # Train
-    test_results['train'] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'arcitecture_reduction':[]}
-    test_results['test'] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'arcitecture_reduction':[], 'accuracy':[]}
+    test_results['train'] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'architecture_reduction':[]}
+    test_results['test'] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'architecture_reduction':[], 'accuracy':[]}
     if args.train:
         for epoch in tqdm(range(args.epochs), desc="Train epochs", disable=args.job):  # loop over the dataset multiple times
             iTest = iter(testloader)
@@ -1176,7 +1202,7 @@ def Test(args):
                 # zero the parameter gradients
                 optimizer.zero_grad()
                 outputs = model(inputs, isTraining=True)
-                loss, cross_entropy_loss, architecture_loss, arcitecture_reduction, cell_weights  = criterion(outputs, labels, classify)
+                loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights  = criterion(outputs, labels, classify)
                 loss.backward()
                 optimizer.step()
 
@@ -1186,11 +1212,11 @@ def Test(args):
                 writer.add_scalar('loss/train', loss, iSample)
                 writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, iSample)
                 writer.add_scalar('architecture_loss/train', architecture_loss, iSample)
-                writer.add_scalar('arcitecture_reduction/train', arcitecture_reduction, iSample)
+                writer.add_scalar('architecture_reduction/train', architecture_reduction, iSample)
                 #test_results['train']['loss'].append(loss.item())
                 #test_results['train']['cross_entropy_loss'].append(cross_entropy_loss.item())
                 #test_results['train']['architecture_loss'].append(architecture_loss.item())
-                #test_results['train']['arcitecture_reduction'].append(arcitecture_reduction.item())
+                #test_results['train']['architecture_reduction'].append(architecture_reduction.item())
 
                 if i % test_freq == test_freq-1:    # Save image and run test
 
@@ -1211,11 +1237,11 @@ def Test(args):
                     results = (classifications == labels).float()
                     test_accuracy = torch.sum(results)/len(results)
 
-                    loss, cross_entropy_loss, architecture_loss, arcitecture_reduction, cell_weights  = criterion(outputs, labels, classify)
+                    loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights  = criterion(outputs, labels, classify)
 
                     running_loss /=test_freq
                     msg = '[{:3}/{}, {:6d}/{}]  accuracy: {:05f}|{:05f} loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test)'.format(
-                        epoch + 1,args.epochs, i + 1, trainingset.__len__()/args.batch_size, training_accuracy, test_accuracy, running_loss, loss, arcitecture_reduction)
+                        epoch + 1,args.epochs, i + 1, trainingset.__len__()/args.batch_size, training_accuracy, test_accuracy, running_loss, loss, architecture_reduction)
                     if args.job is True:
                         print(msg)
                     else:
@@ -1227,13 +1253,13 @@ def Test(args):
                     writer.add_scalar('loss/test', loss, iSample)
                     writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, iSample)
                     writer.add_scalar('architecture_loss/test', architecture_loss, iSample)
-                    writer.add_scalar('arcitecture_reduction/train', arcitecture_reduction, iSample)
+                    writer.add_scalar('architecture_reduction/train', architecture_reduction, iSample)
 
                     #test_results['train']['loss'].append(running_loss)
                     #test_results['test']['loss'].append(loss)
                     #test_results['test']['cross_entropy_loss'].append(cross_entropy_loss.item())
                     #test_results['test']['architecture_loss'].append(architecture_loss.item())
-                    #test_results['test']['arcitecture_reduction'].append(arcitecture_reduction.item())
+                    #test_results['test']['architecture_reduction'].append(architecture_reduction.item())
                     #test_results['test']['accuracy'].append(test_accuracy.item())
 
                     log_metric("accuracy", test_accuracy.item())

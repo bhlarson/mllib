@@ -294,7 +294,7 @@ class Cell(nn.Module):
         self.cell_convolution = nn.Parameter(torch.tensor(cell_convolution, dtype=torch.float))
         self.weight_gain = weight_gain
         self.convMaskThreshold = convMaskThreshold
-        self.convolutions = convolutions
+        self.convolutions = deepcopy(convolutions)
         self.dropout_rate = dropout_rate
         self.sigmoid_scale=sigmoid_scale
 

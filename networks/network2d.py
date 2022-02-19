@@ -8,6 +8,7 @@ import json
 import platform
 import numpy as np
 import torch
+from copy import deepcopy
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -292,7 +293,7 @@ class Network2d(nn.Module):
         encoder_channel_mask = None
         feedforward_channel_mask = []
         #new_encode_decode = torch.nn.ModuleList()
-        new_upsample = torch.nn.ModuleList()
+        #new_upsample = torch.nn.ModuleList()
         
         for i in range(new_depth-1):
             encoder_channel_mask = self.cells[i].ApplyStructure(encoder_channel_mask)
@@ -403,13 +404,13 @@ def parse_arguments():
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=8, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=5, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=24, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20220217s_04_T100')
-    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20220217s_07_T50')
+    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20220217s_07_T50')
+    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20220217s_08_T50')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
@@ -431,11 +432,11 @@ def parse_arguments():
     parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
 
-    parser.add_argument('-prune', type=str2bool, default=False)
+    parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=True)
-    parser.add_argument('-search_structure', type=str2bool, default=True)
-    parser.add_argument('-onnx', type=str2bool, default=False)
+    parser.add_argument('-search_structure', type=str2bool, default=False)
+    parser.add_argument('-onnx', type=str2bool, default=True)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
     parser.add_argument('-test_dir', type=str, default='/store/data/network2d')
@@ -565,7 +566,6 @@ def Test(args):
         if modelObj is not None:
             #segment.load_state_dict(torch.load(io.BytesIO(modelObj)))
             segment = torch.load(io.BytesIO(modelObj))
-            segment.ApplyParameters(search_structure=args.search_structure)
         else:
             print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
             return
@@ -579,8 +579,10 @@ def Test(args):
         segment.ApplyStructure()
         reduced_parameters = count_parameters(segment)
         save(segment, s3, s3def, args)
-        print('Reduced parameters {}/{} = {}'.format(reduced_parameters, total_parameters, reduced_parameters/total_parameters))
+        print('{} reduced parameters {}/{} = {}'.format(args.model_dest, reduced_parameters, total_parameters, reduced_parameters/total_parameters))
 
+    # Prune with loaded parameters than apply current search_structure setting
+    segment.ApplyParameters(search_structure=args.search_structure)
     # Enable multi-gpu processing
     if torch.cuda.device_count() > 1:
         print("Let's use", torch.cuda.device_count(), "GPUs!")
@@ -737,6 +739,7 @@ def Test(args):
                     iSample += 1
 
                 save(segment, s3, s3def, args)
+            print('{} training complete'.format(args.model_dest))
 
 
     if args.infer:
@@ -812,7 +815,7 @@ def Test(args):
     if args.onnx:
         onnx(segment, s3, s3def, args)
 
-    print('Finished network2d Test')
+    print('Finished {} Test'.format(args.model_dest))
     return 0
 
 if __name__ == '__main__':

@@ -367,12 +367,14 @@ class Cell(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-    def ApplyParameters(self, search_structure=False, dropout=False): # Apply a parameter change
-        self.search_structure = search_structure
-        self.dropout = dropout
+    def ApplyParameters(self, search_structure=None, dropout=None): # Apply a parameter change
+        if search_structure is not None:
+            self.search_structure = search_structure
+        if dropout is not None:
+            self.use_dropout = dropout
 
         for conv in self.cnn:
-            conv.ApplyParameters(self.search_structure, self.dropout)
+            conv.ApplyParameters(search_structure=search_structure, dropout=dropout)
 
     def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None, msg=None):
 

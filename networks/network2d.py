@@ -87,8 +87,8 @@ class Network2d(nn.Module):
         convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':self.search_structure},
                         {'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':self.search_structure}]
         for i in range(self.max_search_depth-1):
-            for convoluiton in convolutions:
-                convoluiton['out_channels'] = encoder_channels
+            for convolution in convolutions:
+                convolution['out_channels'] = encoder_channels
 
             cell = self.cell(prev_encoder_chanels, 
                              batch_norm=self.batch_norm, 
@@ -404,22 +404,13 @@ def parse_arguments():
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-<<<<<<< HEAD
     parser.add_argument('-batch_size', type=int, default=10, help='Training batch size')
-=======
-    parser.add_argument('-batch_size', type=int, default=24, help='Training batch size')
->>>>>>> 675ff2443c35284d256a7c1cdca8690281662f4e
     parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-<<<<<<< HEAD
     parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20220217i_08_T60')
     parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20220217i_09_T60')
-=======
-    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20220217s_07_T50')
-    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20220217s_08_T50')
->>>>>>> 675ff2443c35284d256a7c1cdca8690281662f4e
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
@@ -431,11 +422,7 @@ def parse_arguments():
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
     parser.add_argument('-k_structure', type=float, default=1.0e1, help='Structure minimization weighting factor')
-<<<<<<< HEAD
     parser.add_argument('-target_structure', type=float, default=0.60, help='Structure minimization weighting factor')
-=======
-    parser.add_argument('-target_structure', type=float, default=0.50, help='Structure minimization weighting factor')
->>>>>>> 675ff2443c35284d256a7c1cdca8690281662f4e
     parser.add_argument('-batch_norm', type=str2bool, default=False)
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
@@ -449,11 +436,7 @@ def parse_arguments():
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=True)
     parser.add_argument('-search_structure', type=str2bool, default=False)
-<<<<<<< HEAD
     parser.add_argument('-onnx', type=str2bool, default=False)
-=======
-    parser.add_argument('-onnx', type=str2bool, default=True)
->>>>>>> 675ff2443c35284d256a7c1cdca8690281662f4e
     parser.add_argument('-job', action='store_true',help='Run as job')
 
     parser.add_argument('-test_dir', type=str, default='/store/data/network2d')

@@ -181,10 +181,16 @@ class CocoStore:
 
     def DecodeImage(self, bucket, objectname):
         img = None
-        imgbuff = self.s3.GetObject(bucket, objectname)
-        if imgbuff:
-            imgbuff = np.frombuffer(imgbuff, dtype='uint8')
-            img = cv2.imdecode(imgbuff, flags=self.imflags)
+        numTries = 3
+        for i in range(numTries):
+            imgbuff = self.s3.GetObject(bucket, objectname)
+            if imgbuff:
+                imgbuff = np.frombuffer(imgbuff, dtype='uint8')
+                img = cv2.imdecode(imgbuff, flags=self.imflags)
+            if img is None:
+                print('CocoStore::DecodeImage failed to load {}/{} try {}'.format(bucket, objectname, i))
+            else:
+                break
         return img
 
 

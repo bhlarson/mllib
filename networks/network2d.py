@@ -174,12 +174,15 @@ class Network2d(nn.Module):
 
         return definition_dict'''
 
-    def ApplyParameters(self, search_structure=False, dropout=False): # Apply a parameter change
-        self.search_structure = search_structure
-        self.dropout = dropout
+    def ApplyParameters(self, search_structure=None, dropout=None): # Apply a parameter change
+        if search_structure is not None:
+            self.search_structure = search_structure
+        if dropout is not None:
+            self.use_dropout = dropout
 
         for cell in self.cells:
-            cell.ApplyParameters(self.search_structure, self.dropout)
+            cell.ApplyParameters(search_structure=search_structure, dropout=dropout)
+
 
     def forward_depth(self, x, depth):
         feed_forward = []
@@ -401,24 +404,25 @@ def parse_arguments():
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=8, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=4, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=5, help='Training epochs')
+    parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20220217_00_T100')
+    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20220217s_04_T100')
+    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20220217i_07_T60')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
     parser.add_argument('-width', type=int, default=512, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')
-    parser.add_argument('-learning_rate', type=float, default=1.0e-3, help='Adam learning rate')
+    parser.add_argument('-learning_rate', type=float, default=1e-4, help='Adam learning rate')
     parser.add_argument('-max_search_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-min_search_depth', type=int, default=2, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
-    parser.add_argument('-k_structure', type=float, default=2.5e-1, help='Structure minimization weighting factor')
-    parser.add_argument('-target_structure', type=float, default=1.00, help='Structure minimization weighting factor')
+    parser.add_argument('-k_structure', type=float, default=1.0e-0, help='Structure minimization weighting factor')
+    parser.add_argument('-target_structure', type=float, default=0.10, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=str2bool, default=False)
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
@@ -431,14 +435,14 @@ def parse_arguments():
     parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=True)
-    parser.add_argument('-search_structure', type=str2bool, default=False)
+    parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
     parser.add_argument('-test_dir', type=str, default='/store/data/network2d')
     parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
-    parser.add_argument('-class_weight', type=json.loads, default='[0.05, 0.5, 1.0, 1.0]', help='Loss class weight ') 
+    parser.add_argument('-class_weight', type=json.loads, default='[1.0, 1.0, 1.0, 1.0]', help='Loss class weight ') 
 
     parser.add_argument('-description', type=json.loads, default='{"description":"NAS segmentation"}', help='Test description')
 
@@ -562,7 +566,7 @@ def Test(args):
         if modelObj is not None:
             #segment.load_state_dict(torch.load(io.BytesIO(modelObj)))
             segment = torch.load(io.BytesIO(modelObj))
-            segment.ApplyParameters(args.search_structure)
+            segment.ApplyParameters(search_structure=args.search_structure)
         else:
             print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
             return
@@ -626,7 +630,7 @@ def Test(args):
             enable_transform=True)
 
         train_batches=int(trainingset.__len__()/args.batch_size)
-        trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=args.batch_size, pin_memory=pin_memory)
+        trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=pin_memory)
 
         testset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
             image_paths=args.val_image_path,
@@ -675,9 +679,10 @@ def Test(args):
                     # print statistics
                     running_loss += loss.item()
 
-                    writer.add_scalar('loss/train', loss, i)
-                    writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, i)
-                    writer.add_scalar('architecture_loss/train', architecture_loss, i)
+                    writer.add_scalar('loss/train', loss, iSample)
+                    writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, iSample)
+                    writer.add_scalar('architecture_loss/train', architecture_loss, iSample)
+
 
                     if i % test_freq == test_freq-1:    # Save image and run test
                         im_class_weights = cv2.cvtColor(plotsearch.plot(cell_weights), cv2.COLOR_BGR2RGB)

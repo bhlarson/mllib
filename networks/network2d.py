@@ -404,13 +404,13 @@ def parse_arguments():
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=5, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=10, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20220217s_04_T100')
-    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20220217i_07_T60')
+    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20220217i_08_T60')
+    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20220217i_09_T60')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
@@ -421,8 +421,8 @@ def parse_arguments():
     parser.add_argument('-min_search_depth', type=int, default=2, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
-    parser.add_argument('-k_structure', type=float, default=1.0e-0, help='Structure minimization weighting factor')
-    parser.add_argument('-target_structure', type=float, default=0.10, help='Structure minimization weighting factor')
+    parser.add_argument('-k_structure', type=float, default=1.0e1, help='Structure minimization weighting factor')
+    parser.add_argument('-target_structure', type=float, default=0.60, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=str2bool, default=False)
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
@@ -432,10 +432,10 @@ def parse_arguments():
     parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
 
-    parser.add_argument('-prune', type=str2bool, default=False)
+    parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=True)
-    parser.add_argument('-search_structure', type=str2bool, default=True)
+    parser.add_argument('-search_structure', type=str2bool, default=False)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
@@ -566,7 +566,6 @@ def Test(args):
         if modelObj is not None:
             #segment.load_state_dict(torch.load(io.BytesIO(modelObj)))
             segment = torch.load(io.BytesIO(modelObj))
-            segment.ApplyParameters(search_structure=args.search_structure)
         else:
             print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
             return
@@ -582,6 +581,8 @@ def Test(args):
         save(segment, s3, s3def, args)
         print('Reduced parameters {}/{} = {}'.format(reduced_parameters, total_parameters, reduced_parameters/total_parameters))
 
+    # Prune with loaded parameters than apply current search_structure setting
+    segment.ApplyParameters(search_structure=args.search_structure)
     # Enable multi-gpu processing
     if torch.cuda.device_count() > 1:
         print("Let's use", torch.cuda.device_count(), "GPUs!")

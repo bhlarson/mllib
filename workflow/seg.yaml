@@ -1,0 +1,116 @@
+# yamllint disable-line rule:line-length
+workflow:
+  metadata:
+    generateName: crisp-
+  annotations:
+    workflows.ml.argoproj.io/description: |
+      Perform a training sequence
+      Find parameter optimized network
+  spec:
+    arguments:
+      parameters:
+        - name: resultspath
+          value: /app/results.json
+        - name: train_image
+          value: 'localhost:32000/torch-train:latest'
+        - name: target_structure
+          value: 0.05
+        - name: output_name
+          value: 20220219s_t005
+        - name: batch_size
+          value: 6
+    entrypoint: train-crisp
+    templates:
+      - name: train-crisp
+        dag:
+          tasks:
+            - name: target-size
+              template: train
+              arguments:
+                parameters: [
+                  {name: prune, value: false},
+                  {name: train, value: true},
+                  {name: infer, value: true},
+                  {name: search_structure, value: true},
+                  {name: target_structure, value: '{{workflow.parameters.target_structure}}'},
+                  {name: epochs, value: 2},
+                  {name: model_src, value: "segment_nas_512x442_20220219s_02_T100"},
+                  {name: model_dest, value: "crispseg_{{workflow.parameters.output_name}}_00"},
+                  {name: description, value: '{"author":"Brad Larson","description":"Crisp segment train target {{workflow.parameters.target_structure}}"}'}]
+            - name: prune-finetune
+              dependencies: [target-size]
+              template: train
+              arguments:
+                parameters: [
+                  {name: prune, value: true},
+                  {name: train, value: true},
+                  {name: infer, value: true},
+                  {name: search_structure, value: false},
+                  {name: epochs, value: 2},
+                  {name: model_src, value: "crispseg_{{workflow.parameters.output_name}}_00"},
+                  {name: model_dest, value: "crispseg_{{workflow.parameters.output_name}}_02"},
+                  {name: description, value: '{"author":"Brad Larson","description":"Crisp segment prune and train target {{workflow.parameters.target_structure}}"}'}]
+
+      - name: train
+        inputs:
+          parameters: [
+            {name: prune, value: false},
+            {name: train, value: true},
+            {name: infer, value: true},
+            {name: onnx, value: false},
+            {name: search_structure, value: true},
+            {name: target_structure, value: "{{workflow.parameters.target_structure}}"},
+            {name: epochs, value: 2},
+            {name: model_src, value: ""},
+            {name: model_dest, value: "crispseg_{{workflow.parameters.output_name}}"},
+            {name: k_structure, value: 10},
+            {name: learning_rate, value: 1e-4},
+            {name: class_weight, value: "[1.0, 1.0, 1.0, 1.0]"},
+            {name: description, value: '{"author":"Brad Larson","description":"Crisp segmentation"}'}]
+        outputs:
+          parameters:
+            - name: results
+              valueFrom:
+                path: '{{workflow.parameters.resultspath}}'
+        # Shared memory volume needed for worker threads: 
+        # https://stackoverflow.com/questions/46085748/define-size-for-dev-shm-on-container-engine/46434614#46434614
+        volumes:
+          - name: dshm
+            emptyDir:
+              medium: Memory
+        container:
+          image: '{{workflow.parameters.train_image}}'
+          volumeMounts:
+            - mountPath: /dev/shm
+              name: dshm
+          command:
+            - python3
+          args:
+            - networks/network2d.py
+            - -prune={{inputs.parameters.prune}}
+            - -train={{inputs.parameters.train}}
+            - -epochs={{inputs.parameters.epochs}}
+            - -infer={{inputs.parameters.infer}}
+            - -onnx={{inputs.parameters.onnx}}
+            - -search_structure={{inputs.parameters.search_structure}}
+            - -target_structure={{inputs.parameters.target_structure}}
+            - -k_structure={{inputs.parameters.k_structure}}
+            - -learning_rate={{inputs.parameters.learning_rate}}
+            - -model_src={{inputs.parameters.model_src}}
+            - -model_dest={{inputs.parameters.model_dest}}
+            - -description={{inputs.parameters.description}}
+            - -resultspath={{workflow.parameters.resultspath}}
+            - -batch_size={{workflow.parameters.batch_size}}
+            - -class_weight={{inputs.parameters.class_weight}}
+            - -tensorboard_dir=None
+            - -job
+          resources:
+            requests:
+              ephemeral-storage: "40Gi"
+              "nvidia.com/gpu": '1'
+            limits:
+              ephemeral-storage: "40Gi"
+              "nvidia.com/gpu": '1'
+          retryStrategy:
+            limit: "3"
+            retryPolicy: "Always"

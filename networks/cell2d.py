@@ -1314,7 +1314,7 @@ def Test(args):
     if args.resultspath is not None and len(args.resultspath) > 0:
         WriteDictJson(test_results, args.resultspath)
 
-    print('Finished cell2d Test')
+    print('Finished {}  {}'.format(args.model_dest, test_results))
     return 0
 
 if __name__ == '__main__':

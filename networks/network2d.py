@@ -304,8 +304,8 @@ def parse_arguments():
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20220219s_00_T100')
+    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20220219s_02_T100')
+    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20220219s_02_T100')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
@@ -336,7 +336,7 @@ def parse_arguments():
     parser.add_argument('-test_dir', type=str, default='/store/data/network2d')
     parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
-    parser.add_argument('-class_weight', type=json.loads, default='[0.02, 0.5, 1.0, 1.0]', help='Loss class weight ') 
+    parser.add_argument('-class_weight', type=json.loads, default='[1.0, 1.0, 1.0, 1.0]', help='Loss class weight ') 
 
     parser.add_argument('-description', type=json.loads, default='{"description":"NAS segmentation"}', help='Test description')
 

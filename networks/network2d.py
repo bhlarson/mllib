@@ -579,7 +579,7 @@ def Test(args):
         segment.ApplyStructure()
         reduced_parameters = count_parameters(segment)
         save(segment, s3, s3def, args)
-        print('{} reduced parameters {}/{} = {}'.format(args.model_dest, reduced_parameters, total_parameters, reduced_parameters/total_parameters))
+        print('{} remaining parameters {}/{} = {}'.format(args.model_dest, reduced_parameters, total_parameters, reduced_parameters/total_parameters))
 
     # Prune with loaded parameters than apply current search_structure setting
     segment.ApplyParameters(search_structure=args.search_structure)

@@ -336,7 +336,7 @@ class Cell(nn.Module):
             totalStride *= convdev['stride']
             totalDilation *= convdev['dilation']
  
-        if self.residual and in_chanels != self.convolutions[-1]['out_channels'] or totalStride != 1 or totalDilation != 1:
+        if self.residual and (in_chanels != self.convolutions[-1]['out_channels'] or totalStride != 1 or totalDilation != 1):
             self.conv_residual = ConvBR(in_chanels, self.convolutions[-1]['out_channels'], 
                 batch_norm=self.batch_norm, 
                 relu=self.relu, 
@@ -373,8 +373,9 @@ class Cell(nn.Module):
         if dropout is not None:
             self.use_dropout = dropout
 
-        for conv in self.cnn:
-            conv.ApplyParameters(search_structure=search_structure, dropout=dropout)
+        if self.cnn is not None and len(self.cnn) > 0:
+            for conv in self.cnn:
+                conv.ApplyParameters(search_structure=search_structure, dropout=dropout)
 
     def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None, msg=None):
 
@@ -444,13 +445,7 @@ class Cell(nn.Module):
                 layermsg = "{} {} ".format(msg, layermsg)
             
             self.conv_residual.ApplyStructure(in_channel_mask=in_channel_mask, out_channel_mask=out_channel_mask, msg=layermsg)
-
-        #if self.convMaskThreshold > torch.tanh(torch.abs(self.weight_gain*self.cell_convolution)):
-        #prune_weight = torch.tanh(torch.abs(self.weight_gain*torch.tensor(self.cell_convolution)))
-        #if self.convMaskThreshold > prune_weight:
-        #    self.cnn = None
-        #    #if self.convolutions[-1]['out_channels'] == self.in1_channels+self.in2_channels:
-        #    #    self.conv_residual = None          
+       
         layermsg = "cell summary: weights={} in1_channels={} in2_channels={} out_channels={} residual={} search_structure={}".format(
             self.total_trainable_weights, 
             self.in1_channels, 
@@ -498,15 +493,7 @@ class Cell(nn.Module):
         conv_weights = []
         norm_conv_weight = []
         search_structure = []
-        #prune_weight = torch.tanh(torch.abs(self.weight_gain*self.cell_convolution))
-        #prune_weight = torch.tanh(torch.abs(self.weight_gain*self.cell_convolution))
-        #prune_weight = torch.ones_like(prune_weight)
 
-        # Not pruning residual weights 
-        #if self.conv_residual is not None:
-        #    layer_weight, _, conv_weights  = self.conv_residual.ArchitectureWeights()
-        #    cell_weight.append(conv_weights)
-        #    architecture_weights += layer_weight 
         unallocated_weights  = torch.zeros((1), device=self.cell_convolution.device)
         if self.cnn is not None:
             for i, l in enumerate(self.cnn): 

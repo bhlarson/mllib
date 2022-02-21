@@ -310,18 +310,8 @@ def parse_arguments():
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-<<<<<<< HEAD
-    parser.add_argument('-model_src', type=str,  default='crispseg_20220219s_t015_00')
-    parser.add_argument('-model_dest', type=str, default='crispseg_20220219s_t015_02')
-=======
-<<<<<<< HEAD
     parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20220219s_02_T100')
     parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20220219s_02_T100')
-=======
-    parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20220219i_00_T100')
->>>>>>> f69d41de32b02dc69378ce53ac136f10fd463f73
->>>>>>> 81936e9ad5ed70990e8c4ba5a6c3c0ddae1d2eab
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')

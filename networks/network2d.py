@@ -197,9 +197,9 @@ class Network2d(nn.Module):
     def ApplyStructure(self, msg=None):
         print('ApplyStructure')
 
-        depth = math.ceil(len(self.cells))
+        depth = math.ceil(len(self.cells)/2.0)
 
-        print('network depth {}/{} = {}'.format(depth, self.unet_depth, depth/self.unet_depth))
+        print('initial network depth {}/{} = {}'.format(depth, self.unet_depth, depth/self.unet_depth))
 
         encoder_channel_mask = None
         feedforward_channel_mask = []
@@ -249,20 +249,26 @@ class Network2d(nn.Module):
         # Reduce cell weight if it may become inactive as a lower cell approaches 0
         depth = math.floor(len(self.cells)/2.0)
         for i in range(depth):
-            if i == 0:
-                layer_product = conv_weights[i]['prune_weight']*conv_weights[-(i+1)]['prune_weight']
-            else: 
-                layer_product =  conv_weights[i-1]['prune_weight']*conv_weights[i]['prune_weight']*conv_weights[-(i+1)]['prune_weight']
+            prune_weight = []
+            prune_weight.append(conv_weights[i]['prune_weight'])
+            prune_weight.append(conv_weights[-(i+1)]['prune_weight'])
+            if i != 0:
+                prune_weight.append(conv_weights[i-1]['prune_weight'])
+            prune_weight = torch.min(torch.stack(prune_weight))
 
-            conv_weights[i]['prune_weight'] = layer_product
-            conv_weights[-(i+1)]['prune_weight'] = layer_product
-            architecture_weights[i] *= layer_product
-            architecture_weights[-(i+1)] *= layer_product
+            conv_weights[i]['prune_weight'] = prune_weight
+            conv_weights[-(i+1)]['prune_weight'] = prune_weight
+            architecture_weights[i] *= prune_weight
+            architecture_weights[-(i+1)] *= prune_weight
 
         if len(self.cells) > 2 and (len(self.cells) % 2) != 0:
-            layer_product = conv_weights[depth]['prune_weight']*conv_weights[depth-1]['prune_weight']
-            conv_weights[depth]['prune_weight'] = layer_product
-            architecture_weights[depth] *= layer_product
+            prune_weight = []
+            prune_weight.append(conv_weights[depth]['prune_weight'])
+            prune_weight.append(conv_weights[depth-1]['prune_weight'])
+            prune_weight = torch.min(torch.stack(prune_weight))
+
+            conv_weights[depth]['prune_weight'] = prune_weight
+            architecture_weights[depth] *= prune_weight
 
         architecture_weights = torch.cat(architecture_weights)
         architecture_weights = architecture_weights.sum_to_size((1))
@@ -300,12 +306,12 @@ def parse_arguments():
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
     parser.add_argument('-batch_size', type=int, default=8, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=5, help='Training epochs')
+    parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20220219i_00_T100')
+    parser.add_argument('-model_src', type=str,  default='crispseg_20220219s_t015_00')
+    parser.add_argument('-model_dest', type=str, default='crispseg_20220219s_t015_02')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
@@ -326,7 +332,7 @@ def parse_arguments():
     parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
 
-    parser.add_argument('-prune', type=str2bool, default=False)
+    parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=True)
     parser.add_argument('-search_structure', type=str2bool, default=False)
@@ -337,7 +343,7 @@ def parse_arguments():
     parser.add_argument('-test_dir', type=str, default='/store/data/network2d')
     parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
-    parser.add_argument('-class_weight', type=json.loads, default='[0.02, 0.5, 1.0, 1.0]', help='Loss class weight ') 
+    parser.add_argument('-class_weight', type=json.loads, default='[1.0, 1.0, 1.0, 1.0]', help='Loss class weight ') 
 
     parser.add_argument('-description', type=json.loads, default='{"description":"NAS segmentation"}', help='Test description')
 

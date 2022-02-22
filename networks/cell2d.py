@@ -504,13 +504,23 @@ class Cell(nn.Module):
             for i, l in enumerate(self.cnn): 
                 layer_weight, cnn_weight, conv_weight  = l.ArchitectureWeights()
                 conv_weights.append(conv_weight)
+                architecture_weights.append(layer_weight)
+
+            if len(architecture_weights) > 0:
+                architecture_weights = torch.cat(architecture_weights)
+                architecture_weights = architecture_weights.sum_to_size((1))
+            else:
+                architecture_weights = torch.zeros((1), device=self.cell_convolution.device)
+            prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)
+
+            ''' remove structure pruning
                 if l.search_structure:
                     architecture_weights.append(layer_weight)
                     
                     norm_conv_weight.append(layer_weight/cnn_weight)
                 else:
                     unallocated_weights += cnn_weight
-            ''' remove structure pruning
+
             if len(architecture_weights) > 0:
                 architecture_weights = torch.cat(architecture_weights)
                 architecture_weights = architecture_weights.sum_to_size((1))
@@ -521,8 +531,8 @@ class Cell(nn.Module):
                 architecture_weights += unallocated_weights*prune_weight
             else: # Nothing to prune here
                 architecture_weights = unallocated_weights
-                prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)'''
-            prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)
+                prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)
+            prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)'''
         else:
             architecture_weights = torch.zeros((1), device=self.cell_convolution.device)
             prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)

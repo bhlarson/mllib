@@ -241,14 +241,12 @@ class Network2d(nn.Module):
         architecture_weights = []
         layer_weights = []
         conv_weights = []
-        norm_conv_weight = []
         search_structure = []
 
         for l in self.cells:
             layer_weight, cnn_weight, conv_weight  = l.ArchitectureWeights()
             conv_weights.append(conv_weight)
             architecture_weights.append(layer_weight)
-            norm_conv_weight.append(layer_weight/cnn_weight)
 
         # Reduce cell weight if it may become inactive as a lower cell approaches 0
         ''' remove structure pruning
@@ -274,10 +272,10 @@ class Network2d(nn.Module):
 
             conv_weights[depth]['prune_weight'] = prune_weight
             architecture_weights[depth] *= prune_weight
-
+        '''
         architecture_weights = torch.cat(architecture_weights)
         architecture_weights = architecture_weights.sum_to_size((1))
-        '''
+
             
         return architecture_weights, model_weights(self), conv_weights
 
@@ -311,13 +309,13 @@ def parse_arguments():
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=44, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=22, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=3, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='crispseg20220219s_t015')
-    parser.add_argument('-model_dest', type=str, default='crispseg20220219s_t015p')
+    parser.add_argument('-model_src', type=str,  default='crispseg_20220219s_t010_00')
+    parser.add_argument('-model_dest', type=str, default='crispseg_20220219s_t010_01')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')

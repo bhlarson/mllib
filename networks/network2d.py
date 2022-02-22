@@ -167,6 +167,8 @@ class Network2d(nn.Module):
         if (len(self.cells) % 2) != 0:
             x = self.cells[enc_len](x)
             iDecode += 1
+        else:
+            x = None
 
         # Decoder
         for i in range(enc_len):
@@ -224,6 +226,9 @@ class Network2d(nn.Module):
             layer_msg = 'Cell {}'.format(enc_len)
             encoder_channel_mask = self.cells[enc_len].ApplyStructure(encoder_channel_mask, msg=layer_msg)
             iDecode += 1
+        else:
+            encoder_channel_mask = torch.zeros_like(encoder_channel_mask) # Only keep feedforward
+
 
         for i in range(enc_len):
             iEncDec = i+iDecode
@@ -305,13 +310,13 @@ def parse_arguments():
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=8, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=44, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=3, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='segment_nas_512x442_20220219s_02_T100')
-    parser.add_argument('-model_dest', type=str, default='segment_nas_512x442_20220219s_02_T100')
+    parser.add_argument('-model_src', type=str,  default='crispseg20220219s_t015')
+    parser.add_argument('-model_dest', type=str, default='crispseg20220219s_t015p')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
@@ -321,8 +326,8 @@ def parse_arguments():
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
-    parser.add_argument('-k_structure', type=float, default=1.0e-1, help='Structure minimization weighting factor')
-    parser.add_argument('-target_structure', type=float, default=0.10, help='Structure minimization weighting factor')
+    parser.add_argument('-k_structure', type=float, default=10, help='Structure minimization weighting factor')
+    parser.add_argument('-target_structure', type=float, default=0.15, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=str2bool, default=False)
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
@@ -345,7 +350,7 @@ def parse_arguments():
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
     parser.add_argument('-class_weight', type=json.loads, default='[1.0, 1.0, 1.0, 1.0]', help='Loss class weight ') 
 
-    parser.add_argument('-description', type=json.loads, default='{"description":"NAS segmentation"}', help='Test description')
+    parser.add_argument('-description', type=json.loads, default='{"description":"Pruned CRISP segmentation"}', help='Test description')
 
     args = parser.parse_args()
     return args

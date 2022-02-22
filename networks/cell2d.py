@@ -336,7 +336,7 @@ class Cell(nn.Module):
             totalStride *= convdev['stride']
             totalDilation *= convdev['dilation']
  
-        if self.residual and in_chanels != self.convolutions[-1]['out_channels'] or totalStride != 1 or totalDilation != 1:
+        if self.residual and (in_chanels != self.convolutions[-1]['out_channels'] or totalStride != 1 or totalDilation != 1):
             self.conv_residual = ConvBR(in_chanels, self.convolutions[-1]['out_channels'], 
                 batch_norm=self.batch_norm, 
                 relu=self.relu, 
@@ -373,8 +373,9 @@ class Cell(nn.Module):
         if dropout is not None:
             self.use_dropout = dropout
 
-        for conv in self.cnn:
-            conv.ApplyParameters(search_structure=search_structure, dropout=dropout)
+        if self.cnn is not None and len(self.cnn) > 0:
+            for conv in self.cnn:
+                conv.ApplyParameters(search_structure=search_structure, dropout=dropout)
 
     def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None, msg=None):
 
@@ -455,7 +456,7 @@ class Cell(nn.Module):
             self.total_trainable_weights, 
             self.in1_channels, 
             self.in2_channels, 
-            self.convolutions[-1]['out_channels'],
+            self.cnn[-1].out_channels,
             self.residual,
             self.search_structure)
         if msg is not None:
@@ -467,10 +468,12 @@ class Cell(nn.Module):
 
 
     def forward(self, in1, in2 = None, isTraining=False):
-        if in2 is not None:
+        if in1 is not None and in2 is not None:
             u = torch.cat((in1, in2), dim=1)
-        else:
+        elif in1 is not None:
             u = in1
+        else:
+            u = in2
 
         # Resizing convolution
         if self.residual and self.conv_residual:
@@ -529,10 +532,10 @@ class Cell(nn.Module):
                 architecture_weights += unallocated_weights*prune_weight
             else: # Noting to prune here
                 architecture_weights = unallocated_weights
-                prune_weight = torch.ones((1), device=self.cell_convolution.device)
+                prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)
         else:
             architecture_weights = torch.zeros((1), device=self.cell_convolution.device)
-            prune_weight = torch.ones((1), device=self.cell_convolution.device)
+            prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)
 
         cell_weights = {'prune_weight':prune_weight, 'cell_weight':conv_weights}
 

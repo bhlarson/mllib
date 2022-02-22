@@ -205,7 +205,7 @@ class Network2d(nn.Module):
 
         encoder_channel_mask = None
         feedforward_channel_mask = []
-
+        ''' remove structure pruning
         _, _, conv_weights = self.ArchitectureWeights()
         newcells = torch.nn.ModuleList()
         for i, conv_weight in enumerate(conv_weights):
@@ -213,7 +213,7 @@ class Network2d(nn.Module):
                 print('Prune inactive cell {}'.format(i))
             else:
                 newcells.append(self.cells[i])
-        self.cells = newcells
+        self.cells = newcells'''
         
         enc_len = math.floor(len(self.cells)/2.0)
         iDecode = enc_len
@@ -228,7 +228,6 @@ class Network2d(nn.Module):
             iDecode += 1
         else:
             encoder_channel_mask = torch.zeros_like(encoder_channel_mask) # Only keep feedforward
-
 
         for i in range(enc_len):
             iEncDec = i+iDecode
@@ -252,6 +251,7 @@ class Network2d(nn.Module):
             norm_conv_weight.append(layer_weight/cnn_weight)
 
         # Reduce cell weight if it may become inactive as a lower cell approaches 0
+        ''' remove structure pruning
         depth = math.floor(len(self.cells)/2.0)
         for i in range(depth):
             prune_weight = []
@@ -277,6 +277,7 @@ class Network2d(nn.Module):
 
         architecture_weights = torch.cat(architecture_weights)
         architecture_weights = architecture_weights.sum_to_size((1))
+        '''
             
         return architecture_weights, model_weights(self), conv_weights
 

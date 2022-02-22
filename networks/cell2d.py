@@ -426,7 +426,7 @@ class Cell(nn.Module):
                         layermsg = "{} {} ".format(msg, layermsg)
                     print(layermsg)
                     break
-
+            ''' remove structure pruning
             if self.cnn is not None and len(norm_conv_weight) > 0:
                 prune_weight =  torch.tanh(self.weight_gain*torch.prod(torch.cat(norm_conv_weight)))
                 if prune_weight < self.feature_threshold:
@@ -434,7 +434,7 @@ class Cell(nn.Module):
                     layermsg = "Prune cell because prune_weight {} < feature_threshold {}".format(prune_weight, self.feature_threshold)
                     if msg is not None:
                         layermsg = "{} {} ".format(msg, layermsg)
-                    print(layermsg)
+                    print(layermsg)'''
 
         else:
             out_channel_mask = None
@@ -446,12 +446,9 @@ class Cell(nn.Module):
             
             self.conv_residual.ApplyStructure(in_channel_mask=in_channel_mask, out_channel_mask=out_channel_mask, msg=layermsg)
 
-        #if self.convMaskThreshold > torch.tanh(torch.abs(self.weight_gain*self.cell_convolution)):
-        #prune_weight = torch.tanh(torch.abs(self.weight_gain*torch.tensor(self.cell_convolution)))
-        #if self.convMaskThreshold > prune_weight:
-        #    self.cnn = None
-        #    #if self.convolutions[-1]['out_channels'] == self.in1_channels+self.in2_channels:
-        #    #    self.conv_residual = None          
+        out_channels = 0
+        if self.cnn is not None and len(self.cnn) >  0:
+            out_channels = self.cnn[-1].out_channels
         layermsg = "cell summary: weights={} in1_channels={} in2_channels={} out_channels={} residual={} search_structure={}".format(
             self.total_trainable_weights, 
             self.in1_channels, 
@@ -501,15 +498,7 @@ class Cell(nn.Module):
         conv_weights = []
         norm_conv_weight = []
         search_structure = []
-        #prune_weight = torch.tanh(torch.abs(self.weight_gain*self.cell_convolution))
-        #prune_weight = torch.tanh(torch.abs(self.weight_gain*self.cell_convolution))
-        #prune_weight = torch.ones_like(prune_weight)
 
-        # Not pruning residual weights 
-        #if self.conv_residual is not None:
-        #    layer_weight, _, conv_weights  = self.conv_residual.ArchitectureWeights()
-        #    cell_weight.append(conv_weights)
-        #    architecture_weights += layer_weight 
         unallocated_weights  = torch.zeros((1), device=self.cell_convolution.device)
         if self.cnn is not None:
             for i, l in enumerate(self.cnn): 
@@ -521,7 +510,7 @@ class Cell(nn.Module):
                     norm_conv_weight.append(layer_weight/cnn_weight)
                 else:
                     unallocated_weights += cnn_weight
-
+            ''' remove structure pruning
             if len(architecture_weights) > 0:
                 architecture_weights = torch.cat(architecture_weights)
                 architecture_weights = architecture_weights.sum_to_size((1))
@@ -530,9 +519,10 @@ class Cell(nn.Module):
                 prune_weight =  torch.prod(torch.cat(norm_conv_weight))
                 prune_weight = torch.tanh(self.weight_gain*prune_weight)
                 architecture_weights += unallocated_weights*prune_weight
-            else: # Noting to prune here
+            else: # Nothing to prune here
                 architecture_weights = unallocated_weights
-                prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)
+                prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)'''
+            prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)
         else:
             architecture_weights = torch.zeros((1), device=self.cell_convolution.device)
             prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)

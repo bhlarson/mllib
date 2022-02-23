@@ -114,7 +114,7 @@ def MergeIman(img, ann, lut, mean=None, stDev = None):
 
 def MergeImAnSeg(img, ann, seg, lut, mean=None, stdev=None, ann_text='Label', seg_text='Segmentation'):
 
-    font = cv2.FONT_HERSHEY_SIMPLEX
+    font = cv2.FONT_HERSHEY_COMPLEX_SMALL
     iman = MergeIman(img, ann, lut, mean, stdev)
     imseg = MergeIman(img, seg, lut, mean, stdev)
 

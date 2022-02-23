@@ -242,7 +242,7 @@ def main(args):
                     trtseg = tf.squeeze(segmentationtrt[j]).numpy().astype(np.uint8)
                     onnxseg = tf.squeeze(segmentationonnx[j]).numpy().astype(np.uint8)
 
-                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    font = cv2.FONT_HERSHEY_COMPLEX_SMALL
                     iman = DrawFeatures(img, ann, config)
                     iman = cv2.putText(iman, 'Annotation',(10,25), font, 1,(255,255,255),1,cv2.LINE_AA)
                     imtfseg = DrawFeatures(img, tfseg, config)

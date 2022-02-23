@@ -168,7 +168,7 @@ class Camera(BaseCamera):
                             pt2 = (int(output_dict['detection_boxes'][i][3]*image_np.shape[1]), int(output_dict['detection_boxes'][i][2]*image_np.shape[0]))
                             cv2.rectangle(image_np,pt1,pt2,(0,255,0),3)
                             classTxt = '{} ({:2})'.format(category_index[output_dict['detection_classes'][i]]['name'], output_dict['detection_scores'][i])
-                            cv2.putText(image_np,classTxt,pt1, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,0,0))
+                            cv2.putText(image_np,classTxt,pt1, cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.5, (255,0,0))
 
 
                     yield cv2.imencode('.jpg', image_np)[1].tobytes()

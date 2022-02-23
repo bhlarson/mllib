@@ -237,7 +237,7 @@ class CocoStore:
 
     def DisplayImAn(self, img, ann, seg, mean, stdev):
 
-        font = cv2.FONT_HERSHEY_SIMPLEX
+        font = cv2.FONT_HERSHEY_COMPLEX_SMALL
         iman = self.MergeIman(img, ann, mean, stdev)
         imseg = self.MergeIman(img, seg, mean, stdev)
 

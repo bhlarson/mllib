@@ -110,7 +110,7 @@ def gen(camera):
 
         resultsDisplay = '{:.3f}s'.format(dt.total_seconds())
 
-        font = cv2.FONT_HERSHEY_SIMPLEX
+        font = cv2.FONT_HERSHEY_COMPLEX_SMALL
         cv2.putText(imseg, resultsDisplay, (10,25), font, 1, (0, 255, 0), 2, cv2.LINE_AA)
         # encode as a jpeg image and return it
         frame = cv2.imencode('.jpg', imseg)[1].tobytes()

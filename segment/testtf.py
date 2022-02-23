@@ -195,7 +195,7 @@ def main(args):
                         total_confusion += confusion
 
                     if args.saveimg:
-                        font = cv2.FONT_HERSHEY_SIMPLEX
+                        font = cv2.FONT_HERSHEY_COMPLEX_SMALL
                         iman = DrawFeatures(img, ann, config)
                         iman = cv2.putText(iman, 'Annotation',(10,25), font, 1,(255,255,255),1,cv2.LINE_AA)
                         imseg = DrawFeatures(img, seg, config)

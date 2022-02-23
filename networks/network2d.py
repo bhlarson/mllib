@@ -424,8 +424,8 @@ def DisplayImgAn(image, label, segmentation, trainingset, mean, stdev):
     iman = trainingset.coco.MergeIman(image, label, mean.item(), stdev.item())
     imseg = trainingset.coco.MergeIman(image, segmentation, mean.item(), stdev.item())
 
-    iman = cv2.putText(iman, 'Annotation',(10,25), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),1,cv2.LINE_AA)
-    imseg = cv2.putText(imseg, 'Segmentation',(10,25), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),1,cv2.LINE_AA)
+    iman = cv2.putText(iman, 'Annotation',(10,25), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1,(255,255,255),1,cv2.LINE_AA)
+    imseg = cv2.putText(imseg, 'Segmentation',(10,25), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1,(255,255,255),1,cv2.LINE_AA)
     imanseg = cv2.hconcat([iman, imseg])
     imanseg = cv2.cvtColor(imanseg, cv2.COLOR_BGR2RGB)
 

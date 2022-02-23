@@ -99,7 +99,7 @@ def gen(camera):
 
         #outputs['pred_age'].numpy()
 
-        font = cv2.FONT_HERSHEY_SIMPLEX
+        font = cv2.FONT_HERSHEY_COMPLEX_SMALL
         resultsDisplay = 'infer:{:.3f}s display:{:.3f}s'.format(dInfer.total_seconds(), dImAn.total_seconds())
         cv2.putText(imseg, resultsDisplay, (10,25), font, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
         # encode as a jpeg image and return it

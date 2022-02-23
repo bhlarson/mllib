@@ -14,9 +14,9 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: target_structure
-          value: 0.20
+          value: 0.29
         - name: output_name
-          value: 20220219s_t020
+          value: 20220222i_t029
     entrypoint: train-crisp
     templates:
       - name: train-crisp
@@ -28,28 +28,55 @@ workflow:
                 parameters: [
                   {name: prune, value: false},
                   {name: train, value: true},
-                  {name: infer, value: true},
+                  {name: infer, value: false},
                   {name: search_structure, value: true},
                   {name: target_structure, value: '{{workflow.parameters.target_structure}}'},
                   {name: epochs, value: 2},
-                  {name: batch_size, value: 2},
+                  {name: batch_size, value: 6},
                   {name: model_src, value: "segment_nas_512x442_20220219s_02_T100"},
-                  {name: model_dest, value: "crispseg_{{workflow.parameters.output_name}}_00"},
-                  {name: description, value: '{"author":"Brad Larson","description":"Crisp segment train target {{workflow.parameters.target_structure}}"}'}]
-            - name: prune-finetune
+                  {name: model_dest, value: "crispseg_{{workflow.parameters.output_name}}r"},
+                  {name: description, value: '{"author":"Brad Larson","description":"Crisp segment target-size {{workflow.parameters.target_structure}}"}'}]
+            - name: test-target-size
               dependencies: [target-size]
+              template: train
+              arguments:
+                parameters: [
+                  {name: prune, value: false},
+                  {name: train, value: false},
+                  {name: infer, value: true},
+                  {name: search_structure, value: true},
+                  {name: target_structure, value: '{{workflow.parameters.target_structure}}'},
+                  {name: batch_size, value: 6},
+                  {name: model_src, value: "crispseg_{{workflow.parameters.output_name}}r"},
+                  {name: model_dest, value: "crispseg_{{workflow.parameters.output_name}}ri"},
+                  {name: description, value: '{"author":"Brad Larson","description":"Crisp segment test-target-size {{workflow.parameters.target_structure}}"}'}]
+            - name: prune-finetune
+              dependencies: [test-target-size]
               template: train
               arguments:
                 parameters: [
                   {name: prune, value: true},
                   {name: train, value: true},
-                  {name: infer, value: true},
+                  {name: infer, value: false},
                   {name: search_structure, value: false},
                   {name: epochs, value: 2},
-                  {name: batch_size, value: 2},
-                  {name: model_src, value: "crispseg_{{workflow.parameters.output_name}}_00"},
-                  {name: model_dest, value: "crispseg_{{workflow.parameters.output_name}}_02"},
-                  {name: description, value: '{"author":"Brad Larson","description":"Crisp segment prune and train target {{workflow.parameters.target_structure}}"}'}]
+                  {name: batch_size, value: 16},
+                  {name: model_src, value: "crispseg_{{workflow.parameters.output_name}}r"},
+                  {name: model_dest, value: "crispseg_{{workflow.parameters.output_name}}p"},
+                  {name: description, value: '{"author":"Brad Larson","description":"Crisp segment prune-finetune {{workflow.parameters.target_structure}}"}'}]
+            - name: test-prune-finetune
+              dependencies: [prune-finetune]
+              template: train
+              arguments:
+                parameters: [
+                  {name: prune, value: false},
+                  {name: train, value: false},
+                  {name: infer, value: true},
+                  {name: search_structure, value: false},
+                  {name: batch_size, value: 16},
+                  {name: model_src, value: "crispseg_{{workflow.parameters.output_name}}p"},
+                  {name: model_dest, value: "crispseg_{{workflow.parameters.output_name}}pi"},
+                  {name: description, value: '{"author":"Brad Larson","description":"Crisp segment test-prune-finetune {{workflow.parameters.target_structure}}"}'}]
 
       - name: train
         inputs:

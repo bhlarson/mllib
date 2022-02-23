@@ -38,7 +38,7 @@ def parse_arguments():
     import argparse
     parser = argparse.ArgumentParser(description='Process arguments')
 
-    parser.add_argument('-debug', action='store_true',help='Wait for debuggee attach')   
+    parser.add_argument('--debug', '-d', action='store_true',help='Wait for debuggee attach')   
     parser.add_argument('-debug_port', type=int, default=3300, help='Debug port')
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
     parser.add_argument('-test', action='store_true', help='Run unit tests')
@@ -46,9 +46,9 @@ def parse_arguments():
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
     parser.add_argument('-objectserver', type=str, default='store', help='Object server name.')
 
-    parser.add_argument('-server', type=str, default=None, help='Argo Server.')
+    parser.add_argument('--server', '-s', type=str, default=None, help='Argo Server.')
 
-    parser.add_argument('-run', type=str, default='workflow/train_dev.yaml', help='Run workflow')
+    parser.add_argument('--run', '-r', type=str, default='workflow/train_dev.yaml', help='Run workflow')
     parser.add_argument('-runparams', type=json.loads, default=None, help='Parameteers parsed by set_parameters  e.g.: {"trainingset":"full-20210726-184953-lit", "train_epochs":3}')
 
     args = parser.parse_args()

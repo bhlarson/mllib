@@ -309,13 +309,13 @@ def parse_arguments():
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
     parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=22, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=12, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=3, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='crispseg_20220219s_t010_00')
-    parser.add_argument('-model_dest', type=str, default='crispseg_20220219s_t010_01')
+    parser.add_argument('-model_src', type=str,  default='crispseg_20220221i_t040r')
+    parser.add_argument('-model_dest', type=str, default='crispseg_20220221i_t040p_test')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=480, help='Batch image height')
@@ -337,8 +337,8 @@ def parse_arguments():
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
 
     parser.add_argument('-prune', type=str2bool, default=True)
-    parser.add_argument('-train', type=str2bool, default=True)
-    parser.add_argument('-infer', type=str2bool, default=True)
+    parser.add_argument('-train', type=str2bool, default=False)
+    parser.add_argument('-infer', type=str2bool, default=False)
     parser.add_argument('-search_structure', type=str2bool, default=False)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
@@ -484,6 +484,7 @@ def Test(args):
         segment.ApplyStructure()
         reduced_parameters = count_parameters(segment)
         save(segment, s3, s3def, args)
+        test_results['prune'] = {'final parameters':reduced_parameters, 'initial parametes' : total_parameters, 'remaning ratio':reduced_parameters/total_parameters }
         print('{} remaining parameters {}/{} = {}'.format(args.model_dest, reduced_parameters, total_parameters, reduced_parameters/total_parameters))
 
     # Prune with loaded parameters than apply current search_structure setting

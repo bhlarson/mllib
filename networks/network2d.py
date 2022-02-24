@@ -14,6 +14,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torch.profiler
 from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data.sampler import SubsetRandomSampler
 from collections import namedtuple
 from collections import OrderedDict
 from typing import Callable, Optional
@@ -27,6 +28,7 @@ from utils.torch_util import count_parameters, model_stats, model_weights
 from utils.jsonutil import ReadDict, WriteDict
 from utils.s3 import s3store, Connect
 from datasets.cocostore import CocoDataset
+from datasets.imstore import ImagesDataset
 from utils.metrics import similarity, jaccard, DatasetResults
 from networks.totalloss import TotalLoss
 
@@ -307,20 +309,23 @@ def parse_arguments():
     parser.add_argument('-train_image_path', type=str, default='data/coco/train2017', help='Coco image path for dataset.')
     parser.add_argument('-imStatistics', type=str2bool, default=False, help='Record individual image statistics')
     parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
-    parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
+    #parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=12, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=3, help='Training epochs')
+    parser.add_argument('-dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
+    parser.add_argument('-class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
+
+    parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=30, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='crispseg_20220221i_t040r')
-    parser.add_argument('-model_dest', type=str, default='crispseg_20220221i_t040p_test')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220223i_t100_01')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220223i_t100_02')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
-    parser.add_argument('-height', type=int, default=480, help='Batch image height')
-    parser.add_argument('-width', type=int, default=512, help='Batch image width')
-    parser.add_argument('-imflags', type=int, default=cv2.IMREAD_COLOR, help='cv2.imdecode flags')
+    parser.add_argument('-height', type=int, default=640, help='Batch image height')
+    parser.add_argument('-width', type=int, default=640, help='Batch image width')
+    parser.add_argument('-imflags', type=int, default=cv2.IMREAD_GRAYSCALE, help='cv2.imdecode flags')
     parser.add_argument('-learning_rate', type=float, default=1e-4, help='Adam learning rate')
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
@@ -336,9 +341,9 @@ def parse_arguments():
     parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
 
-    parser.add_argument('-prune', type=str2bool, default=True)
-    parser.add_argument('-train', type=str2bool, default=False)
-    parser.add_argument('-infer', type=str2bool, default=False)
+    parser.add_argument('-prune', type=str2bool, default=False)
+    parser.add_argument('-train', type=str2bool, default=True)
+    parser.add_argument('-infer', type=str2bool, default=True)
     parser.add_argument('-search_structure', type=str2bool, default=False)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
@@ -347,7 +352,7 @@ def parse_arguments():
     parser.add_argument('-test_dir', type=str, default='/store/data/network2d')
     parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
-    parser.add_argument('-class_weight', type=json.loads, default='[1.0, 1.0, 1.0, 1.0]', help='Loss class weight ') 
+    parser.add_argument('-class_weight', type=json.loads, default='[1.0, 1.0]', help='Loss class weight ') 
 
     parser.add_argument('-description', type=json.loads, default='{"description":"Pruned CRISP segmentation"}', help='Test description')
 
@@ -355,7 +360,7 @@ def parse_arguments():
     return args
 
 def MakeNetwork2d(classes, args):
-    return Network2d(classes, 
+    return Network2d(classes, source_channels=1,
             is_cuda=args.cuda, 
             unet_depth=args.unet_depth,
             max_cell_steps=args.max_cell_steps, 
@@ -421,8 +426,8 @@ def DisplayImgAn(image, label, segmentation, trainingset, mean, stdev):
     image = np.squeeze(image)
     label = np.squeeze(label)
     segmentation = np.squeeze(segmentation)
-    iman = trainingset.coco.MergeIman(image, label, mean.item(), stdev.item())
-    imseg = trainingset.coco.MergeIman(image, segmentation, mean.item(), stdev.item())
+    iman = trainingset.store.MergeIman(image, label, mean.item(), stdev.item())
+    imseg = trainingset.store.MergeIman(image, segmentation, mean.item(), stdev.item())
 
     iman = cv2.putText(iman, 'Annotation',(10,25), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1,(255,255,255),1,cv2.LINE_AA)
     imseg = cv2.putText(imseg, 'Segmentation',(10,25), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1,(255,255,255),1,cv2.LINE_AA)
@@ -430,6 +435,10 @@ def DisplayImgAn(image, label, segmentation, trainingset, mean, stdev):
     imanseg = cv2.cvtColor(imanseg, cv2.COLOR_BGR2RGB)
 
     return imanseg
+
+def collate_fn(batch):
+    batch = list(filter(lambda x: x is not None, batch))
+    return torch.utils.data.dataloader.default_collate(batch)
 
 # Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
 def Test(args):
@@ -519,6 +528,23 @@ def Test(args):
         target_structure = target_structure.cuda()
         class_weight = class_weight.cuda()
 
+    dataset = ImagesDataset(s3, s3def['sets']['dataset']['bucket'], args.dataset, args.class_dict)
+    validation_split = .2
+    random_seed= 42
+
+    # Creating data indices for training and validation splits:
+    dataset_size = len(dataset)
+    indices = list(range(dataset_size))
+    split = int(np.floor(validation_split * dataset_size))
+    if True:
+        np.random.seed(random_seed)
+        np.random.shuffle(indices)
+    train_indices, val_indices = indices[split:], indices[:split]
+
+    # Creating PT data samplers and loaders:
+    train_sampler = SubsetRandomSampler(train_indices)
+    valid_sampler = SubsetRandomSampler(val_indices)
+
     # Train
     if args.train:
         with torch.profiler.profile(
@@ -534,35 +560,41 @@ def Test(args):
             plotgrads = PlotGradients(segment)
             iSample = 0
 
-            trainingset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.trainingset, 
+            '''trainingset = ImagesDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.trainingset, 
                 image_paths=args.train_image_path,
                 class_dictionary=class_dictionary, 
                 height=args.height, 
                 width=args.width, 
                 imflags=args.imflags, 
                 astype='float32', 
-                enable_transform=True)
+                enable_transform=True)'''
 
-            train_batches=int(trainingset.__len__()/args.batch_size)
-            trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=pin_memory)
+            #dataset = ImagesDataset(s3, s3def['sets']['dataset']['bucket'], args.dataset, args.class_dict)
 
-            testset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
+            #train_batches=int(trainingset.__len__()/args.batch_size)
+            #trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=pin_memory)
+            train_batches=int(train_indices.__len__()/args.batch_size)
+            trainloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, sampler=train_sampler, num_workers=args.num_workers, pin_memory=pin_memory, collate_fn=collate_fn)
+
+            '''testset = ImagesDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
                 image_paths=args.val_image_path,
                 class_dictionary=class_dictionary, 
                 height=args.height, 
                 width=args.width, 
                 imflags=args.imflags, 
                 astype='float32',
-                enable_transform=False)
-            test_batches=int(testset.__len__()/args.batch_size)
-            testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
+                enable_transform=False)'''
+            #test_batches=int(testset.__len__()/args.batch_size)
+            #testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
+            test_batches=int(val_indices.__len__()/args.batch_size)
+            testloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, sampler=valid_sampler, pin_memory=pin_memory, collate_fn=collate_fn)
             test_freq = int(math.ceil(train_batches/test_batches))
 
             for epoch in tqdm(range(args.epochs), desc="Train epochs"):  # loop over the dataset multiple times
                 iTest = iter(testloader)
 
                 running_loss = 0.0
-                for i, data in tqdm(enumerate(trainloader), total=trainingset.__len__()/args.batch_size, desc="Train steps"):
+                for i, data in tqdm(enumerate(trainloader), total=len(train_indices)/args.batch_size, desc="Train steps"):
                     # get the inputs; data is a list of [inputs, labels]
                     inputs, labels, mean, stdev = data
 
@@ -600,7 +632,7 @@ def Test(args):
                         segmentations = segmentations.cpu().numpy().astype('uint8')
                         if writer is not None:
                             for j in range(1):
-                                imanseg = DisplayImgAn(images[j], labels[j], segmentations[j], trainingset, mean[j], stdev[j])      
+                                imanseg = DisplayImgAn(images[j], labels[j], segmentations[j], dataset, mean[j], stdev[j])      
                                 writer.add_image('segmentation/train', imanseg, 0,dataformats='HWC')
 
                         with torch.no_grad():
@@ -622,7 +654,7 @@ def Test(args):
 
                         running_loss /=test_freq
                         msg = '[{:3}/{}, {:6d}/{}]  loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test)'.format(
-                            epoch + 1,args.epochs, i + 1, len(trainingset)/args.batch_size, running_loss, loss.item(), architecture_reduction.item())
+                            epoch + 1,args.epochs, i + 1, len(train_indices)/args.batch_size, running_loss, loss.item(), architecture_reduction.item())
                         if args.job is True:
                             print(msg)
                         else:
@@ -636,7 +668,7 @@ def Test(args):
 
                         if writer is not None:
                             for j in range(1):
-                                imanseg = DisplayImgAn(images[j], labels[j], segmentations[j], trainingset, mean[j], stdev[j])      
+                                imanseg = DisplayImgAn(images[j], labels[j], segmentations[j], dataset, mean[j], stdev[j])      
                                 writer.add_image('segmentation/test', imanseg, 0,dataformats='HWC')
 
                     iSave = 1000
@@ -680,7 +712,7 @@ def Test(args):
         date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
         test_summary = {'date':date_time}
 
-        testset = CocoDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
+        '''testset = ImagesDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
             image_paths=args.val_image_path,
             class_dictionary=class_dictionary, 
             height=args.height, 
@@ -689,7 +721,9 @@ def Test(args):
             astype='float32',
             enable_transform=False)
 
-        testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, pin_memory=pin_memory)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, pin_memory=pin_memory)'''
+        test_batches=int(val_indices.__len__()/args.batch_size)
+        testloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, sampler=valid_sampler, pin_memory=pin_memory, collate_fn=collate_fn)
 
         if args.test_dir is not None:
             outputdir = '{}/{}'.format(args.test_dir,args.model_class)
@@ -705,7 +739,7 @@ def Test(args):
                 record_shapes=True, profile_memory=True, with_stack=True
         ) as prof:
 
-            for i, data in tqdm(enumerate(testloader), total=int(testset.__len__()/args.batch_size), desc="Inference steps"):
+            for i, data in tqdm(enumerate(testloader), total=test_batches, desc="Inference steps"):
                 images, labels, mean, stdev = data
                 if args.cuda:
                     images = images.cuda()

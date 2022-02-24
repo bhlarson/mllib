@@ -1,0 +1,9 @@
+{
+    "background":0,
+    "ignore":255,
+    "classes":2,
+    "objects":[
+        {"id":0,    "name":"unlabeled",     "trainId":0 , "category":"void", "display":false, "color": [ 0,  0,  0]},
+        {"id":9,    "name":"FibLine",       "trainId":1 , "category":"vehicle", "display": true, "color":[ 255,  0,  0]}
+    ]
+}

@@ -1,7 +1,7 @@
 import os
 import io
 import glob
-import json
+import json, yaml
 from datetime import datetime, timedelta
 from pathlib import Path, PurePath
 from tqdm import tqdm
@@ -10,7 +10,7 @@ from minio import Minio
 import urllib3
 import certifi
 
-from .jsonutil import ReadDictJson
+from .jsonutil import ReadDict
 
 def remove_prefix(text, prefix):
     return text[text.startswith(prefix) and len(prefix):]
@@ -163,8 +163,12 @@ class s3store:
         # List all object paths in bucket that begin with my-prefixname.
         try:
             objects = self.s3.list_objects(bucket, prefix=setname, recursive=recursive)
-            for obj in objects:
-                if PurePath(obj.object_name).match(pattern):
+            if pattern is not None and len(pattern) > 0:
+                for obj in objects:
+                    if PurePath(obj.object_name).match(pattern):
+                        files.append(obj.object_name)
+            else:
+                for obj in objects:
                     files.append(obj.object_name)
         except Exception as err:
             print(err)
@@ -230,7 +234,13 @@ class s3store:
             response = self.s3.get_object(bucket, object_name)
 
             if response.data:
-                data_dict = json.loads(response.data)
+                ext = os.path.splitext(object_name)[1]
+                if ext=='.yaml':
+                    data_dict = yaml.safe_load(response.data)
+                elif ext=='.json':
+                    data_dict = json.loads(response.data)
+
+
 
         except Exception as err:
             print('s3 Response error {}'.format(err))
@@ -413,7 +423,7 @@ class s3store:
 
 def Connect(credentials_filename='creds.json', s3_name='store'):
 
-    creds = ReadDictJson(credentials_filename)
+    creds = ReadDict(credentials_filename)
     if not creds:
         print('Failed to load credentials file {}. Exiting'.format(credentials_filename))
         return False

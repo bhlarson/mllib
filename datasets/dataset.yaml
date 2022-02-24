@@ -1,0 +1,9 @@
+bucket: mllib
+prefix: annotations/lit
+image_path: null
+image_pattern: "*.tif"
+image_colorspace: grayscale
+label_path: null
+label_in_image_path: true
+label_pattern: "*_cls.png"
+recursive: True

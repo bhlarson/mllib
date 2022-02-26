@@ -124,8 +124,8 @@ class ConvBR(nn.Module):
         #print('ConvBR initialized weights {}'.format(norm))
 
     def _initialize_weights(self):
-        nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
-        #nn.init.ones_(self.channel_scale)
+        #nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
+        nn.init.ones_(self.channel_scale)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 #nn.init.normal_(m.weight)
@@ -137,7 +137,8 @@ class ConvBR(nn.Module):
     def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None):
         if search_structure is not None:
             if self.search_structure == False and search_structure == True:
-                nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
+                #nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
+                nn.init.ones_(self.channel_scale)
             self.search_structure = search_structure
         if convMaskThreshold is not None:
             self.convMaskThreshold = convMaskThreshold

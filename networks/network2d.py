@@ -340,12 +340,12 @@ def parse_arguments():
     parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')
     parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convolution channels weights')
     parser.add_argument('-feature_threshold', type=float, default=0.5, help='tanh pruning threshold')
-    parser.add_argument('-convMaskThreshold', type=float, default=0.1, help='sigmoid level to prune convolution channels')
+    parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
 
-    parser.add_argument('-prune', type=str2bool, default=True)
+    parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)
-    parser.add_argument('-infer', type=str2bool, default=True)
+    parser.add_argument('-infer', type=str2bool, default=False)
     parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
@@ -490,8 +490,6 @@ def Test(args):
         segment = MakeNetwork2d(class_dictionary['classes'], args)
 
     total_parameters = count_parameters(segment)
-
-    segment.ApplyParameters(convMaskThreshold=args.convMaskThreshold)
 
     if args.prune:
         segment.ApplyStructure()

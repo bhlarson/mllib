@@ -1062,7 +1062,7 @@ class PlotGradients():
                 cv2.line(img,start_point,end_point,colorbgr,self.thickness)
             x += self.lenght
 
-        grad_mag = 'grad {:0.3e}- {:0.3e}'.format(max_gradient, min_gradient)
+        grad_mag = '{:0.3e}'.format(max_gradient, min_gradient)
         cv2.putText(img,grad_mag,(int(0.05*self.width), int(0.90*self.height)), cv2.FONT_HERSHEY_COMPLEX, fontScale=0.5, color=(0, 255, 255))
 
         return img

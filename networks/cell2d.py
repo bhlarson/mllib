@@ -120,12 +120,12 @@ class ConvBR(nn.Module):
             self.dropout = None
 
         self._initialize_weights()
-        #norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
+        norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
         #print('ConvBR initialized weights {}'.format(norm))
 
     def _initialize_weights(self):
-        nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
-        #nn.init.ones_(self.channel_scale)
+        #nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
+        nn.init.ones_(self.channel_scale)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 #nn.init.normal_(m.weight)
@@ -137,7 +137,8 @@ class ConvBR(nn.Module):
     def ApplyParameters(self, search_structure=None, dropout=None):
         if search_structure is not None:
             if self.search_structure == False and search_structure == True:
-                nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
+                #nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
+                nn.init.ones_(self.channel_scale)
             self.search_structure = search_structure
         if dropout is not None:
             self.use_dropout = dropout
@@ -166,10 +167,13 @@ class ConvBR(nn.Module):
     def ArchitectureWeights(self):
         if self.search_structure:
             weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)
-            #norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
-            #conv_scale = torch.tanh(self.weight_gain*norm)
-            #conv_weights = conv_scale*weight_scale
-            conv_weights = weight_scale
+            if self.conv_transpose:
+                norm = torch.linalg.norm(self.conv.weight, dim=(0,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
+            else:
+                norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
+            conv_scale = torch.tanh(self.weight_gain*norm)
+            conv_weights = conv_scale*weight_scale
+            #conv_weights = weight_scale
             #conv_weights = torch.tanh(self.weight_gain*norm)
 
         else:
@@ -1055,7 +1059,7 @@ class PlotGradients():
                 cv2.line(img,start_point,end_point,colorbgr,self.thickness)
             x += self.lenght
 
-        grad_mag = 'grad {:0.3e}- {:0.3e}'.format(max_gradient, min_gradient)
+        grad_mag = '{:0.3e}'.format(max_gradient)
         cv2.putText(img,grad_mag,(int(0.05*self.width), int(0.90*self.height)), cv2.FONT_HERSHEY_COMPLEX, fontScale=0.5, color=(0, 255, 255))
 
         return img

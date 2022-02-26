@@ -3,7 +3,7 @@ docker run --ipc=host --privileged --gpus all -it --rm --cap-add=CAP_SYS_ADMIN \
     -v "/store:/store" \
     -v "/store/Datasets/flow/SceneFlow:/store/Datasets/flow/SceneFlow" \
     -v /etc/localtime:/etc/localtime:ro \
-    -p 9999:9999/tcp \
+    -p 8888:8888/tcp \
     -p 6006:6006/tcp \
     -p 5000:5000/tcp \
     -p 3000:3000 localhost:32000/torch:latest

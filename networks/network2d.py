@@ -316,13 +316,13 @@ def parse_arguments():
     parser.add_argument('-dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
     parser.add_argument('-class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=8, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=3, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=12, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
     parser.add_argument('-model_src', type=str,  default='crisplit_20220223i_t100_02')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220224i_t025_11p')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220226s_t025_00')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
@@ -346,7 +346,7 @@ def parse_arguments():
     parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=True)
-    parser.add_argument('-search_structure', type=str2bool, default=False)
+    parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
@@ -356,7 +356,7 @@ def parse_arguments():
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
     parser.add_argument('-class_weight', type=json.loads, default='[1.0, 1.0]', help='Loss class weight ') 
 
-    parser.add_argument('-description', type=json.loads, default='{"description":"Pruned CRISP segmentation"}', help='Test description')
+    parser.add_argument('-description', type=json.loads, default='{"description":"CRISP training"}', help='Test description')
 
     args = parser.parse_args()
     return args

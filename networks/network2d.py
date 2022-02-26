@@ -146,14 +146,16 @@ class Network2d(nn.Module):
 
         self.pool = nn.MaxPool2d(2, 2)
 
-    def ApplyParameters(self, search_structure=None, dropout=None): # Apply a parameter change
+    def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None): # Apply a parameter change
         if search_structure is not None:
             self.search_structure = search_structure
         if dropout is not None:
             self.use_dropout = dropout
+        if convMaskThreshold is not None:
+            self.use_dropout = convMaskThreshold
 
         for cell in self.cells:
-            cell.ApplyParameters(search_structure=search_structure, dropout=dropout)
+            cell.ApplyParameters(search_structure=search_structure, dropout=dropout, convMaskThreshold=convMaskThreshold)
 
     def forward(self, x):
         feed_forward = []
@@ -314,34 +316,34 @@ def parse_arguments():
     parser.add_argument('-dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
     parser.add_argument('-class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=30, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=8, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=3, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220223i_t100_01')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220223i_t100_02')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220223i_t100_02')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220224i_t025_11p')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
     parser.add_argument('-width', type=int, default=640, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_GRAYSCALE, help='cv2.imdecode flags')
-    parser.add_argument('-learning_rate', type=float, default=1e-4, help='Adam learning rate')
+    parser.add_argument('-learning_rate', type=float, default=2e-4, help='Adam learning rate')
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
     parser.add_argument('-k_structure', type=float, default=10, help='Structure minimization weighting factor')
-    parser.add_argument('-target_structure', type=float, default=0.15, help='Structure minimization weighting factor')
+    parser.add_argument('-target_structure', type=float, default=0.25, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=str2bool, default=False)
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
     parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')
     parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convolution channels weights')
     parser.add_argument('-feature_threshold', type=float, default=0.5, help='tanh pruning threshold')
-    parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='sigmoid level to prune convolution channels')
+    parser.add_argument('-convMaskThreshold', type=float, default=0.1, help='sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
 
-    parser.add_argument('-prune', type=str2bool, default=False)
+    parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=True)
     parser.add_argument('-search_structure', type=str2bool, default=False)
@@ -489,6 +491,8 @@ def Test(args):
 
     total_parameters = count_parameters(segment)
 
+    segment.ApplyParameters(convMaskThreshold=args.convMaskThreshold)
+
     if args.prune:
         segment.ApplyStructure()
         reduced_parameters = count_parameters(segment)
@@ -497,7 +501,7 @@ def Test(args):
         print('{} remaining parameters {}/{} = {}'.format(args.model_dest, reduced_parameters, total_parameters, reduced_parameters/total_parameters))
 
     # Prune with loaded parameters than apply current search_structure setting
-    segment.ApplyParameters(search_structure=args.search_structure)
+    segment.ApplyParameters(search_structure=args.search_structure, convMaskThreshold=args.convMaskThreshold)
     # Enable multi-gpu processing
     if torch.cuda.device_count() > 1:
         print("Let's use", torch.cuda.device_count(), "GPUs!")

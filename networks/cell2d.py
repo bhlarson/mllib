@@ -134,11 +134,13 @@ class ConvBR(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-    def ApplyParameters(self, search_structure=None, dropout=None):
+    def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None):
         if search_structure is not None:
             if self.search_structure == False and search_structure == True:
                 nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
             self.search_structure = search_structure
+        if convMaskThreshold is not None:
+            self.convMaskThreshold = convMaskThreshold
         if dropout is not None:
             self.use_dropout = dropout
 
@@ -369,15 +371,19 @@ class Cell(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-    def ApplyParameters(self, search_structure=None, dropout=None): # Apply a parameter change
+    def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None): # Apply a parameter change
         if search_structure is not None:
             self.search_structure = search_structure
+
+        if convMaskThreshold is not None:
+            self.convMaskThreshold = convMaskThreshold
+
         if dropout is not None:
             self.use_dropout = dropout
 
         if self.cnn is not None and len(self.cnn) > 0:
             for conv in self.cnn:
-                conv.ApplyParameters(search_structure=search_structure, dropout=dropout)
+                conv.ApplyParameters(search_structure=search_structure, convMaskThreshold=convMaskThreshold, dropout=dropout)
 
     def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None, msg=None):
 

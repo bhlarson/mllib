@@ -34,7 +34,7 @@ from networks.totalloss import TotalLoss
 # Inner neural architecture cell repetition structure
 # Process: Con2d, optional batch norm, optional ReLu
 
-def GaussianBasis(i, depth, r=1.0):
+def GaussianBasis(i, depth=0.0, r=0.33):
     return torch.exp(-1*(r*(i-depth))*(r*(i-depth))) # torch.square not supported by torch.onnx
 
 def NormGausBasis(len, i, depth, r=1.0):
@@ -169,24 +169,41 @@ class ConvBR(nn.Module):
     def ArchitectureWeights(self):
         if self.search_structure:
             weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)
+
+            if self.conv_transpose:
+                den = list(self.conv.weight.shape)
+                del den[1]
+                den = np.sqrt(np.prod(den))
+                norm = torch.linalg.norm(self.conv.weight , dim=(0,2,3))/den
+            else:
+                den = list(self.conv.weight.shape)
+                del den[0]
+                den = np.sqrt(np.prod(den))
+                norm = torch.linalg.norm(self.conv.weight , dim=(1,2,3))/den
+
             #norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
-            #conv_scale = torch.tanh(self.weight_gain*norm)
+            conv_scale = torch.tanh(self.weight_gain*norm)
             #conv_weights = conv_scale*weight_scale
             conv_weights = weight_scale
             #conv_weights = torch.tanh(self.weight_gain*norm)
 
+            prune_basis = GaussianBasis(self.channel_scale, depth=0.0, r=0.33)
+
         else:
-            conv_weights = torch.ones_like(self.channel_scale)          
+            conv_weights = torch.ones_like(self.channel_scale)
+            prune_basis = torch.zeros_like(self.channel_scale)      
 
         cell_weights = model_weights(self)
 
         if self.out_channels > 0:
             # Keep sum as [1] tensor so subsequent concatenation works
             architecture_weights = (cell_weights/ self.out_channels) * conv_weights.sum_to_size((1))
+            prune_basis = (1.0/ self.out_channels) * prune_basis.sum_to_size((1))
         else:
             architecture_weights = conv_weights.sum_to_size((1))
+            prune_basis = prune_basis.sum_to_size((1))
 
-        return architecture_weights, cell_weights, conv_weights
+        return architecture_weights, cell_weights, conv_weights, prune_basis
 
     # Remove specific network dimensions
     # remove dimension where inDimensions and outDimensions arrays are 0 for channels to be removed
@@ -209,10 +226,21 @@ class ConvBR(nn.Module):
         # Convolution norm gain mask
         #print("ApplyStructure convolution norm {}".format(torch.linalg.norm(self.conv.weight, dim=(1,2,3))))
         if self.search_structure:
+            if self.conv_transpose:
+                den = list(self.conv.weight.shape)
+                del den[1]
+                den = np.sqrt(np.prod(den))
+                norm = torch.linalg.norm(self.conv.weight , dim=(0,2,3))/den
+            else:
+                den = list(self.conv.weight.shape)
+                del den[0]
+                den = np.sqrt(np.prod(den))
+                norm = torch.linalg.norm(self.conv.weight , dim=(1,2,3))/den
+
             #norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
-            #conv_mask = torch.tanh(self.weight_gain*norm)
-            #conv_mask *= self.sigmoid(self.sigmoid_scale*self.channel_scale)
-            conv_mask = self.sigmoid(self.sigmoid_scale*self.channel_scale)
+            conv_mask = torch.tanh(self.weight_gain*norm)
+            conv_mask *= self.sigmoid(self.sigmoid_scale*self.channel_scale)
+            #conv_mask = self.sigmoid(self.sigmoid_scale*self.channel_scale)
             conv_mask = conv_mask > self.convMaskThreshold
         else:
             conv_mask = self.channel_scale > float('-inf') # Always true if self.search_structure == False
@@ -436,7 +464,7 @@ class Cell(nn.Module):
                         layermsg = "{} {} ".format(msg, layermsg)
                     print(layermsg)
                     break
-            ''' remove structure pruning
+
             if self.cnn is not None and len(norm_conv_weight) > 0:
                 prune_weight =  torch.tanh(self.weight_gain*torch.prod(torch.cat(norm_conv_weight)))
                 if prune_weight < self.feature_threshold:
@@ -444,7 +472,7 @@ class Cell(nn.Module):
                     layermsg = "Prune cell because prune_weight {} < feature_threshold {}".format(prune_weight, self.feature_threshold)
                     if msg is not None:
                         layermsg = "{} {} ".format(msg, layermsg)
-                    print(layermsg)'''
+                    print(layermsg)
 
         else:
             out_channel_mask = None
@@ -508,51 +536,48 @@ class Cell(nn.Module):
         conv_weights = []
         norm_conv_weight = []
         search_structure = []
+        prune_basises = []
 
         unallocated_weights  = torch.zeros((1), device=self.cell_convolution.device)
         if self.cnn is not None:
             for i, l in enumerate(self.cnn): 
-                layer_weight, cnn_weight, conv_weight  = l.ArchitectureWeights()
+                layer_weight, cnn_weight, conv_weight, purne_weight  = l.ArchitectureWeights()
                 conv_weights.append(conv_weight)
-                architecture_weights.append(layer_weight)
 
-            if len(architecture_weights) > 0:
-                architecture_weights = torch.cat(architecture_weights)
-                architecture_weights = architecture_weights.sum_to_size((1))
-            else:
-                architecture_weights = torch.zeros((1), device=self.cell_convolution.device)
-            prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)
-
-            ''' remove structure pruning
-                if l.search_structure:
+                if self.convolutions[i]['search_structure']:
                     architecture_weights.append(layer_weight)
-                    
                     norm_conv_weight.append(layer_weight/cnn_weight)
                 else:
                     unallocated_weights += cnn_weight
 
+                prune_basises.append(purne_weight)
+
             if len(architecture_weights) > 0:
                 architecture_weights = torch.cat(architecture_weights)
                 architecture_weights = architecture_weights.sum_to_size((1))
 
-                # Allocate remaining weights if pruning full channel
-                prune_weight =  torch.prod(torch.cat(norm_conv_weight))
-                prune_weight = torch.tanh(self.weight_gain*prune_weight)
-                architecture_weights += unallocated_weights*prune_weight
+                if len(norm_conv_weight) > 0:
+                    # Allocate remaining weights if pruning full channel
+                    prune_weight =  torch.prod(torch.cat(norm_conv_weight))
+                    prune_weight = torch.tanh(self.weight_gain*prune_weight)
+                    architecture_weights += unallocated_weights*prune_weight
             else: # Nothing to prune here
                 architecture_weights = unallocated_weights
                 prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)
-            prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)'''
+            #prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)
+
+            len_prune_basis = len(prune_basises)
+            if len_prune_basis > 0:
+                prune_basises = torch.cat(prune_basises)
+                prune_basises = prune_basises.sum_to_size((1))/len_prune_basis
         else:
             architecture_weights = torch.zeros((1), device=self.cell_convolution.device)
             prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)
+            prune_basises = torch.zeros((1), device=self.cell_convolution.device)
 
         cell_weights = {'prune_weight':prune_weight, 'cell_weight':conv_weights}
 
-        # Enable "architecture_weights *= prune_weight" when convolution weights are successfully optimized
-        #architecture_weights *= prune_weight
-
-        return architecture_weights, model_weights(self), cell_weights
+        return architecture_weights, model_weights(self), cell_weights, prune_basises
 
 class FC(nn.Module):
     def __init__(self, 
@@ -935,7 +960,7 @@ class PlotSearch():
         self.cm = plt.get_cmap(colormapname)
         self.thickness=thickness
 
-        architecture_weights, total_trainable_weights, cell_weights = network.ArchitectureWeights()
+        architecture_weights, total_trainable_weights, cell_weights, prune_basis = network.ArchitectureWeights()
         self.height = 0
         self.width = 0
         for i,  cell, in enumerate(cell_weights):
@@ -988,7 +1013,7 @@ class PlotGradients():
         self.classification=classification
         self.pruning=pruning
 
-        architecture_weights, total_trainable_weights, cell_weights = network.ArchitectureWeights()
+        architecture_weights, total_trainable_weights, cell_weights, prune_basis = network.ArchitectureWeights()
         self.height = 0
         self.width = 0
         for i,  cell, in enumerate(cell_weights):
@@ -1016,7 +1041,7 @@ class PlotGradients():
                         if convbr.conv_transpose:
                             grads = torch.linalg.norm(convbr.conv.weight.grad , dim=(0,2,3))/np.sqrt(np.product(convbr.conv.weight.grad.shape[1:]))
                         else:
-                            grads = torch.linalg.norm(convbr.conv.weight.grad , dim=(1,2,3))/np.sqrt(np.product(convbr.conv.weight.grad.shape[1:]))
+                            grads = torch.linalg.norm(convbr.conv.weight.grad , dim=(1,2,3))/np.sqrt(np.product(convbr.conv.weight.grad.shape[0:]))
                         numSums = 1                    
 
                         if self.pruning:

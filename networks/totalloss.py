@@ -36,7 +36,7 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
         dims = []
         depths = []
 
-        architecture_weights, total_trainable_weights, cell_weights = network.ArchitectureWeights()
+        architecture_weights, total_trainable_weights, cell_weights, prune_basis = network.ArchitectureWeights()
         architecture_reduction = architecture_weights/total_trainable_weights
         architecture_loss = self.k_structure*self.archloss(architecture_reduction,self.target_structure)
 

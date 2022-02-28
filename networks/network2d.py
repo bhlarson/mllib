@@ -23,7 +23,7 @@ from tqdm import tqdm
 from datetime import datetime
 
 sys.path.insert(0, os.path.abspath(''))
-from networks.cell2d import Cell, NormGausBasis, PlotSearch, PlotGradients
+from networks.cell2d import Cell, GaussianBasis, NormGausBasis, PlotSearch, PlotGradients
 from utils.torch_util import count_parameters, model_stats, model_weights
 from utils.jsonutil import ReadDict, WriteDict
 from utils.s3 import s3store, Connect
@@ -81,8 +81,8 @@ class Network2d(nn.Module):
         prev_encoder_chanels = self.source_channels
         feedforward_chanels = []
 
-        convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':self.search_structure},
-                        {'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':self.search_structure}]
+        convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
+                        {'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True}]
         for i in range(self.unet_depth-1):
             for convolution in convolutions:
                 convolution['out_channels'] = encoder_channels
@@ -123,9 +123,9 @@ class Network2d(nn.Module):
                 final_stride = 2
                 conv_transpose = True
 
-            convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':self.search_structure},
-                          {'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':self.search_structure},
-                          {'out_channels':out_channels, 'kernel_size': final_kernel_size, 'stride': final_stride, 'dilation': 1, 'search_structure':self.search_structure, 'conv_transpose':conv_transpose}]
+            convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
+                          {'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
+                          {'out_channels':out_channels, 'kernel_size': final_kernel_size, 'stride': final_stride, 'dilation': 1, 'search_structure':True, 'conv_transpose':conv_transpose}]
 
             cell = self.cell(prev_encoder_chanels, 
                              feedforward,
@@ -209,7 +209,6 @@ class Network2d(nn.Module):
 
         encoder_channel_mask = None
         feedforward_channel_mask = []
-        ''' remove structure pruning
         _, _, conv_weights = self.ArchitectureWeights()
         newcells = torch.nn.ModuleList()
         for i, conv_weight in enumerate(conv_weights):
@@ -217,7 +216,7 @@ class Network2d(nn.Module):
                 print('Prune inactive cell {}'.format(i))
             else:
                 newcells.append(self.cells[i])
-        self.cells = newcells'''
+        self.cells = newcells
         
         enc_len = math.floor(len(self.cells)/2.0)
         iDecode = enc_len
@@ -246,14 +245,15 @@ class Network2d(nn.Module):
         layer_weights = []
         conv_weights = []
         search_structure = []
+        prune_basises = []
 
         for l in self.cells:
-            layer_weight, cnn_weight, conv_weight  = l.ArchitectureWeights()
+            layer_weight, cnn_weight, conv_weight, prune_basis  = l.ArchitectureWeights()
             conv_weights.append(conv_weight)
             architecture_weights.append(layer_weight)
+            prune_basises.append(prune_basis)
 
         # Reduce cell weight if it may become inactive as a lower cell approaches 0
-        ''' remove structure pruning
         depth = math.floor(len(self.cells)/2.0)
         for i in range(depth):
             prune_weight = []
@@ -276,12 +276,16 @@ class Network2d(nn.Module):
 
             conv_weights[depth]['prune_weight'] = prune_weight
             architecture_weights[depth] *= prune_weight
-        '''
+
         architecture_weights = torch.cat(architecture_weights)
         architecture_weights = architecture_weights.sum_to_size((1))
 
+        len_prune_basis = len(prune_basises)
+        prune_basises = torch.cat(prune_basises)
+        prune_basises = prune_basises.sum_to_size((1))/len_prune_basis
+
             
-        return architecture_weights, model_weights(self), conv_weights
+        return architecture_weights, model_weights(self), conv_weights, prune_basises
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -316,13 +320,13 @@ def parse_arguments():
     parser.add_argument('-dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
     parser.add_argument('-class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=12, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=25, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
-    parser.add_argument('-model_class', type=str,  default='segmin')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220223i_t100_02')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220226s_t025_00')
+    parser.add_argument('-model_class', type=str,  default='crisplit')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220226i_t100_02')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220228i_t30_00')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
@@ -333,11 +337,11 @@ def parse_arguments():
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
     parser.add_argument('-k_structure', type=float, default=10, help='Structure minimization weighting factor')
-    parser.add_argument('-target_structure', type=float, default=0.25, help='Structure minimization weighting factor')
+    parser.add_argument('-target_structure', type=float, default=0.30, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=str2bool, default=False)
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
-    parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')
+    parser.add_argument('-weight_gain', type=float, default=22.0, help='Convolution norm tanh weight gain')
     parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convolution channels weights')
     parser.add_argument('-feature_threshold', type=float, default=0.5, help='tanh pruning threshold')
     parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='sigmoid level to prune convolution channels')

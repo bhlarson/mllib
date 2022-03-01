@@ -34,8 +34,8 @@ from networks.totalloss import TotalLoss
 # Inner neural architecture cell repetition structure
 # Process: Con2d, optional batch norm, optional ReLu
 
-def GaussianBasis(i, depth=0.0, r=0.33):
-    return torch.exp(-1*(r*(i-depth))*(r*(i-depth))) # torch.square not supported by torch.onnx
+def GaussianBasis(i, zero=0.0, sigma=0.33):
+    return torch.exp(-1*(sigma*(i-zero))*(sigma*(i-zero))) # torch.square not supported by torch.onnx
 
 def NormGausBasis(len, i, depth, r=1.0):
         den = 0.0
@@ -67,6 +67,7 @@ class ConvBR(nn.Module):
                  residual = False,
                  dropout=False,
                  conv_transpose=False, # https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html
+                 k_prune_sigma=0.33
                  ):
         super(ConvBR, self).__init__()
         self.in_channels = in_channels
@@ -89,6 +90,7 @@ class ConvBR(nn.Module):
         self.residual = residual
         self.use_dropout = dropout
         self.conv_transpose = conv_transpose
+        self.k_prune_sigma=k_prune_sigma
 
         self.channel_scale = nn.Parameter(torch.zeros(self.out_channels, dtype=torch.float))
 
@@ -170,6 +172,7 @@ class ConvBR(nn.Module):
         if self.search_structure:
             weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)
 
+            ''' Include convolution norm in channel pruning weight
             if self.conv_transpose:
                 den = list(self.conv.weight.shape)
                 del den[1]
@@ -181,27 +184,24 @@ class ConvBR(nn.Module):
                 den = np.sqrt(np.prod(den))
                 norm = torch.linalg.norm(self.conv.weight , dim=(1,2,3))/den
 
-            #norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
             conv_scale = torch.tanh(self.weight_gain*norm)
-            #conv_weights = conv_scale*weight_scale
+            conv_weights = conv_scale*weight_scale
+            '''
             conv_weights = weight_scale
-            #conv_weights = torch.tanh(self.weight_gain*norm)
 
-            prune_basis = GaussianBasis(self.channel_scale, depth=0.0, r=0.33)
+            prune_basis = GaussianBasis(self.channel_scale, sigma=self.k_prune_sigma)
 
         else:
             conv_weights = torch.ones_like(self.channel_scale)
-            prune_basis = torch.zeros_like(self.channel_scale)      
+            prune_basis = None   
 
         cell_weights = model_weights(self)
 
         if self.out_channels > 0:
             # Keep sum as [1] tensor so subsequent concatenation works
             architecture_weights = (cell_weights/ self.out_channels) * conv_weights.sum_to_size((1))
-            prune_basis = (1.0/ self.out_channels) * prune_basis.sum_to_size((1))
         else:
             architecture_weights = conv_weights.sum_to_size((1))
-            prune_basis = prune_basis.sum_to_size((1))
 
         return architecture_weights, cell_weights, conv_weights, prune_basis
 
@@ -305,6 +305,7 @@ class Cell(nn.Module):
                  convolutions=[{'out_channels':64, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True, 'conv_transpose':False}],
                  dropout_rate = 0.2,
                  sigmoid_scale = 5.0,
+                 k_prune_sigma=0.33
                  ):
                 
         super(Cell, self).__init__()
@@ -330,6 +331,8 @@ class Cell(nn.Module):
         self.convolutions = deepcopy(convolutions)
         self.dropout_rate = dropout_rate
         self.sigmoid_scale=sigmoid_scale
+        self.k_prune_sigma=k_prune_sigma
+
 
         self.cnn = torch.nn.ModuleList()
 
@@ -362,7 +365,8 @@ class Cell(nn.Module):
                 sigmoid_scale = self.sigmoid_scale,
                 residual=False, 
                 dropout=self.dropout,
-                conv_transpose=conv_transpose,)
+                conv_transpose=conv_transpose,
+                k_prune_sigma=self.k_prune_sigma)
             self.cnn.append(conv)
 
             src_channels = convdev['out_channels']
@@ -384,7 +388,8 @@ class Cell(nn.Module):
                 dropout_rate=self.dropout_rate,
                 search_structure=False,
                 residual=True,
-                dropout=self.dropout)
+                dropout=self.dropout,
+                k_prune_sigma=self.k_prune_sigma)
         else:
             self.conv_residual = None
 
@@ -450,7 +455,7 @@ class Cell(nn.Module):
                 if msg is not None:
                     layermsg = "{} {}".format(msg, layermsg)
 
-                layer_weight, cnn_weight, conv_weight  = cnn.ArchitectureWeights()
+                layer_weight, cnn_weight, conv_weight, prune_basis  = cnn.ArchitectureWeights()
                 if cnn.search_structure:
                     norm_conv_weight.append(layer_weight/cnn_weight)
                     
@@ -541,7 +546,7 @@ class Cell(nn.Module):
         unallocated_weights  = torch.zeros((1), device=self.cell_convolution.device)
         if self.cnn is not None:
             for i, l in enumerate(self.cnn): 
-                layer_weight, cnn_weight, conv_weight, purne_weight  = l.ArchitectureWeights()
+                layer_weight, cnn_weight, conv_weight, prune_basis  = l.ArchitectureWeights()
                 conv_weights.append(conv_weight)
 
                 if self.convolutions[i]['search_structure']:
@@ -550,7 +555,8 @@ class Cell(nn.Module):
                 else:
                     unallocated_weights += cnn_weight
 
-                prune_basises.append(purne_weight)
+                if prune_basis is not None:
+                    prune_basises.extend(prune_basis)
 
             if len(architecture_weights) > 0:
                 architecture_weights = torch.cat(architecture_weights)
@@ -566,14 +572,9 @@ class Cell(nn.Module):
                 prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)
             #prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)
 
-            len_prune_basis = len(prune_basises)
-            if len_prune_basis > 0:
-                prune_basises = torch.cat(prune_basises)
-                prune_basises = prune_basises.sum_to_size((1))/len_prune_basis
         else:
             architecture_weights = torch.zeros((1), device=self.cell_convolution.device)
             prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)
-            prune_basises = torch.zeros((1), device=self.cell_convolution.device)
 
         cell_weights = {'prune_weight':prune_weight, 'cell_weight':conv_weights}
 
@@ -1017,11 +1018,9 @@ class PlotGradients():
         self.height = 0
         self.width = 0
         for i,  cell, in enumerate(cell_weights):
-            for j, step in enumerate(cell['cell_weight']):
-                self.width += self.lenght
-                self.height = max(self.height, self.thickness*len(step))
+            self.height = max(self.height, self.thickness*len(cell['cell_weight']))
 
-    def plot(self, network, index = None):
+    def plot(self, network, index = None): 
 
         img = np.zeros([self.height,self.width,3]).astype(np.uint8)
         

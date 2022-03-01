@@ -51,7 +51,8 @@ class Network2d(nn.Module):
                  weight_gain = 11.0,
                  convMaskThreshold=0.5,
                  dropout_rate = 0.2,
-                 sigmoid_scale = 5.0):
+                 sigmoid_scale = 5.0,
+                 k_prune_sigma = 0.33):
         super(Network2d, self).__init__()
 
         self.unet_depth = unet_depth
@@ -76,6 +77,7 @@ class Network2d(nn.Module):
         self.convMaskThreshold=convMaskThreshold
         self.dropout_rate = dropout_rate
         self.sigmoid_scale = sigmoid_scale
+        self.k_prune_sigma = k_prune_sigma
 
         encoder_channels = self.initial_channels
         prev_encoder_chanels = self.source_channels
@@ -96,7 +98,8 @@ class Network2d(nn.Module):
                              dropout=self.dropout,
                              dropout_rate=self.dropout_rate, 
                              sigmoid_scale=self.sigmoid_scale, 
-                             feature_threshold=self.feature_threshold)
+                             feature_threshold=self.feature_threshold, 
+                             k_prune_sigma=self.k_prune_sigma)
             self.cells.append(cell)
 
             feedforward_chanels.append(encoder_channels)
@@ -137,7 +140,8 @@ class Network2d(nn.Module):
                              dropout=self.dropout,
                              dropout_rate=self.dropout_rate, 
                              sigmoid_scale=self.sigmoid_scale, 
-                             feature_threshold=self.feature_threshold)
+                             feature_threshold=self.feature_threshold,
+                             k_prune_sigma=self.k_prune_sigma)
             self.cells.append(cell)
 
             prev_encoder_chanels = out_encoder_channels
@@ -209,7 +213,7 @@ class Network2d(nn.Module):
 
         encoder_channel_mask = None
         feedforward_channel_mask = []
-        _, _, conv_weights = self.ArchitectureWeights()
+        _, _, conv_weights, _ = self.ArchitectureWeights()
         newcells = torch.nn.ModuleList()
         for i, conv_weight in enumerate(conv_weights):
             if conv_weight['prune_weight'] < self.feature_threshold:
@@ -251,7 +255,8 @@ class Network2d(nn.Module):
             layer_weight, cnn_weight, conv_weight, prune_basis  = l.ArchitectureWeights()
             conv_weights.append(conv_weight)
             architecture_weights.append(layer_weight)
-            prune_basises.append(prune_basis)
+            if prune_basis is not None:
+                prune_basises.extend(prune_basis)
 
         # Reduce cell weight if it may become inactive as a lower cell approaches 0
         depth = math.floor(len(self.cells)/2.0)
@@ -281,9 +286,11 @@ class Network2d(nn.Module):
         architecture_weights = architecture_weights.sum_to_size((1))
 
         len_prune_basis = len(prune_basises)
-        prune_basises = torch.cat(prune_basises)
-        prune_basises = prune_basises.sum_to_size((1))/len_prune_basis
-
+        if len_prune_basis > 0:
+            prune_basises = torch.stack(prune_basises)
+            prune_basises = prune_basises.sum_to_size((1))/len_prune_basis
+        else:
+            prune_basises = torch.zeros((0), device=architecture_weights.device)
             
         return architecture_weights, model_weights(self), conv_weights, prune_basises
 
@@ -320,23 +327,26 @@ def parse_arguments():
     parser.add_argument('-dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
     parser.add_argument('-class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=8, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=25, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220226i_t100_02')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220228i_t30_00')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220301i_t100_00')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220301i_t100_01')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
     parser.add_argument('-width', type=int, default=640, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_GRAYSCALE, help='cv2.imdecode flags')
-    parser.add_argument('-learning_rate', type=float, default=2e-4, help='Adam learning rate')
+    parser.add_argument('-learning_rate', type=float, default=1e-4, help='Adam learning rate')
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
-    parser.add_argument('-k_structure', type=float, default=10, help='Structure minimization weighting factor')
+    parser.add_argument('-k_structure', type=float, default=1, help='Structure minimization weighting factor')
+    parser.add_argument('-k_prune_basis', type=float, default=1.0, help='prune base loss scaling')
+    parser.add_argument('-k_prune_exp', type=float, default=3.0, help='prune basis exponential weighting factor')
+    parser.add_argument('-k_prune_sigma', type=float, default=3.0, help='prune basis exponential weighting factor')
     parser.add_argument('-target_structure', type=float, default=0.30, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=str2bool, default=False)
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
@@ -350,7 +360,7 @@ def parse_arguments():
     parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=False)
-    parser.add_argument('-search_structure', type=str2bool, default=True)
+    parser.add_argument('-search_structure', type=str2bool, default=False)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
@@ -379,7 +389,8 @@ def MakeNetwork2d(classes, args):
             weight_gain = args.weight_gain,
             convMaskThreshold = args.convMaskThreshold,
             dropout_rate = args.dropout_rate,
-            sigmoid_scale = args.sigmoid_scale)
+            sigmoid_scale = args.sigmoid_scale,
+            k_prune_sigma = args.k_prune_sigma)
 
 def save(model, s3, s3def, args):
     out_buffer = io.BytesIO()
@@ -447,7 +458,7 @@ def collate_fn(batch):
     return torch.utils.data.dataloader.default_collate(batch)
 
 # Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
-def Test(args):
+def Test(args): 
     print('Network2D Test')
 
     test_results={}
@@ -554,7 +565,7 @@ def Test(args):
     # Train
     if args.train:
         with torch.profiler.profile(
-                schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
+                schedule=torch.profiler.schedule(wait=3, warmup=2, active=5, repeat=2),
                 on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
                 record_shapes=True, profile_memory=True, with_stack=True
         ) as prof:
@@ -613,7 +624,7 @@ def Test(args):
 
                     #with torch.cuda.amp.autocast():
                     outputs = model(inputs)
-                    loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights = criterion(outputs, labels, model)
+                    loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss = criterion(outputs, labels, model)
                     loss.backward()
                     optimizer.step()
 
@@ -624,13 +635,19 @@ def Test(args):
                         writer.add_scalar('loss/train', loss, iSample)
                         writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, iSample)
                         writer.add_scalar('architecture_loss/train', architecture_loss, iSample)
+                        writer.add_scalar('prune_loss/train', prune_loss, iSample)
 
                     if i % test_freq == test_freq-1:    # Save image and run test
                         if writer is not None:
-                            im_class_weights = cv2.cvtColor(plotsearch.plot(cell_weights), cv2.COLOR_BGR2RGB)
-                            im_grad_norm = cv2.cvtColor(plotgrads.plot(segment), cv2.COLOR_BGR2RGB)
-                            writer.add_image('class_weights/prune', im_class_weights, 0,dataformats='HWC')
-                            writer.add_image('gradient_norm/search', im_grad_norm, 0,dataformats='HWC')
+                            imprune_weights = plotsearch.plot(cell_weights)
+                            if imprune_weights.size > 0:
+                                im_class_weights = cv2.cvtColor(imprune_weights, cv2.COLOR_BGR2RGB)
+                                writer.add_image('class_weights/prune', im_class_weights, 0,dataformats='HWC')
+
+                            imgrad = plotgrads.plot(segment)
+                            if imgrad.size > 0:
+                                im_grad_norm = cv2.cvtColor(imgrad, cv2.COLOR_BGR2RGB)
+                                writer.add_image('gradient_norm/search', im_grad_norm, 0,dataformats='HWC')
 
                         images = inputs.cpu().permute(0, 2, 3, 1).numpy()
                         labels = np.around(labels.cpu().numpy()).astype('uint8')
@@ -650,13 +667,15 @@ def Test(args):
 
                             #with torch.cuda.amp.autocast():
                             outputs = model(inputs)
-                            loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights = criterion(outputs, labels, model)
+                            loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss = criterion(outputs, labels, model)
 
                         if writer is not None:
                             writer.add_scalar('loss/test', loss, iSample)
                             writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, iSample)
                             writer.add_scalar('architecture_loss/test', architecture_loss, iSample)
+                            writer.add_scalar('prune_loss/test', prune_loss, iSample)
                             writer.add_scalar('architecture_reduction/train', architecture_reduction, iSample)
+                            
 
                         running_loss /=test_freq
                         msg = '[{:3}/{}, {:6d}/{}]  loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test)'.format(
@@ -679,9 +698,20 @@ def Test(args):
 
                     iSave = 1000
                     if i % iSave == iSave-1:    # print every iSave mini-batches
-                        cv2.imwrite('class_weights.png', plotsearch.plot(cell_weights))
-                        cv2.imwrite('gradient_norm.png', plotgrads.plot(segment))
-                        # Save calls zero_grads so call it after plotgrads.plot
+                        img = plotsearch.plot(cell_weights)
+                        if img.size > 0:
+                            is_success, buffer = cv2.imencode(".png", img, compression_params)
+                            img_enc = io.BytesIO(buffer).read()
+                            filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                            s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+                        imgrad = plotgrads.plot(segment)
+                        if imgrad.size > 0:
+                            is_success, buffer = cv2.imencode(".png", imgrad)  
+                            img_enc = io.BytesIO(buffer).read()
+                            filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                            s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+                            # Save calls zero_grads so call it after plotgrads.plot
+
                         save(segment, s3, s3def, args)
 
                     if args.fast and i+1 >= test_freq:
@@ -692,17 +722,19 @@ def Test(args):
 
                 compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
                 img = plotsearch.plot(cell_weights)
-                is_success, buffer = cv2.imencode(".png", img, compression_params)
-                img_enc = io.BytesIO(buffer).read()
-                filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-                s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+                if img.size > 0:
+                    is_success, buffer = cv2.imencode(".png", img, compression_params)
+                    img_enc = io.BytesIO(buffer).read()
+                    filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                    s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
 
                 # Plot gradients before saving which clears the gradients
-                img = plotgrads.plot(segment)
-                is_success, buffer = cv2.imencode(".png", img)  
-                img_enc = io.BytesIO(buffer).read()
-                filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-                s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+                imgrad = plotgrads.plot(segment)
+                if imgrad.size > 0:
+                    is_success, buffer = cv2.imencode(".png", imgrad)  
+                    img_enc = io.BytesIO(buffer).read()
+                    filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                    s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
 
                 save(segment, s3, s3def, args)
 
@@ -710,6 +742,7 @@ def Test(args):
             test_results['training'] = {}
             if cross_entropy_loss: test_results['training']['cross_entropy_loss']=cross_entropy_loss.item()
             if architecture_loss: test_results['training']['architecture_loss']=architecture_loss.item()
+            if prune_loss: test_results['training']['prune_loss']=prune_loss.item()
             if architecture_reduction: test_results['training']['architecture_reduction']=architecture_reduction.item()
 
     if args.infer:

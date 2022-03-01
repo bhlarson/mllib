@@ -1,3 +1,4 @@
+from concurrent.futures import thread
 import sys
 import os
 from pycocotools import mask
@@ -209,7 +210,10 @@ class ImagesDataset(Dataset):
         if self.normalize:
             imgMean = np.mean(img)
             imgStd = np.std(img)
-            img = (img - imgMean)/imgStd
+            if imgStd > 0.0:
+                img = (img - imgMean)/imgStd
+            else:
+                raise Exception('ImagesDataset.random_resize_crop_or_pad: imgStd is 0.0')
         
         if self.astype is not None:
             img = img.astype(self.astype)

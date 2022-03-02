@@ -172,7 +172,7 @@ class ConvBR(nn.Module):
         if self.search_structure:
             weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)
 
-            ''' Include convolution norm in channel pruning weight
+            # Include convolution norm in channel pruning weight
             if self.conv_transpose:
                 den = list(self.conv.weight.shape)
                 del den[1]
@@ -186,8 +186,8 @@ class ConvBR(nn.Module):
 
             conv_scale = torch.tanh(self.weight_gain*norm)
             conv_weights = conv_scale*weight_scale
-            '''
-            conv_weights = weight_scale
+            
+            #conv_weights = weight_scale
 
             prune_basis = GaussianBasis(self.channel_scale, sigma=self.k_prune_sigma)
 
@@ -237,7 +237,7 @@ class ConvBR(nn.Module):
                 den = np.sqrt(np.prod(den))
                 norm = torch.linalg.norm(self.conv.weight , dim=(1,2,3))/den
 
-            #norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
+            norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
             conv_mask = torch.tanh(self.weight_gain*norm)
             conv_mask *= self.sigmoid(self.sigmoid_scale*self.channel_scale)
             #conv_mask = self.sigmoid(self.sigmoid_scale*self.channel_scale)

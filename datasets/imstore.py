@@ -101,8 +101,8 @@ class ImagesStore:
             if imgbuff:
                 imgbuff = np.frombuffer(imgbuff, dtype='uint8')
                 img = cv2.imdecode(imgbuff, flags=self.imflags)
-            if img is None:
-                print('ImagesStore::DecodeImage failed to load {}/{} try {}'.format(bucket, objectname, i))
+            if img is None or img.size == 0 or img.shape[0] == 0 or img.shape[1] == 0:
+                print('ImagesStore::DecodeImage failed to load {}/{} try {} img={}'.format(bucket, objectname, i, img))
             else:
                 break
         return img

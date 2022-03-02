@@ -327,13 +327,13 @@ def parse_arguments():
     parser.add_argument('-dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
     parser.add_argument('-class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=8, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=25, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220301i_t100_00')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220301i_t100_01')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220301i_t030_01')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220301i_t030_02')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
@@ -343,7 +343,7 @@ def parse_arguments():
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
-    parser.add_argument('-k_structure', type=float, default=1, help='Structure minimization weighting factor')
+    parser.add_argument('-k_structure', type=float, default=10, help='Structure minimization weighting factor')
     parser.add_argument('-k_prune_basis', type=float, default=1.0, help='prune base loss scaling')
     parser.add_argument('-k_prune_exp', type=float, default=3.0, help='prune basis exponential weighting factor')
     parser.add_argument('-k_prune_sigma', type=float, default=3.0, help='prune basis exponential weighting factor')
@@ -360,7 +360,7 @@ def parse_arguments():
     parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=False)
-    parser.add_argument('-search_structure', type=str2bool, default=False)
+    parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
@@ -642,12 +642,12 @@ def Test(args):
                             imprune_weights = plotsearch.plot(cell_weights)
                             if imprune_weights.size > 0:
                                 im_class_weights = cv2.cvtColor(imprune_weights, cv2.COLOR_BGR2RGB)
-                                writer.add_image('class_weights/prune', im_class_weights, 0,dataformats='HWC')
+                                writer.add_image('network/prune_weights', im_class_weights, 0,dataformats='HWC')
 
                             imgrad = plotgrads.plot(segment)
                             if imgrad.size > 0:
                                 im_grad_norm = cv2.cvtColor(imgrad, cv2.COLOR_BGR2RGB)
-                                writer.add_image('gradient_norm/search', im_grad_norm, 0,dataformats='HWC')
+                                writer.add_image('network/gradient_norm', im_grad_norm, 0,dataformats='HWC')
 
                         images = inputs.cpu().permute(0, 2, 3, 1).numpy()
                         labels = np.around(labels.cpu().numpy()).astype('uint8')

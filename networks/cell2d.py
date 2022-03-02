@@ -1014,15 +1014,7 @@ class PlotGradients():
         self.classification=classification
         self.pruning=pruning
 
-        architecture_weights, total_trainable_weights, cell_weights, prune_basis = network.ArchitectureWeights()
-        self.height = 0
-        self.width = 0
-        for i,  cell, in enumerate(cell_weights):
-            self.height = max(self.height, self.thickness*len(cell['cell_weight']))
-
     def plot(self, network, index = None): 
-
-        img = np.zeros([self.height,self.width,3]).astype(np.uint8)
         
         if index:
             title = '{} {}'.format(self.title, index)
@@ -1032,6 +1024,7 @@ class PlotGradients():
         gradient_norms = []
         max_gradient =  float('-inf')
         min_gradient = float('inf')
+        max_layers = 0
         for i,  cell, in enumerate(network.cells):
             if cell.cnn is not None:
                 for j, convbr in enumerate(cell.cnn):
@@ -1070,6 +1063,11 @@ class PlotGradients():
 
                             cv2.line(img,start_point,end_point,colorbgr,self.thickness)'''
                     gradient_norms.append(layer_norms)
+                    max_layers = max(max_layers, len(layer_norms))
+
+        width = len(gradient_norms)*self.lenght
+        height = max_layers*self.thickness
+        img = np.zeros([height,width,3]).astype(np.uint8)
 
         x = 0
         for j, gradient_norm in enumerate(gradient_norms):
@@ -1087,7 +1085,7 @@ class PlotGradients():
             x += self.lenght
 
         grad_mag = '{:0.3e}'.format(max_gradient, min_gradient)
-        cv2.putText(img,grad_mag,(int(0.05*self.width), int(0.90*self.height)), cv2.FONT_HERSHEY_COMPLEX, fontScale=0.5, color=(0, 255, 255))
+        cv2.putText(img,grad_mag,(int(0.05*width), int(0.90*height)), cv2.FONT_HERSHEY_COMPLEX_SMALL, fontScale=0.5, color=(0, 255, 255))
 
         return img
 

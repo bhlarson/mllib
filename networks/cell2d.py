@@ -136,7 +136,8 @@ class ConvBR(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-    def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None):
+    def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None,
+                        sigmoid_scale=None, weight_gain=None):
         if search_structure is not None:
             if self.search_structure == False and search_structure == True:
                 nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
@@ -146,6 +147,10 @@ class ConvBR(nn.Module):
             self.convMaskThreshold = convMaskThreshold
         if dropout is not None:
             self.use_dropout = dropout
+        if sigmoid_scale is not None:
+            self.sigmoid_scale = sigmoid_scale
+        if weight_gain is not None:
+            self.weight_gain = weight_gain
 
     def forward(self, x):
         if self.out_channels > 0:
@@ -241,7 +246,7 @@ class ConvBR(nn.Module):
             norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
             conv_mask = torch.tanh(self.weight_gain*norm)
             conv_mask *= self.sigmoid(self.sigmoid_scale*self.channel_scale)'''
-            #conv_mask = self.sigmoid(self.sigmoid_scale*self.channel_scale)
+            conv_mask = self.sigmoid(self.sigmoid_scale*self.channel_scale)
             conv_mask = conv_mask > self.convMaskThreshold
         else:
             conv_mask = self.channel_scale > float('-inf') # Always true if self.search_structure == False
@@ -406,7 +411,8 @@ class Cell(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-    def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None): # Apply a parameter change
+    def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None,
+                        weight_gain=None, sigmoid_scale=None, feature_threshold=None): # Apply a parameter change
         if search_structure is not None:
             self.search_structure = search_structure
 
@@ -416,9 +422,17 @@ class Cell(nn.Module):
         if dropout is not None:
             self.use_dropout = dropout
 
+        if weight_gain is not None:
+            self.weight_gain = weight_gain
+        if sigmoid_scale is not None:
+            self.sigmoid_scale = sigmoid_scale
+        if feature_threshold is not None:
+            self.feature_threshold = feature_threshold
+
         if self.cnn is not None and len(self.cnn) > 0:
             for conv in self.cnn:
-                conv.ApplyParameters(search_structure=search_structure, convMaskThreshold=convMaskThreshold, dropout=dropout)
+                conv.ApplyParameters(search_structure=search_structure, convMaskThreshold=convMaskThreshold, dropout=dropout,
+                                     weight_gain=weight_gain, sigmoid_scale=sigmoid_scale)
 
     def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None, msg=None):
 

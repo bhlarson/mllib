@@ -151,7 +151,8 @@ class Network2d(nn.Module):
         self.pool = nn.MaxPool2d(2, 2)
 
     def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None, 
-                        weight_gain=None, sigmoid_scale=None, feature_threshold=None): # Apply a parameter change
+                        weight_gain=None, sigmoid_scale=None, feature_threshold=None,
+                        k_prune_sigma=None): # Apply a parameter change
         if search_structure is not None:
             self.search_structure = search_structure
         if dropout is not None:
@@ -164,9 +165,12 @@ class Network2d(nn.Module):
             self.sigmoid_scale = sigmoid_scale
         if feature_threshold is not None:
             self.feature_threshold = feature_threshold
+        if k_prune_sigma is not None:
+            self.k_prune_sigma = k_prune_sigma
         for cell in self.cells:
             cell.ApplyParameters(search_structure=search_structure, dropout=dropout, convMaskThreshold=convMaskThreshold,
-                                 weight_gain=weight_gain, sigmoid_scale=sigmoid_scale, feature_threshold=feature_threshold)
+                                 weight_gain=weight_gain, sigmoid_scale=sigmoid_scale, feature_threshold=feature_threshold,
+                                 k_prune_sigma=k_prune_sigma)
 
     def forward(self, x):
         feed_forward = []
@@ -334,13 +338,13 @@ def parse_arguments():
     parser.add_argument('-dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
     parser.add_argument('-class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=12, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=30, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
     parser.add_argument('-model_src', type=str,  default='crisplit_20220301i_t100_01')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220303h_t020_00')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220303h_t030_00')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
@@ -353,8 +357,8 @@ def parse_arguments():
     parser.add_argument('-k_structure', type=float, default=1.0, help='Structure minimization weighting factor')
     parser.add_argument('-k_prune_basis', type=float, default=1.0, help='prune base loss scaling')
     parser.add_argument('-k_prune_exp', type=float, default=3.0, help='prune basis exponential weighting factor')
-    parser.add_argument('-k_prune_sigma', type=float, default=3.0, help='prune basis exponential weighting factor')
-    parser.add_argument('-target_structure', type=float, default=0.20, help='Structure minimization weighting factor')
+    parser.add_argument('-k_prune_sigma', type=float, default=0.33, help='prune basis exponential weighting factor')
+    parser.add_argument('-target_structure', type=float, default=0.30, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=str2bool, default=False)
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
@@ -517,7 +521,8 @@ def Test(args):
         segment.ApplyParameters(weight_gain=args.weight_gain, 
                                 sigmoid_scale=args.sigmoid_scale,
                                 feature_threshold=args.feature_threshold,
-                                convMaskThreshold=args.convMaskThreshold)
+                                convMaskThreshold=args.convMaskThreshold,
+                                k_prune_sigma=args.k_prune_sigma,)
         segment.ApplyStructure()
         reduced_parameters = count_parameters(segment)
         save(segment, s3, s3def, args)
@@ -525,7 +530,8 @@ def Test(args):
         print('{} remaining parameters {}/{} = {}'.format(args.model_dest, reduced_parameters, total_parameters, reduced_parameters/total_parameters))
 
     # Prune with loaded parameters than apply current search_structure setting
-    segment.ApplyParameters(search_structure=args.search_structure, convMaskThreshold=args.convMaskThreshold)
+    segment.ApplyParameters(search_structure=args.search_structure, convMaskThreshold=args.convMaskThreshold, 
+                            k_prune_sigma=args.k_prune_sigma,)
     # Enable multi-gpu processing
     if torch.cuda.device_count() > 1:
         print("Let's use", torch.cuda.device_count(), "GPUs!")

@@ -411,7 +411,8 @@ class Cell(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None,
-                        weight_gain=None, sigmoid_scale=None, feature_threshold=None): # Apply a parameter change
+                        weight_gain=None, sigmoid_scale=None, feature_threshold=None,
+                        k_prune_sigma=None): # Apply a parameter change
         if search_structure is not None:
             self.search_structure = search_structure
 
@@ -427,6 +428,9 @@ class Cell(nn.Module):
             self.sigmoid_scale = sigmoid_scale
         if feature_threshold is not None:
             self.feature_threshold = feature_threshold
+
+        if k_prune_sigma is not None:
+            self.k_prune_sigma = k_prune_sigma
 
         if self.cnn is not None and len(self.cnn) > 0:
             for conv in self.cnn:

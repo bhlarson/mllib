@@ -334,13 +334,13 @@ def parse_arguments():
     parser.add_argument('-dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
     parser.add_argument('-class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=12, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=30, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220302i_t030_00')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220302i_t030_01_p')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220301i_t100_01')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220303h_t020_00')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
@@ -350,24 +350,24 @@ def parse_arguments():
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
-    parser.add_argument('-k_structure', type=float, default=10.0, help='Structure minimization weighting factor')
-    parser.add_argument('-k_prune_basis', type=float, default=10.0, help='prune base loss scaling')
+    parser.add_argument('-k_structure', type=float, default=1.0, help='Structure minimization weighting factor')
+    parser.add_argument('-k_prune_basis', type=float, default=1.0, help='prune base loss scaling')
     parser.add_argument('-k_prune_exp', type=float, default=3.0, help='prune basis exponential weighting factor')
     parser.add_argument('-k_prune_sigma', type=float, default=3.0, help='prune basis exponential weighting factor')
-    parser.add_argument('-target_structure', type=float, default=0.30, help='Structure minimization weighting factor')
+    parser.add_argument('-target_structure', type=float, default=0.20, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=str2bool, default=False)
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
-    parser.add_argument('-weight_gain', type=float, default=1000.0, help='Channel convolution norm tanh weight gain')
+    parser.add_argument('-weight_gain', type=float, default=11.0, help='Channel convolution norm tanh weight gain')
     parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convolution channels weights')
     parser.add_argument('-feature_threshold', type=float, default=0.0, help='cell tanh pruning threshold')
     parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='convolution channel sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
 
-    parser.add_argument('-prune', type=str2bool, default=True)
+    parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=True)
-    parser.add_argument('-search_structure', type=str2bool, default=False)
+    parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
@@ -576,7 +576,7 @@ def Test(args):
     # Train
     if args.train:
         with torch.profiler.profile(
-                schedule=torch.profiler.schedule(wait=3, warmup=2, active=5, repeat=2),
+                schedule=torch.profiler.schedule(wait=3, warmup=2, active=3, repeat=2),
                 on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
                 record_shapes=True, profile_memory=True, with_stack=True
         ) as prof:
@@ -645,8 +645,9 @@ def Test(args):
                     if writer is not None:
                         writer.add_scalar('loss/train', loss, iSample)
                         writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, iSample)
-                        writer.add_scalar('architecture_loss/train', architecture_loss, iSample)
-                        writer.add_scalar('prune_loss/train', prune_loss, iSample)
+                        writer.add_scalar('CRISP/architecture_loss', architecture_loss, iSample)
+                        writer.add_scalar('CRISP/prune_loss', prune_loss, iSample)
+                        writer.add_scalar('CRISP/architecture_reduction', architecture_reduction, iSample)
 
                     if i % test_freq == test_freq-1:    # Save image and run test
                         if writer is not None:
@@ -683,9 +684,7 @@ def Test(args):
                         if writer is not None:
                             writer.add_scalar('loss/test', loss, iSample)
                             writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, iSample)
-                            writer.add_scalar('architecture_loss/test', architecture_loss, iSample)
-                            writer.add_scalar('prune_loss/test', prune_loss, iSample)
-                            writer.add_scalar('architecture_reduction/train', architecture_reduction, iSample)
+
                             
 
                         running_loss /=test_freq

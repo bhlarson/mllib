@@ -1,7 +1,10 @@
+import os, sys
 import torch
 import torch.nn as nn
+import numpy as np
 from typing import Callable, Optional
-
+sys.path.insert(0, os.path.abspath(''))
+from utils.functions import GaussianBasis
 
 class TotalLoss(torch.nn.modules.loss._WeightedLoss):
     __constants__ = ['ignore_index', 'reduction']
@@ -39,11 +42,33 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
         dims = []
         depths = []
 
-        architecture_weights, total_trainable_weights, cell_weights, prune_basis = network.ArchitectureWeights()
+        architecture_weights, total_trainable_weights, cell_weights = network.ArchitectureWeights()
         if self.search_structure:
             architecture_reduction = architecture_weights/total_trainable_weights
             architecture_loss = self.k_structure*self.archloss(architecture_reduction,self.target_structure)
-            prune_loss = self.k_prune_basis*prune_basis*torch.exp(-1*self.k_prune_exp*architecture_loss)
+
+            prune_basises = []
+            for cell_weight in cell_weights:
+                for conv_weights in cell_weight['cell_weight']:
+                    # conv_weights is from 0..1
+                    # prune_weight is from 0..1
+                    # weight is pruned if either cell weight < threshold or prunewight is < threshold.  
+                    # Average is not a great model for this but is continuous where min is discontinuous
+                    # Average will return a fewer than will be pruned
+                    # Product will return more to prune that will be pruned
+                    # Minimum is discontinuous and will shift the optimizer focuse from convolution to cell
+                    #prune_basis = (conv_weights+cell_weight['prune_weight'])/2.0
+                    prune_basis = conv_weights*cell_weight['prune_weight']
+                    #prune_basis = conv_weights.minimum(cell_weight['prune_weight'])
+                    prune_basises.extend(prune_basis)
+            len_prune_basis = len(prune_basises)
+            if len_prune_basis > 0:
+                prune_basises = torch.stack(prune_basises)
+                prune_basis = torch.linalg.norm(prune_basises)/np.sqrt(len_prune_basis)
+                prune_loss = self.k_prune_basis*prune_basis*torch.exp(-1*self.k_prune_exp*architecture_loss)
+
+            else:
+                prune_loss = torch.zeros(1, device=architecture_weights.device)
 
             total_loss = cross_entropy_loss + architecture_loss + prune_loss
         else:

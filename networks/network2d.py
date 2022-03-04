@@ -224,7 +224,7 @@ class Network2d(nn.Module):
 
         encoder_channel_mask = None
         feedforward_channel_mask = []
-        _, _, conv_weights, _ = self.ArchitectureWeights()
+        _, _, conv_weights = self.ArchitectureWeights()
         newcells = torch.nn.ModuleList()
         for i, conv_weight in enumerate(conv_weights):
             if conv_weight['prune_weight'] < self.feature_threshold:
@@ -260,14 +260,11 @@ class Network2d(nn.Module):
         layer_weights = []
         conv_weights = []
         search_structure = []
-        prune_basises = []
 
         for l in self.cells:
-            layer_weight, cnn_weight, conv_weight, prune_basis  = l.ArchitectureWeights()
+            layer_weight, cnn_weight, conv_weight  = l.ArchitectureWeights()
             conv_weights.append(conv_weight)
             architecture_weights.append(layer_weight)
-            if prune_basis is not None:
-                prune_basises.extend(prune_basis)
 
         # Reduce cell weight if it may become inactive as a lower cell approaches 0
         depth = math.floor(len(self.cells)/2.0)
@@ -295,15 +292,8 @@ class Network2d(nn.Module):
 
         architecture_weights = torch.cat(architecture_weights)
         architecture_weights = architecture_weights.sum_to_size((1))
-
-        len_prune_basis = len(prune_basises)
-        if len_prune_basis > 0:
-            prune_basises = torch.stack(prune_basises)
-            prune_basises = prune_basises.sum_to_size((1))/len_prune_basis
-        else:
-            prune_basises = torch.zeros((0), device=architecture_weights.device)
             
-        return architecture_weights, model_weights(self), conv_weights, prune_basises
+        return architecture_weights, model_weights(self), conv_weights
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -338,19 +328,19 @@ def parse_arguments():
     parser.add_argument('-dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
     parser.add_argument('-class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=12, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=30, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220301i_t100_01')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220303h_t030_00')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220303h_t020_01')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220303h_t020_02')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
     parser.add_argument('-width', type=int, default=640, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_GRAYSCALE, help='cv2.imdecode flags')
-    parser.add_argument('-learning_rate', type=float, default=1e-4, help='Adam learning rate')
+    parser.add_argument('-learning_rate', type=float, default=1e-3, help='Adam learning rate')
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
@@ -358,7 +348,7 @@ def parse_arguments():
     parser.add_argument('-k_prune_basis', type=float, default=1.0, help='prune base loss scaling')
     parser.add_argument('-k_prune_exp', type=float, default=3.0, help='prune basis exponential weighting factor')
     parser.add_argument('-k_prune_sigma', type=float, default=0.33, help='prune basis exponential weighting factor')
-    parser.add_argument('-target_structure', type=float, default=0.30, help='Structure minimization weighting factor')
+    parser.add_argument('-target_structure', type=float, default=0.20, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=str2bool, default=False)
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
@@ -590,8 +580,8 @@ def Test(args):
             criterion = TotalLoss(args.cuda, k_structure=args.k_structure, target_structure=target_structure, class_weight=class_weight, search_structure=args.search_structure)
             #optimizer = optim.SGD(segment.parameters(), lr=args.learning_rate, momentum=0.9)
             optimizer = optim.Adam(segment.parameters(), lr= args.learning_rate)
-            plotsearch = PlotSearch(segment)
-            plotgrads = PlotGradients(segment)
+            plotsearch = PlotSearch()
+            plotgrads = PlotGradients()
             iSample = 0
 
             '''trainingset = ImagesDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.trainingset, 

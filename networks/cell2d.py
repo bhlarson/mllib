@@ -29,23 +29,12 @@ sys.path.insert(0, os.path.abspath(''))
 from utils.torch_util import count_parameters, model_stats, model_weights
 from utils.jsonutil import ReadDictJson, WriteDictJson, str2bool
 from utils.s3 import s3store, Connect
+from utils.functions import GaussianBasis, NormGausBasis
 from networks.totalloss import TotalLoss
 
 # Inner neural architecture cell repetition structure
 # Process: Con2d, optional batch norm, optional ReLu
 
-def GaussianBasis(i, zero=0.0, sigma=0.33):
-    return torch.exp(-1*torch.square((i-zero)/(2*sigma))) # torch.square not supported by torch.onnx
-
-def NormGausBasis(len, i, depth, r=1.0):
-        den = 0.0
-        num = 0.0
-        for j in range(len):
-            bias = GaussianBasis(j,depth,r)
-            if j==i:
-                num=bias
-            den = den + bias
-        return num/den
 
 class ConvBR(nn.Module):
     def __init__(self, 
@@ -443,8 +432,6 @@ class Cell(nn.Module):
         conv_weights = []
         norm_conv_weight = []
         search_structure = []
-        prune_basises = []
-
         unallocated_weights  = torch.zeros((1), device=self.cell_convolution.device)
         if self.cnn is not None:
             for i, l in enumerate(self.cnn): 
@@ -477,13 +464,7 @@ class Cell(nn.Module):
 
         cell_weights = {'prune_weight':prune_weight, 'cell_weight':conv_weights}
 
-        prune_basises = []
-        for conv_weight in conv_weights:
-
-            prune_basis = GaussianBasis(conv_weight*prune_weight, sigma=self.k_prune_sigma)
-            prune_basises.extend(prune_basis)
-
-        return architecture_weights, model_weights(self), cell_weights, prune_basises
+        return architecture_weights, model_weights(self), cell_weights
 
     def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None, msg=None):
 
@@ -521,7 +502,7 @@ class Cell(nn.Module):
                 if msg is not None:
                     layermsg = "{} {}".format(msg, layermsg)
 
-                layer_weight, cnn_weight, conv_weight, prune_basis  = cnn.ArchitectureWeights()
+                layer_weight, cnn_weight, conv_weight  = cnn.ArchitectureWeights()
                 if cnn.search_structure:
                     norm_conv_weight.append(layer_weight/cnn_weight)
                     
@@ -974,7 +955,7 @@ def save(model, s3, s3def, args):
     s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), out_buffer)
 
 class PlotSearch():
-    def __init__(self, network, title = 'Architecture Weights', colormapname = 'jet', lenght = 5, width=7.5, height=20, dpi=1200, thickness=1 ):
+    def __init__(self, title = 'Architecture Weights', colormapname = 'jet', lenght = 5, dpi=1200, thickness=1 ):
         self.title = title
         self.colormapname = colormapname
         self.lenght = int(lenght)
@@ -982,18 +963,17 @@ class PlotSearch():
         self.cm = plt.get_cmap(colormapname)
         self.thickness=thickness
 
-        architecture_weights, total_trainable_weights, cell_weights, prune_basis = network.ArchitectureWeights()
-        self.height = 0
-        self.width = 0
-        for i,  cell, in enumerate(cell_weights):
-            for j, step in enumerate(cell['cell_weight']):
-                self.width += self.lenght
-                self.height = max(self.height, self.thickness*len(step))
-
     def plot(self, weights, index = None):
+        height = 0
+        width = 0
+        for i,  cell, in enumerate(weights):
+            for j, step in enumerate(cell['cell_weight']):
+                width += self.lenght
+                height = max(height, self.thickness*len(step))
 
-        img = np.zeros([self.height,self.width,3]).astype(np.uint8)
-        
+
+        img = np.zeros([height,width,3]).astype(np.uint8)
+       
         #self.ax.clear()
         
         if index:
@@ -1023,7 +1003,7 @@ class PlotSearch():
         return img
 
 class PlotGradients():
-    def __init__(self, network, title = 'Gradient Norm', colormapname = 'jet', lenght = 5, width=7.5, height=20, dpi=1200, thickness=1, max_norm=1.0e-3, classification=True, pruning=True ):
+    def __init__(self, title = 'Gradient Norm', colormapname = 'jet', lenght = 5, dpi=1200, thickness=1, max_norm=1.0e-3, classification=True, pruning=True ):
 
         self.title = title
         self.colormapname = colormapname
@@ -1237,8 +1217,8 @@ def Test(args):
     criterion = TotalLoss(args.cuda, k_structure=args.k_structure, target_structure=target_structure, search_structure=args.search_structure)
     optimizer = optim.SGD(classify.parameters(), lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay )
     #optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay )
-    plotsearch = PlotSearch(classify)
-    plotgrads = PlotGradients(classify)
+    plotsearch = PlotSearch()
+    plotgrads = PlotGradients()
     #scheduler1 = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.999)
     scheduler2 = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.rate_schedule, gamma=args.learning_rate_decay)
     iSample = 0

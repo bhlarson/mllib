@@ -450,7 +450,7 @@ class Cell(nn.Module):
                 num_conv_weights = len(norm_conv_weight)
                 if num_conv_weights > 0:
                     # Allocate remaining weights if pruning full channel
-                    prune_weight = torch.norm(torch.cat(norm_conv_weight))/np.sqrt(num_conv_weights)
+                    prune_weight = torch.cat(norm_conv_weight).min()
                     prune_weight = torch.tanh(self.weight_gain*prune_weight)
                     architecture_weights += unallocated_weights*prune_weight
             else: # Nothing to prune here
@@ -466,10 +466,11 @@ class Cell(nn.Module):
 
         return architecture_weights, model_weights(self), cell_weights
 
-    def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None, msg=None):
+    def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None, msg=None, prune=None):
 
         # Reduce channels
         in_channel_mask = None
+        out_channels = 0
         if in1_channel_mask is not None or in2_channel_mask is not None:
 
             if in1_channel_mask is not None:
@@ -490,55 +491,53 @@ class Cell(nn.Module):
                     in_channel_mask = torch.cat((in1_channel_mask, in2_channel_mask))
 
         else: # Do not reduce input channels.  
-            in_channel_mask = torch.ones((self.in1_channels+self.in2_channels), dtype=torch.bool)
+            in_channel_mask = torch.ones((self.in1_channels+self.in2_channels), dtype=torch.bool, device=self.cell_convolution.device)
         
         if self.cnn is not None:
             out_channel_mask = in_channel_mask
 
-            norm_conv_weight = []
-            for i, cnn in enumerate(self.cnn):
-                layermsg = "convolution {}/{} search_structure={}".format(i, len(self.cnn), cnn.search_structure)
-
+            _, _, conv_weight  = self.ArchitectureWeights()
+            if (prune is not None and prune) or conv_weight['prune_weight'].item() < self.feature_threshold: # Prune convolutions prune_weight is < feature_threshold
+                out_channels = self.cnn[-1].out_channels
+                out_channel_mask = torch.zeros((out_channels), dtype=np.bool, device=self.cell_convolution.device)
+                self.cnn = None
+                layermsg = "Prune cell because prune_weight {} < feature_threshold {}".format(conv_weight['prune_weight'], self.feature_threshold)
                 if msg is not None:
-                    layermsg = "{} {}".format(msg, layermsg)
+                    layermsg = "{} {} ".format(msg, layermsg)
+                print(layermsg)
+            else:
+                for i, cnn in enumerate(self.cnn):
+                    layermsg = "convolution {}/{} search_structure={}".format(i, len(self.cnn), cnn.search_structure)
 
-                layer_weight, cnn_weight, conv_weight  = cnn.ArchitectureWeights()
-                if cnn.search_structure:
-                    norm_conv_weight.append(layer_weight/cnn_weight)
-                    
-                out_channel_mask = cnn.ApplyStructure(in_channel_mask=out_channel_mask, msg=layermsg)
-                if cnn.out_channels == 0: # Prune convolutions if any convolution has no more outputs
-                    self.cnn = None
-                    out_channel_mask = None
-
-                    layermsg = "Prune cell because out_channels == 0"
                     if msg is not None:
-                        layermsg = "{} {} ".format(msg, layermsg)
-                    print(layermsg)
-                    break
+                        layermsg = "{} {}".format(msg, layermsg)
+                        
+                    out_channel_mask = cnn.ApplyStructure(in_channel_mask=out_channel_mask, msg=layermsg)
+                    if cnn.out_channels == 0: # Prune convolutions if any convolution has no more outputs
+                        if i != len(self.cnn)-1: # Make mask the size of the cell output with all values 0
+                            out_channel_mask = torch.zeros(self.cnn[-1].out_channels, dtype=np.bool, device=self.cell_convolution.device)
+     
+                        self.cnn = None
+                        out_channels = 0
 
-                elif conv_weight['prune_weight'] < self.feature_threshold: # Prune convolutions prune_weight is < feature_threshold
-                    self.cnn = None
-                    out_channel_mask = None
-                    layermsg = "Prune cell because prune_weight {} < feature_threshold {}".format(conv_weight['prune_weight'], self.feature_threshold)
-                    if msg is not None:
-                        layermsg = "{} {} ".format(msg, layermsg)
-                    print(layermsg)
-                    break
-
+                        layermsg = "Prune cell because convolution {} out_channels == {}".format(i, out_channels)
+                        if msg is not None:
+                            layermsg = "{} {} ".format(msg, layermsg)
+                        print(layermsg)
+                        break
         else:
             out_channel_mask = None
+            out_channels = 0
 
         if self.conv_residual is not None:
             layermsg = "cell residual search_structure={}".format(self.conv_residual.search_structure)
             if msg is not None:
                 layermsg = "{} {} ".format(msg, layermsg)
             
-            self.conv_residual.ApplyStructure(in_channel_mask=in_channel_mask, out_channel_mask=out_channel_mask, msg=layermsg)
+            out_channel_mask = self.conv_residual.ApplyStructure(in_channel_mask=in_channel_mask, out_channel_mask=out_channel_mask, msg=layermsg)
+            out_channels = self.conv_residual.out_channels
 
-        out_channels = 0
-        if self.cnn is not None and len(self.cnn) >  0:
-            out_channels = self.cnn[-1].out_channels
+
         layermsg = "cell summary: weights={} in1_channels={} in2_channels={} out_channels={} residual={} search_structure={}".format(
             self.total_trainable_weights, 
             self.in1_channels, 
@@ -549,7 +548,6 @@ class Cell(nn.Module):
         if msg is not None:
             layermsg = "{} {} ".format(msg, layermsg)
         print(layermsg)
-
 
         return out_channel_mask
 
@@ -563,10 +561,13 @@ class Cell(nn.Module):
             u = in2
 
         # Resizing convolution
-        if self.residual and self.conv_residual:
-            residual = self.conv_residual(u)
+        if self.residual:
+            if self.conv_residual and u is not None:
+                residual = self.conv_residual(u)
+            else:
+                residual = u
         else:
-            residual = u
+            residual = None
 
         if self.cnn is not None:
             x = u

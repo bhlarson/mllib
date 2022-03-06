@@ -181,7 +181,8 @@ class Network2d(nn.Module):
         for i in range(enc_len):
             x = self.cells[i](x)
             feed_forward.append(x)
-            x = self.pool(x)
+            if x is not None:
+                x = self.pool(x)
 
         if (len(self.cells) % 2) != 0:
             x = self.cells[enc_len](x)
@@ -224,25 +225,37 @@ class Network2d(nn.Module):
 
         encoder_channel_mask = None
         feedforward_channel_mask = []
-        _, _, conv_weights = self.ArchitectureWeights()
+        channel_masks = []
+
+        '''_, _, conv_weights = self.ArchitectureWeights()
         newcells = torch.nn.ModuleList()
         for i, conv_weight in enumerate(conv_weights):
             if conv_weight['prune_weight'] < self.feature_threshold:
                 print('Prune inactive cell {}'.format(i))
             else:
                 newcells.append(self.cells[i])
-        self.cells = newcells
-        
+        self.cells = newcells'''
+
+        # Build up network as if all cells are active
+        _, _, conv_weights = self.ArchitectureWeights()
+        newcells = torch.nn.ModuleList()
         enc_len = math.floor(len(self.cells)/2.0)
         iDecode = enc_len
         for i in range(enc_len):
             layer_msg = 'Cell {}'.format(i)
-            encoder_channel_mask = self.cells[i].ApplyStructure(encoder_channel_mask, msg=layer_msg)
+            if conv_weights[i]['prune_weight'] < self.feature_threshold:
+                prune = True
+            else: prune = None
+            encoder_channel_mask = self.cells[i].ApplyStructure(encoder_channel_mask, msg=layer_msg, prune=prune)
+
             feedforward_channel_mask.append(encoder_channel_mask)
 
         if (len(self.cells) % 2) != 0:
             layer_msg = 'Cell {}'.format(enc_len)
-            encoder_channel_mask = self.cells[enc_len].ApplyStructure(encoder_channel_mask, msg=layer_msg)
+            if conv_weights[enc_len]['prune_weight'] < self.feature_threshold:
+                prune = True
+            else: prune = None
+            encoder_channel_mask = self.cells[enc_len].ApplyStructure(encoder_channel_mask, msg=layer_msg, prune=prune)
             iDecode += 1
         else:
             encoder_channel_mask = torch.zeros_like(encoder_channel_mask) # Only keep feedforward
@@ -250,7 +263,10 @@ class Network2d(nn.Module):
         for i in range(enc_len):
             iEncDec = i+iDecode
             layer_msg = 'Cell {}'.format(iEncDec)
-            encoder_channel_mask = self.cells[iEncDec].ApplyStructure(encoder_channel_mask, feedforward_channel_mask[-(i+1)], msg=layer_msg)
+            if conv_weights[enc_len]['prune_weight'] < self.feature_threshold:
+                prune = True
+            else: prune = None
+            encoder_channel_mask = self.cells[iEncDec].ApplyStructure(encoder_channel_mask, feedforward_channel_mask[-(i+1)], msg=layer_msg, prune=prune)
 
         return encoder_channel_mask
 
@@ -328,40 +344,40 @@ def parse_arguments():
     parser.add_argument('-dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
     parser.add_argument('-class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=12, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=8, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=30, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220303h_t020_01')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220303h_t020_02')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220304h_t030_01p')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220304h_t030_02p')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
     parser.add_argument('-width', type=int, default=640, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_GRAYSCALE, help='cv2.imdecode flags')
-    parser.add_argument('-learning_rate', type=float, default=1e-3, help='Adam learning rate')
+    parser.add_argument('-learning_rate', type=float, default=1.0e-4, help='Adam learning rate')
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
     parser.add_argument('-k_structure', type=float, default=1.0, help='Structure minimization weighting factor')
-    parser.add_argument('-k_prune_basis', type=float, default=1.0, help='prune base loss scaling')
-    parser.add_argument('-k_prune_exp', type=float, default=3.0, help='prune basis exponential weighting factor')
+    parser.add_argument('-k_prune_basis', type=float, default=0.1, help='prune base loss scaling')
+    parser.add_argument('-k_prune_exp', type=float, default=10.0, help='prune basis exponential weighting factor')
     parser.add_argument('-k_prune_sigma', type=float, default=0.33, help='prune basis exponential weighting factor')
-    parser.add_argument('-target_structure', type=float, default=0.20, help='Structure minimization weighting factor')
+    parser.add_argument('-target_structure', type=float, default=0.30, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=str2bool, default=False)
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
-    parser.add_argument('-weight_gain', type=float, default=11.0, help='Channel convolution norm tanh weight gain')
+    parser.add_argument('-weight_gain', type=float, default=5.0, help='Channel convolution norm tanh weight gain')
     parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convolution channels weights')
     parser.add_argument('-feature_threshold', type=float, default=0.0, help='cell tanh pruning threshold')
     parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='convolution channel sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
 
     parser.add_argument('-prune', type=str2bool, default=False)
-    parser.add_argument('-train', type=str2bool, default=True)
+    parser.add_argument('-train', type=str2bool, default=False)
     parser.add_argument('-infer', type=str2bool, default=True)
-    parser.add_argument('-search_structure', type=str2bool, default=True)
+    parser.add_argument('-search_structure', type=str2bool, default=False)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
@@ -577,7 +593,13 @@ def Test(args):
                 record_shapes=True, profile_memory=True, with_stack=True
         ) as prof:
 
-            criterion = TotalLoss(args.cuda, k_structure=args.k_structure, target_structure=target_structure, class_weight=class_weight, search_structure=args.search_structure)
+            criterion = TotalLoss(args.cuda, 
+                                  k_structure=args.k_structure, 
+                                  target_structure=target_structure, 
+                                  class_weight=class_weight, 
+                                  search_structure=args.search_structure, 
+                                  k_prune_basis=args.k_prune_basis, 
+                                  k_prune_exp=args.k_prune_exp)
             #optimizer = optim.SGD(segment.parameters(), lr=args.learning_rate, momentum=0.9)
             optimizer = optim.Adam(segment.parameters(), lr= args.learning_rate)
             plotsearch = PlotSearch()

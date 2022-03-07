@@ -344,13 +344,13 @@ def parse_arguments():
     parser.add_argument('-dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
     parser.add_argument('-class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=8, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=80, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=30, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220304h_t030_01p')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220304h_t030_02p')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220305h_t50p')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220305h_t50t')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
@@ -800,33 +800,33 @@ def Test(args):
 
         dsResults = DatasetResults(class_dictionary, args.batch_size, imStatistics=args.imStatistics, imgSave=outputdir)
 
-        with torch.profiler.profile(
+        '''with torch.profiler.profile(
                 schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
                 on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
                 record_shapes=True, profile_memory=True, with_stack=True
-        ) as prof:
+        ) as prof:'''
 
-            for i, data in tqdm(enumerate(testloader), total=test_batches, desc="Inference steps"):
-                images, labels, mean, stdev = data
-                if args.cuda:
-                    images = images.cuda()
+        for i, data in tqdm(enumerate(testloader), total=test_batches, desc="Inference steps"):
+            images, labels, mean, stdev = data
+            if args.cuda:
+                images = images.cuda()
 
-                initial = datetime.now()
+            initial = datetime.now()
 
-                outputs = segment(images)
-                segmentations = torch.argmax(outputs, 1)
-                dt = (datetime.now()-initial).total_seconds()
-                imageTime = dt/args.batch_size
+            outputs = segment(images)
+            segmentations = torch.argmax(outputs, 1)
+            dt = (datetime.now()-initial).total_seconds()
+            imageTime = dt/args.batch_size
 
-                images = images.cpu().permute(0, 2, 3, 1).numpy()
-                labels = np.around(labels.cpu().numpy()).astype('uint8')
-                segmentations = segmentations.cpu().numpy().astype('uint8')
+            images = images.cpu().permute(0, 2, 3, 1).numpy()
+            labels = np.around(labels.cpu().numpy()).astype('uint8')
+            segmentations = segmentations.cpu().numpy().astype('uint8')
 
-                dsResults.infer_results(i, images, labels, segmentations, mean.numpy(), stdev.numpy(), dt)
+            dsResults.infer_results(i, images, labels, segmentations, mean.numpy(), stdev.numpy(), dt)
 
-                if args.fast and i+1 >= 10:
-                    break
-                prof.step() 
+            if args.fast and i+1 >= 10:
+                break
+            #prof.step() 
 
         test_summary['objects'] = dsResults.objTypes
         test_summary['object store'] =s3def

@@ -215,7 +215,9 @@ class ConvBR(nn.Module):
                 raise ValueError("{} len(in_channel_mask)={} must be equal to self.in_channels={}".format(prefix, len(in_channel_mask), self.in_channels))
 
         # Convolution norm gain mask
-        if self.search_structure:
+        if self.in_channels ==0: # No output if no input
+            conv_mask = torch.zeros((self.out_channels), dtype=torch.bool)
+        elif self.search_structure:
             conv_mask = self.sigmoid(self.sigmoid_scale*self.channel_scale)
 
             '''if self.batch_norm:
@@ -513,7 +515,8 @@ class Cell(nn.Module):
                         layermsg = "{} {}".format(msg, layermsg)
                         
                     out_channel_mask = cnn.ApplyStructure(in_channel_mask=out_channel_mask, msg=layermsg)
-                    if cnn.out_channels == 0: # Prune convolutions if any convolution has no more outputs
+                    out_channels = cnn.out_channels
+                    if out_channels == 0: # Prune convolutions if any convolution has no more outputs
                         if i != len(self.cnn)-1: # Make mask the size of the cell output with all values 0
                             out_channel_mask = torch.zeros(self.cnn[-1].out_channels, dtype=np.bool, device=self.cell_convolution.device)
      
@@ -557,8 +560,10 @@ class Cell(nn.Module):
             u = torch.cat((in1, in2), dim=1)
         elif in1 is not None:
             u = in1
-        else:
+        elif in2 is not None:
             u = in2
+        else:
+            return None
 
         # Resizing convolution
         if self.residual:

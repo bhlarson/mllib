@@ -141,10 +141,10 @@ def main(args):
         os.makedirs(args.tensorboard_dir, exist_ok=True)
     writer = SummaryWriter(args.tensorboard_dir)
 
-    device = "cpu"
+    device = torch.device("cpu")
     pin_memory = False
     if args.cuda:
-        device = torch.device('cuda')
+        device = torch.device("cuda")
         pin_memory = True
 
     # Load dataset
@@ -175,7 +175,7 @@ def main(args):
     # Create Default classifier
     resnetCells = ResnetCells(Resnet(args.resnet_len))
     classify = Classify(convolutions=resnetCells, 
-                        is_cuda=args.cuda, 
+                        device=device, 
                         weight_gain=args.weight_gain, 
                         dropout_rate=args.dropout_rate, 
                         search_structure=args.search_structure, 

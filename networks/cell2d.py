@@ -56,7 +56,8 @@ class ConvBR(nn.Module):
                  residual = False,
                  dropout=False,
                  conv_transpose=False, # https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html
-                 k_prune_sigma=0.33
+                 k_prune_sigma=0.33,
+                 device=torch.device("cpu"),
                  ):
         super(ConvBR, self).__init__()
         self.in_channels = in_channels
@@ -80,8 +81,9 @@ class ConvBR(nn.Module):
         self.use_dropout = dropout
         self.conv_transpose = conv_transpose
         self.k_prune_sigma=k_prune_sigma
+        self.device = device
 
-        self.channel_scale = nn.Parameter(torch.zeros(self.out_channels, dtype=torch.float))
+        self.channel_scale = nn.Parameter(torch.zeros(self.out_channels, dtype=torch.float, device=self.device))
 
         if type(kernel_size) == int:
             padding = kernel_size // 2 # dynamic add padding based on the kernel_size
@@ -183,7 +185,7 @@ class ConvBR(nn.Module):
             conv_weights = weight_scale
 
         else:
-            conv_weights = torch.ones_like(self.channel_scale)
+            conv_weights = torch.ones_like(self.channel_scale, device=self.device)
 
         cell_weights = model_weights(self)
 
@@ -216,7 +218,7 @@ class ConvBR(nn.Module):
 
         # Convolution norm gain mask
         if self.in_channels ==0: # No output if no input
-            conv_mask = torch.zeros((self.out_channels), dtype=torch.bool)
+            conv_mask = torch.zeros((self.out_channels), dtype=torch.bool, device=self.device)
         elif self.search_structure:
             conv_mask = self.sigmoid(self.sigmoid_scale*self.channel_scale)
 
@@ -292,7 +294,7 @@ class Cell(nn.Module):
                  padding_mode='zeros',
                  residual=True,
                  dropout=False,
-                 is_cuda=False,
+                 device=torch.device("cpu"),
                  feature_threshold=0.5,
                  cell_convolution=DefaultMaxDepth,
                  weight_gain = 11.0,
@@ -318,10 +320,10 @@ class Cell(nn.Module):
         self.padding_mode = padding_mode
         self.residual = residual
         self.dropout = dropout
-        self.is_cuda = is_cuda
+        self.device = device
         self.feature_threshold = feature_threshold
         self.search_structure = search_structure
-        self.cell_convolution = nn.Parameter(torch.tensor(cell_convolution, dtype=torch.float))
+        self.cell_convolution = nn.Parameter(torch.tensor(cell_convolution, dtype=torch.float, device=self.device))
         self.weight_gain = weight_gain
         self.convMaskThreshold = convMaskThreshold
         self.convolutions = deepcopy(convolutions)
@@ -362,7 +364,8 @@ class Cell(nn.Module):
                 residual=False, 
                 dropout=self.dropout,
                 conv_transpose=conv_transpose,
-                k_prune_sigma=self.k_prune_sigma)
+                k_prune_sigma=self.k_prune_sigma,
+                device=self.device)
             self.cnn.append(conv)
 
             src_channels = convdev['out_channels']
@@ -385,7 +388,8 @@ class Cell(nn.Module):
                 search_structure=False,
                 residual=True,
                 dropout=self.dropout,
-                k_prune_sigma=self.k_prune_sigma)
+                k_prune_sigma=self.k_prune_sigma,
+                device=self.device)
         else:
             self.conv_residual = None
 
@@ -434,7 +438,7 @@ class Cell(nn.Module):
         conv_weights = []
         norm_conv_weight = []
         search_structure = []
-        unallocated_weights  = torch.zeros((1), device=self.cell_convolution.device)
+        unallocated_weights  = torch.zeros((1), device=self.device)
         if self.cnn is not None:
             for i, l in enumerate(self.cnn): 
                 layer_weight, cnn_weight, conv_weight = l.ArchitectureWeights()
@@ -457,12 +461,12 @@ class Cell(nn.Module):
                     architecture_weights += unallocated_weights*prune_weight
             else: # Nothing to prune here
                 architecture_weights = unallocated_weights
-                prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)
-            #prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)
+                prune_weight = torch.tensor(1.0, device=self.device)
+            #prune_weight = torch.tensor(1.0, device=self.device)
 
         else:
-            architecture_weights = torch.zeros((1), device=self.cell_convolution.device)
-            prune_weight = torch.tensor(1.0, device=self.cell_convolution.device)
+            architecture_weights = torch.zeros((1), device=self.device)
+            prune_weight = torch.tensor(1.0, device=self.device)
 
         cell_weights = {'prune_weight':prune_weight, 'cell_weight':conv_weights}
 
@@ -493,7 +497,7 @@ class Cell(nn.Module):
                     in_channel_mask = torch.cat((in1_channel_mask, in2_channel_mask))
 
         else: # Do not reduce input channels.  
-            in_channel_mask = torch.ones((self.in1_channels+self.in2_channels), dtype=torch.bool, device=self.cell_convolution.device)
+            in_channel_mask = torch.ones((self.in1_channels+self.in2_channels), dtype=torch.bool, device=self.device)
         
         if self.cnn is not None:
             out_channel_mask = in_channel_mask
@@ -501,7 +505,7 @@ class Cell(nn.Module):
             _, _, conv_weight  = self.ArchitectureWeights()
             if (prune is not None and prune) or conv_weight['prune_weight'].item() < self.feature_threshold: # Prune convolutions prune_weight is < feature_threshold
                 out_channels = self.cnn[-1].out_channels
-                out_channel_mask = torch.zeros((out_channels), dtype=np.bool, device=self.cell_convolution.device)
+                out_channel_mask = torch.zeros((out_channels), dtype=np.bool, device=self.device)
                 self.cnn = None
                 layermsg = "Prune cell because prune_weight {} < feature_threshold {}".format(conv_weight['prune_weight'], self.feature_threshold)
                 if msg is not None:
@@ -518,7 +522,7 @@ class Cell(nn.Module):
                     out_channels = cnn.out_channels
                     if out_channels == 0: # Prune convolutions if any convolution has no more outputs
                         if i != len(self.cnn)-1: # Make mask the size of the cell output with all values 0
-                            out_channel_mask = torch.zeros(self.cnn[-1].out_channels, dtype=np.bool, device=self.cell_convolution.device)
+                            out_channel_mask = torch.zeros(self.cnn[-1].out_channels, dtype=np.bool, device=self.device)
      
                         self.cnn = None
                         out_channels = 0
@@ -618,13 +622,13 @@ class FC(nn.Module):
             if len(in_channel_mask) != self.in_channels:
                 raise ValueError("len(in_channel_mask)={} must be equal to self.in_channels={}".format(len(in_channel_mask), self.in_channels))
         else: # Do not reduce input channels.  
-            in_channel_mask = torch.ones(self.in_channels, dtype=torch.int32)
+            in_channel_mask = torch.ones(self.in_channels, dtype=torch.int32, device=self.device)
 
         if out_channel_mask is not None:
             if len(out_channel_mask) != self.out_channels:
                   raise ValueError("len(out_channel_mask)={} must be equal to self.out_channels={}".format(len(out_channel_mask), self.out_channels))
         else: # Do not reduce input channels.  
-            out_channel_mask = torch.ones(self.out_channels, dtype=torch.int32)
+            out_channel_mask = torch.ones(self.out_channels, dtype=torch.int32, device=self.device)
 
         pruned_convolutions = len(out_channel_mask[out_channel_mask==False])
         if pruned_convolutions > 0:
@@ -758,11 +762,11 @@ def ResnetCells(size = Resnet.layers_50):
 
 class Classify(nn.Module):
     def __init__(self, convolutions, 
-    is_cuda=False, source_channels = 3, out_channels = 10, initial_channels=16, 
+    device=torch.device("cpu"), source_channels = 3, out_channels = 10, initial_channels=16, 
     batch_norm=True, weight_gain=11, convMaskThreshold=0.5, 
     dropout_rate=0.2, search_structure = True, sigmoid_scale=5.0, feature_threshold=0.5):
         super().__init__()
-        self.is_cuda = is_cuda
+        self.device = device
         self.source_channels = source_channels
         self.out_channels = out_channels
         self.initial_channels = initial_channels
@@ -776,29 +780,14 @@ class Classify(nn.Module):
                 
         self.cells = torch.nn.ModuleList()
         in_channels = self.source_channels
-        '''conv1_out_cannels = 64
-        self.resnet_conv1 =  ConvBR(
-                         self.source_channels,
-                        conv1_out_cannels,
-                        batch_norm=True, 
-                        relu=True,
-                        kernel_size=7, 
-                        stride=2,
-                        weight_gain =  self.weight_gain,
-                        convMaskThreshold= self.convMaskThreshold,
-                        dropout_rate=self.dropout_rate,
-                        sigmoid_scale = self.sigmoid_scale, # Channel sigmoid scale fatctor
-                        search_structure=self.search_structure,
-                        dropout=False
-                        )
-        #in_channels = conv1_out_cannels'''
+
         for i, cell_convolutions in enumerate(convolutions):
 
             convdfn = None
 
             cell = Cell(in1_channels=in_channels, 
                 batch_norm=self.batch_norm,
-                is_cuda=self.is_cuda,  
+                device=self.device,  
                 weight_gain = self.weight_gain,
                 convMaskThreshold = self.convMaskThreshold,
                 residual=cell_convolutions['residual'],
@@ -1172,11 +1161,18 @@ def Test(args):
     testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
     test_freq = int(math.ceil(train_batches/test_batches))
 
+    # Load dataset
+    device = torch.device("cpu")
+    pin_memory = False
+    if args.cuda:
+        device = torch.device("cuda")
+        pin_memory = True
+        
     # Create classifiers
     # Create Default classifier
     resnetCells = ResnetCells(Resnet(args.resnet_len))
     classify = Classify(convolutions=resnetCells, 
-                        is_cuda=args.cuda, 
+                        device=device, 
                         weight_gain=args.weight_gain, 
                         dropout_rate=args.dropout_rate, 
                         search_structure=args.search_structure, 

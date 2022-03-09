@@ -38,7 +38,7 @@ class Network2d(nn.Module):
                  out_channels=1, 
                  source_channels=3, 
                  initial_channels=64, 
-                 is_cuda=True, 
+                 device=torch.device("cpu"), 
                  unet_depth=5, 
                  max_cell_steps=6, 
                  channel_multiple=2, 
@@ -59,7 +59,7 @@ class Network2d(nn.Module):
         self.out_channels = out_channels
         self.source_channels = source_channels
         self.initial_channels = initial_channels
-        self.is_cuda = is_cuda
+        self.device = device
         self.cell = cell
         self.max_cell_steps = max_cell_steps
         self.channel_multiple = channel_multiple
@@ -91,7 +91,7 @@ class Network2d(nn.Module):
 
             cell = self.cell(prev_encoder_chanels, 
                              batch_norm=self.batch_norm, 
-                             is_cuda=self.is_cuda,
+                             device=self.device,
                              convolutions=convolutions,
                              search_structure=self.search_structure,
                              residual=self.residual,
@@ -133,7 +133,7 @@ class Network2d(nn.Module):
             cell = self.cell(prev_encoder_chanels, 
                              feedforward,
                              batch_norm=self.batch_norm,
-                             is_cuda=self.is_cuda,
+                             device=self.device,
                              convolutions=convolutions,
                              search_structure=self.search_structure,
                              residual=self.residual,
@@ -258,7 +258,7 @@ class Network2d(nn.Module):
             encoder_channel_mask = self.cells[enc_len].ApplyStructure(encoder_channel_mask, msg=layer_msg, prune=prune)
             iDecode += 1
         else:
-            encoder_channel_mask = torch.zeros_like(encoder_channel_mask) # Only keep feedforward
+            encoder_channel_mask = torch.zeros_like(encoder_channel_mask, device=self.device) # Only keep feedforward
 
         for i in range(enc_len):
             iEncDec = i+iDecode
@@ -344,19 +344,19 @@ def parse_arguments():
     parser.add_argument('-dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
     parser.add_argument('-class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=80, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=30, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=5, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220305h_t50p')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220305h_t50t')
+    parser.add_argument('-model_src', type=str,  default=None)
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220309i_t100')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
     parser.add_argument('-width', type=int, default=640, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_GRAYSCALE, help='cv2.imdecode flags')
-    parser.add_argument('-learning_rate', type=float, default=1.0e-4, help='Adam learning rate')
+    parser.add_argument('-learning_rate', type=float, default=4.0e-4, help='Adam learning rate')
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
@@ -375,8 +375,8 @@ def parse_arguments():
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
 
     parser.add_argument('-prune', type=str2bool, default=False)
-    parser.add_argument('-train', type=str2bool, default=False)
-    parser.add_argument('-infer', type=str2bool, default=True)
+    parser.add_argument('-train', type=str2bool, default=True)
+    parser.add_argument('-infer', type=str2bool, default=False)
     parser.add_argument('-search_structure', type=str2bool, default=False)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
@@ -385,7 +385,7 @@ def parse_arguments():
     parser.add_argument('-test_dir', type=str, default='/store/data/network2d')
     parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
-    parser.add_argument('-class_weight', type=json.loads, default='[1.0, 1.0]', help='Loss class weight ') 
+    parser.add_argument('-class_weight', type=json.loads, default='[0.02, 1.0]', help='Loss class weight ') 
 
     parser.add_argument('-description', type=json.loads, default='{"description":"CRISP training"}', help='Test description')
 
@@ -393,8 +393,12 @@ def parse_arguments():
     return args
 
 def MakeNetwork2d(classes, args):
+    device = torch.device("cpu")
+    if args.cuda:
+        device = torch.device("cuda")
+
     return Network2d(classes, source_channels=1,
-            is_cuda=args.cuda, 
+            device=device, 
             unet_depth=args.unet_depth,
             max_cell_steps=args.max_cell_steps, 
             channel_multiple=args.channel_multiple,
@@ -503,10 +507,10 @@ def Test(args):
         writer = None
 
     # Load dataset
-    device = "cpu"
+    device = torch.device("cpu")
     pin_memory = False
     if args.cuda:
-        device = "cuda"
+        device = torch.device("cuda")
         pin_memory = True
 
     if(args.model_src and args.model_src != ''):
@@ -551,10 +555,10 @@ def Test(args):
     segment.to(device)
 
     # Define a Loss function and optimizer
-    target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32)
+    target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32, device=device)
     if args.class_weight is not None:
         if len(args.class_weight) == class_dictionary['classes']:
-            class_weight = torch.Tensor(args.class_weight)
+            class_weight = torch.Tensor(args.class_weight).to(device)
         else:
             print('Parameter error: class weight array length={} must equal number of classes.  Exiting'.format(len(args.class_weight, class_dictionary['classes'])))
             return
@@ -563,10 +567,6 @@ def Test(args):
             class_weight = class_weight.cuda()
     else:
         class_weight = None
-
-    if args.cuda:
-        target_structure = target_structure.cuda()
-        class_weight = class_weight.cuda()
 
     dataset = ImagesDataset(s3, s3def['sets']['dataset']['bucket'], args.dataset, args.class_dict)
     validation_split = .2
@@ -588,7 +588,7 @@ def Test(args):
     # Train
     if args.train:
         with torch.profiler.profile(
-                schedule=torch.profiler.schedule(wait=3, warmup=2, active=3, repeat=2),
+                schedule=torch.profiler.schedule(wait=30, warmup=2, active=3, repeat=2),
                 on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
                 record_shapes=True, profile_memory=True, with_stack=True
         ) as prof:
@@ -800,33 +800,33 @@ def Test(args):
 
         dsResults = DatasetResults(class_dictionary, args.batch_size, imStatistics=args.imStatistics, imgSave=outputdir)
 
-        '''with torch.profiler.profile(
-                schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
+        with torch.profiler.profile(
+                schedule=torch.profiler.schedule(wait=20, warmup=12, active=3, repeat=2),
                 on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
                 record_shapes=True, profile_memory=True, with_stack=True
-        ) as prof:'''
+        ) as prof:
 
-        for i, data in tqdm(enumerate(testloader), total=test_batches, desc="Inference steps"):
-            images, labels, mean, stdev = data
-            if args.cuda:
-                images = images.cuda()
+            for i, data in tqdm(enumerate(testloader), total=test_batches, desc="Inference steps"):
+                images, labels, mean, stdev = data
+                if args.cuda:
+                    images = images.cuda()
 
-            initial = datetime.now()
+                initial = datetime.now()
 
-            outputs = segment(images)
-            segmentations = torch.argmax(outputs, 1)
-            dt = (datetime.now()-initial).total_seconds()
-            imageTime = dt/args.batch_size
+                outputs = segment(images)
+                segmentations = torch.argmax(outputs, 1)
+                dt = (datetime.now()-initial).total_seconds()
+                imageTime = dt/args.batch_size
 
-            images = images.cpu().permute(0, 2, 3, 1).numpy()
-            labels = np.around(labels.cpu().numpy()).astype('uint8')
-            segmentations = segmentations.cpu().numpy().astype('uint8')
+                images = images.cpu().permute(0, 2, 3, 1).numpy()
+                labels = np.around(labels.cpu().numpy()).astype('uint8')
+                segmentations = segmentations.cpu().numpy().astype('uint8')
 
-            dsResults.infer_results(i, images, labels, segmentations, mean.numpy(), stdev.numpy(), dt)
+                dsResults.infer_results(i, images, labels, segmentations, mean.numpy(), stdev.numpy(), dt)
 
-            if args.fast and i+1 >= 10:
-                break
-            #prof.step() 
+                if args.fast and i+1 >= 10:
+                    break
+                prof.step() 
 
         test_summary['objects'] = dsResults.objTypes
         test_summary['object store'] =s3def

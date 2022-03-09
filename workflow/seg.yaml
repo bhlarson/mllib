@@ -14,9 +14,9 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: target_structure
-          value: 0.65
+          value: 0.59
         - name: output_name
-          value: 20220305h_t65
+          value: 20220305h_t59
     entrypoint: train-crisp
     templates:
       - name: train-crisp

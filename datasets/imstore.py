@@ -213,7 +213,7 @@ class ImagesDataset(Dataset):
             if imgStd > 0.0:
                 img = (img - imgMean)/imgStd
             else:
-                raise Exception('ImagesDataset.random_resize_crop_or_pad: imgStd is 0.0')
+                print('ImagesDataset.random_resize_crop_or_pad: imgStd is 0.0')
         
         if self.astype is not None:
             img = img.astype(self.astype)

@@ -14,9 +14,9 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: target_structure
-          value: 0.59
+          value: 0.55
         - name: output_name
-          value: 20220305h_t59
+          value: 20220309i_t55
     entrypoint: train-crisp
     templates:
       - name: train-crisp
@@ -32,7 +32,7 @@ workflow:
                   {name: search_structure, value: true},
                   {name: target_structure, value: '{{workflow.parameters.target_structure}}'},
                   {name: epochs, value: 20},
-                  {name: model_src, value: "crisplit_20220301i_t100_01"},
+                  {name: model_src, value: "crisplit_20220309p_t100_01"},
                   {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}r"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment target-size {{workflow.parameters.target_structure}}"}'}]
             - name: prune
@@ -117,6 +117,7 @@ workflow:
             - -class_weight={{inputs.parameters.class_weight}}
             - -tensorboard_dir=None
             - -job
+            - -k_prune_basis=0.0
           resources:
             requests:
               ephemeral-storage: "40Gi"

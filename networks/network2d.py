@@ -30,7 +30,7 @@ from utils.s3 import s3store, Connect
 from datasets.cocostore import CocoDataset
 from datasets.imstore import ImagesDataset
 from utils.metrics import similarity, jaccard, DatasetResults
-from networks.totalloss import TotalLoss
+from networks.totalloss import TotalLoss, FenceSitterEjectors
 
 
 class Network2d(nn.Module):
@@ -345,26 +345,26 @@ def parse_arguments():
     parser.add_argument('-class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
     parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=5, help='Training epochs')
+    parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220309i_t100')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220310p_t60_00')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220310p_t60_01p')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
     parser.add_argument('-width', type=int, default=640, help='Batch image width')
     parser.add_argument('-imflags', type=int, default=cv2.IMREAD_GRAYSCALE, help='cv2.imdecode flags')
-    parser.add_argument('-learning_rate', type=float, default=4.0e-4, help='Adam learning rate')
+    parser.add_argument('-learning_rate', type=float, default=1.0e-4, help='Adam learning rate')
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
     parser.add_argument('-k_structure', type=float, default=1.0, help='Structure minimization weighting factor')
     parser.add_argument('-k_prune_basis', type=float, default=0.1, help='prune base loss scaling')
-    parser.add_argument('-k_prune_exp', type=float, default=10.0, help='prune basis exponential weighting factor')
+    parser.add_argument('-k_prune_exp', type=float, default=5.0, help='prune basis exponential weighting factor')
     parser.add_argument('-k_prune_sigma', type=float, default=0.33, help='prune basis exponential weighting factor')
-    parser.add_argument('-target_structure', type=float, default=0.30, help='Structure minimization weighting factor')
+    parser.add_argument('-target_structure', type=float, default=0.60, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=str2bool, default=False)
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
@@ -373,8 +373,8 @@ def parse_arguments():
     parser.add_argument('-feature_threshold', type=float, default=0.0, help='cell tanh pruning threshold')
     parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='convolution channel sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
-
-    parser.add_argument('-prune', type=str2bool, default=False)
+    parser.add_argument('-ejector', type=FenceSitterEjectors, default=FenceSitterEjectors.dais, choices=list(FenceSitterEjectors))
+    parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=False)
     parser.add_argument('-search_structure', type=str2bool, default=False)
@@ -445,20 +445,6 @@ def onnx(model, s3, s3def, args):
     succeeded = s3.PutFile(s3def['sets']['model']['bucket'], output_filename, '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class) )
     if succeeded:
         os.remove(output_filename)
-
-def InferLoss(inputs, labels, args, model, criterion, optimizer):
-    if args.cuda:
-        inputs = inputs.cuda()
-        labels = labels.cuda()
-
-    # zero the parameter gradients
-    model.zero_grad(set_to_none=True)
-
-    #with torch.cuda.amp.autocast():
-    outputs = model(inputs)
-    loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights = criterion(outputs, labels, model)
-
-    return outputs, loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights
 
 def DisplayImgAn(image, label, segmentation, trainingset, mean, stdev):
     image = np.squeeze(image)
@@ -588,18 +574,20 @@ def Test(args):
     # Train
     if args.train:
         with torch.profiler.profile(
-                schedule=torch.profiler.schedule(wait=30, warmup=2, active=3, repeat=2),
+                schedule=torch.profiler.schedule(wait=30, warmup=2, active=5, repeat=1),
                 on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
                 record_shapes=True, profile_memory=True, with_stack=True
         ) as prof:
 
-            criterion = TotalLoss(args.cuda, 
+            loss_fcn = TotalLoss(args.cuda, 
                                   k_structure=args.k_structure, 
                                   target_structure=target_structure, 
                                   class_weight=class_weight, 
                                   search_structure=args.search_structure, 
                                   k_prune_basis=args.k_prune_basis, 
-                                  k_prune_exp=args.k_prune_exp)
+                                  k_prune_exp=args.k_prune_exp,
+                                  sigmoid_scale=args.sigmoid_scale,
+                                  ejector=args.ejector)
             #optimizer = optim.SGD(segment.parameters(), lr=args.learning_rate, momentum=0.9)
             optimizer = optim.Adam(segment.parameters(), lr= args.learning_rate)
             plotsearch = PlotSearch()
@@ -634,7 +622,7 @@ def Test(args):
             #testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
             test_batches=int(val_indices.__len__()/args.batch_size)
             testloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, sampler=valid_sampler, pin_memory=pin_memory, collate_fn=collate_fn)
-            test_freq = int(math.ceil(train_batches/test_batches))
+            test_freq = 10*int(math.ceil(train_batches/test_batches))
 
             for epoch in tqdm(range(args.epochs), desc="Train epochs"):  # loop over the dataset multiple times
                 iTest = iter(testloader)
@@ -653,7 +641,7 @@ def Test(args):
 
                     #with torch.cuda.amp.autocast():
                     outputs = model(inputs)
-                    loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss = criterion(outputs, labels, model)
+                    loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale = loss_fcn(outputs, labels, model)
                     loss.backward()
                     optimizer.step()
 
@@ -666,6 +654,7 @@ def Test(args):
                         writer.add_scalar('CRISP/architecture_loss', architecture_loss, iSample)
                         writer.add_scalar('CRISP/prune_loss', prune_loss, iSample)
                         writer.add_scalar('CRISP/architecture_reduction', architecture_reduction, iSample)
+                        writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, iSample)
 
                     if i % test_freq == test_freq-1:    # Save image and run test
                         if writer is not None:
@@ -697,7 +686,7 @@ def Test(args):
 
                             #with torch.cuda.amp.autocast():
                             outputs = model(inputs)
-                            loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss = criterion(outputs, labels, model)
+                            loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale = loss_fcn(outputs, labels, model)
 
                         if writer is not None:
                             writer.add_scalar('loss/test', loss, iSample)

@@ -1,4 +1,5 @@
 import torch
+import math
 
 def GaussianBasis(i, zero=0.0, sigma=0.33):
     return torch.exp(-1*torch.square((i-zero)/(2*sigma))) # torch.square not supported by torch.onnx
@@ -12,3 +13,7 @@ def NormGausBasis(len, i, depth, r=1.0):
                 num=bias
             den = den + bias
         return num/den
+
+def SigmoidScale(err, sigmoid_scale = 5, k_prune_exp=5, exp_scale = 10):
+    kSigmoid = sigmoid_scale+math.exp(k_prune_exp*(1-exp_scale*err))
+    return kSigmoid

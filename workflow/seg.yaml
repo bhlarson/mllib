@@ -14,9 +14,9 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: target_structure
-          value: 0.55
+          value: 0.40
         - name: output_name
-          value: 20220309i_t55
+          value: 20220314i_t40
     entrypoint: train-crisp
     templates:
       - name: train-crisp
@@ -118,6 +118,7 @@ workflow:
             - -tensorboard_dir=None
             - -job
             - -k_prune_basis=0.0
+            - -ejector=FenceSitterEjectors.dais
           resources:
             requests:
               ephemeral-storage: "40Gi"

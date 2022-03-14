@@ -4,7 +4,7 @@ import torch.nn as nn
 import numpy as np
 from typing import Callable, Optional
 sys.path.insert(0, os.path.abspath(''))
-from utils.functions import GaussianBasis
+from utils.functions import GaussianBasis, SigmoidScale
 from enum import Enum
 
 class FenceSitterEjectors(Enum):
@@ -21,7 +21,7 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
 
     def __init__(self, isCuda, weight: Optional[torch.Tensor] = None, size_average=None, ignore_index: int = -100,
                  prune=None, reduction: str = 'mean', k_structure=0.0, target_structure=torch.as_tensor([1.0], dtype=torch.float32), 
-                 class_weight=None, search_structure=True, k_prune_basis=1.0, k_prune_exp=3.0, sigmoid_scale=5.0, ejector=FenceSitterEjectors.none) -> None:
+                 class_weight=None, search_structure=True, k_prune_basis=1.0, k_prune_exp=3.0, sigmoid_scale=5.0, exp_scale=10, ejector=FenceSitterEjectors.none) -> None:
         super(TotalLoss, self).__init__(weight, size_average, prune, reduction)
         self.isCuda = isCuda
         self.ignore_index = ignore_index
@@ -37,14 +37,13 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
         self.k_prune_basis = k_prune_basis
         self.k_prune_exp = k_prune_exp
         self.sigmoid_scale = sigmoid_scale
+        self.exp_scale = exp_scale
         self.ejector = ejector
 
         if self.isCuda:
             if weight:
                 self.weight = weight.cuda()
             self.target_structure = self.target_structure.cuda()
-
-
 
     def forward(self, input: torch.Tensor, target: torch.Tensor, network) -> torch.Tensor:
         assert self.weight is None or isinstance(self.weight, torch.Tensor)
@@ -83,7 +82,9 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
                     prune_loss = self.k_prune_basis*prune_basis*architecture_exp
             elif self.ejector == FenceSitterEjectors.dais:
                 sigmoid_scale = self.sigmoid_scale+torch.exp(self.k_prune_exp*(1-10.0*architecture_loss)).item()
+                sigmoid_scale = self.SigmoidScale(architecture_loss, sigmoid_scale=sigmoid_scale, k_prune_exp=self.k_prune_exp, exp_scale=self.exp_scale)
                 network.ApplyParameters(sigmoid_scale=sigmoid_scale)
+                SigmoidScale(architecture_loss, sigmoid_scale=sigmoid_scale, k_prune_exp=self.k_prune_exp, exp_scale=self.exp_scale)
                 
 
             total_loss = cross_entropy_loss + architecture_loss + prune_loss

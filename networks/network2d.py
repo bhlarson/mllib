@@ -12,6 +12,7 @@ from copy import deepcopy
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from tensorboard import program
 import torch.profiler
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data.sampler import SubsetRandomSampler
@@ -385,7 +386,8 @@ def parse_arguments():
     parser.add_argument('-test_dir', type=str, default='/store/data/network2d')
     parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
-    parser.add_argument('-class_weight', type=json.loads, default='[0.02, 1.0]', help='Loss class weight ') 
+    parser.add_argument('-class_weight', type=json.loads, default='[0.02, 1.0]', help='Loss class weight ')
+
 
     parser.add_argument('-description', type=json.loads, default='{"description":"CRISP training"}', help='Test description')
 
@@ -485,12 +487,22 @@ def Test(args):
 
     test_results['store'] = s3def
 
+    tb = None
+    writer = None
     class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.class_dict)
     if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0):
         os.makedirs(args.tensorboard_dir, exist_ok=True)
+
+        tb = program.TensorBoard()
+        tb.configure(('tensorboard', '--logdir', args.tensorboard_dir))
+        #tb.configure(('tensorboard', '--port', args.tensorboard_port))
+        #tb.configure(argv=[None, '--bind_all'])
+        url = tb.launch()
+        print(f"Tensorflow listening on {url}")
+
         writer = SummaryWriter(args.tensorboard_dir)
-    else:
-        writer = None
+
+
 
     # Load dataset
     device = torch.device("cpu")

@@ -100,6 +100,7 @@ workflow:
             - python3
           args:
             - networks/network2d.py
+            - -d
             - -prune={{inputs.parameters.prune}}
             - -train={{inputs.parameters.train}}
             - -epochs={{inputs.parameters.epochs}}
@@ -115,10 +116,16 @@ workflow:
             - -resultspath={{workflow.parameters.resultspath}}
             - -batch_size={{inputs.parameters.batch_size}}
             - -class_weight={{inputs.parameters.class_weight}}
-            - -tensorboard_dir=None
             - -job
             - -k_prune_basis=0.0
-            - -ejector=FenceSitterEjectors.dais
+            - -ejector=dais
+          ports:
+            - name: debug
+              containerPort: 3000
+              hostPort: 3000
+            - name: tensorboard
+              containerPort: 6006
+              hostPort: 6006
           resources:
             requests:
               ephemeral-storage: "40Gi"

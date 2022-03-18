@@ -14,16 +14,16 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: target_structure
-          value: 0.30
+          value: 0.50
         - name: output_name
           value: 20220317h
-    entrypoint: initialtrain
+    entrypoint: train-crisp
     priority: 1
     templates:
       - name: train-crisp
         dag:
           tasks:
-            - name: initial-train
+            - name: normalized-train
               template: train
               arguments:
                 parameters: [
@@ -31,13 +31,28 @@ workflow:
                   {name: train, value: true},
                   {name: infer, value: false},
                   {name: search_structure, value: false},
-                  {name: target_structure, value: '{{workflow.parameters.target_structure}}_100'},
+                  {name: target_structure, value: 1.0},
+                  {name: epochs, value: 10},
+                  {name: model_src, value: ""},
+                  {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}_100_00"},
+                  {name: class_weight, value: "[0.01, 1.0]"},
+                  {name: description, value: '{"author":"Brad Larson","description":"Crisp segment class normzlized train {{workflow.parameters.target_structure}}"}'}]
+            - name: full-train
+              dependencies: [normalized-train]
+              template: train
+              arguments:
+                parameters: [
+                  {name: prune, value: false},
+                  {name: train, value: true},
+                  {name: infer, value: false},
+                  {name: search_structure, value: false},
+                  {name: target_structure, value: 1.0},
                   {name: epochs, value: 30},
-                  {name: model_src, value: null},
-                  {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}_100"},
-                  {name: description, value: '{"author":"Brad Larson","description":"Crisp segment initial-train {{workflow.parameters.target_structure}}"}'}]
+                  {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}_100_00"},
+                  {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}_100_01"},
+                  {name: description, value: '{"author":"Brad Larson","description":"Crisp segment full {{workflow.parameters.target_structure}}"}'}]
             - name: target-size
-              dependencies: [initial-train]
+              dependencies: [full-train]
               template: train
               arguments:
                 parameters: [
@@ -47,7 +62,7 @@ workflow:
                   {name: search_structure, value: true},
                   {name: target_structure, value: '{{workflow.parameters.target_structure}}'},
                   {name: epochs, value: 20},
-                  {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}_100"},
+                  {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}_100_01"},
                   {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment target-size {{workflow.parameters.target_structure}}"}'}]
             - name: prune
@@ -75,7 +90,6 @@ workflow:
                   {name: infer, value: true},
                   {name: search_structure, value: false},
                   {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}p"},
-                  {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}t"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment test finetune {{workflow.parameters.target_structure}}"}'}]
 
       - name: train
@@ -88,7 +102,7 @@ workflow:
             {name: search_structure, value: true},
             {name: target_structure, value: "{{workflow.parameters.target_structure}}"},
             {name: epochs, value: 2},
-            {name: batch_size, value: 6},
+            {name: batch_size, value: 12},
             {name: model_src, value: ""},
             {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}"},
             {name: k_structure, value: 1.0},
@@ -132,8 +146,8 @@ workflow:
             - -class_weight={{inputs.parameters.class_weight}}
             - -batch_norm=true
             - -job
-            - -k_prune_basis=0.0
-            - -ejector=dais
+            - -k_prune_basis=1.0
+            - -ejector=None
           ports:
             - name: debug
               containerPort: 3000

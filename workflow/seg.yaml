@@ -14,15 +14,30 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: target_structure
-          value: 0.40
+          value: 0.30
         - name: output_name
-          value: 20220314i_t40
-    entrypoint: train-crisp
+          value: 20220317h
+    entrypoint: initialtrain
+    priority: 1
     templates:
       - name: train-crisp
         dag:
           tasks:
+            - name: initial-train
+              template: train
+              arguments:
+                parameters: [
+                  {name: prune, value: false},
+                  {name: train, value: true},
+                  {name: infer, value: false},
+                  {name: search_structure, value: false},
+                  {name: target_structure, value: '{{workflow.parameters.target_structure}}_100'},
+                  {name: epochs, value: 30},
+                  {name: model_src, value: null},
+                  {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}_100"},
+                  {name: description, value: '{"author":"Brad Larson","description":"Crisp segment initial-train {{workflow.parameters.target_structure}}"}'}]
             - name: target-size
+              dependencies: [initial-train]
               template: train
               arguments:
                 parameters: [
@@ -32,8 +47,8 @@ workflow:
                   {name: search_structure, value: true},
                   {name: target_structure, value: '{{workflow.parameters.target_structure}}'},
                   {name: epochs, value: 20},
-                  {name: model_src, value: "crisplit_20220309p_t100_01"},
-                  {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}r"},
+                  {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}_100"},
+                  {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment target-size {{workflow.parameters.target_structure}}"}'}]
             - name: prune
               dependencies: [target-size]
@@ -47,8 +62,8 @@ workflow:
                   {name: learning_rate, value: 1e-4},
                   {name: epochs, value: 10},
                   {name: target_structure, value: '{{workflow.parameters.target_structure}}'},
-                  {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}r"},
-                  {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}p"},
+                  {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}"},
+                  {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}p"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment test-target-size {{workflow.parameters.target_structure}}"}'}]
             - name: test
               dependencies: [prune]
@@ -59,8 +74,8 @@ workflow:
                   {name: train, value: false},
                   {name: infer, value: true},
                   {name: search_structure, value: false},
-                  {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}p"},
-                  {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}t"},
+                  {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}p"},
+                  {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}t"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment test finetune {{workflow.parameters.target_structure}}"}'}]
 
       - name: train
@@ -100,7 +115,6 @@ workflow:
             - python3
           args:
             - networks/network2d.py
-            - -d
             - -prune={{inputs.parameters.prune}}
             - -train={{inputs.parameters.train}}
             - -epochs={{inputs.parameters.epochs}}
@@ -116,6 +130,7 @@ workflow:
             - -resultspath={{workflow.parameters.resultspath}}
             - -batch_size={{inputs.parameters.batch_size}}
             - -class_weight={{inputs.parameters.class_weight}}
+            - -batch_norm=true
             - -job
             - -k_prune_basis=0.0
             - -ejector=dais

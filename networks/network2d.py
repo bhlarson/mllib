@@ -472,6 +472,7 @@ def Test(args):
 
     test_results={}
     test_results['config'] = args.__dict__
+    test_results['config']['ejector'] = args.ejector.value
     test_results['system'] = {
         'platform':platform.platform(),
         'python':platform.python_version(),
@@ -833,6 +834,7 @@ def Test(args):
         test_summary['object store'] =s3def
         test_summary['results'] = dsResults.Results()
         test_summary['config'] = args.__dict__
+        test_summary['config']['ejector'] = args.ejector.value
         test_summary['system'] = test_results['system']
 
         # If there is a way to lock this object between read and write, it would prevent the possability of loosing data

@@ -781,6 +781,10 @@ def Test(args):
             if prune_loss: test_results['training']['prune_loss']=prune_loss.item()
             if architecture_reduction: test_results['training']['architecture_reduction']=architecture_reduction.item()
 
+            if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.model_dest is not None and len(args.model_dest) > 0):
+                tb_path = '{}/{}/{}_tb'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                s3.PutDir(s3def['sets']['test']['bucket'], args.tensorboard_dir, tb_path )
+
     if args.infer:
 
         now = datetime.now()

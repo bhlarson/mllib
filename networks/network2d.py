@@ -362,7 +362,7 @@ def parse_arguments():
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
     parser.add_argument('-k_structure', type=float, default=1.0, help='Structure minimization weighting factor')
-    parser.add_argument('-k_prune_basis', type=float, default=0.1, help='prune base loss scaling')
+    parser.add_argument('-k_prune_basis', type=float, default=0.01, help='prune base loss scaling')
     parser.add_argument('-k_prune_exp', type=float, default=5.0, help='prune basis exponential weighting factor')
     parser.add_argument('-k_prune_sigma', type=float, default=0.33, help='prune basis exponential weighting factor')
     parser.add_argument('-target_structure', type=float, default=0.60, help='Structure minimization weighting factor')
@@ -834,7 +834,8 @@ def Test(args):
         test_summary['object store'] =s3def
         test_summary['results'] = dsResults.Results()
         test_summary['config'] = args.__dict__
-        test_summary['config']['ejector'] = args.ejector.value
+        if args.ejector is not None and type(args.ejector) != str:
+            test_summary['config']['ejector'] = args.ejector.value
         test_summary['system'] = test_results['system']
 
         # If there is a way to lock this object between read and write, it would prevent the possability of loosing data

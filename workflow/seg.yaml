@@ -16,7 +16,9 @@ workflow:
         - name: target_structure
           value: 0.50
         - name: output_name
-          value: 20220317h
+          value: 20220318h_basis
+        - name: start
+          value: 2
     entrypoint: train-crisp
     priority: 1
     templates:
@@ -25,6 +27,7 @@ workflow:
           tasks:
             - name: normalized-train
               template: train
+              when: "{{workflow.parameters.start}} < 1"
               arguments:
                 parameters: [
                   {name: prune, value: false},
@@ -40,6 +43,7 @@ workflow:
             - name: full-train
               dependencies: [normalized-train]
               template: train
+              when: "{{workflow.parameters.start}} < 2"
               arguments:
                 parameters: [
                   {name: prune, value: false},
@@ -54,6 +58,7 @@ workflow:
             - name: target-size
               dependencies: [full-train]
               template: train
+              when: "{{workflow.parameters.start}} < 3"
               arguments:
                 parameters: [
                   {name: prune, value: false},
@@ -62,12 +67,13 @@ workflow:
                   {name: search_structure, value: true},
                   {name: target_structure, value: '{{workflow.parameters.target_structure}}'},
                   {name: epochs, value: 20},
-                  {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}_100_01"},
+                  {name: model_src, value: "crisplit_20220317h_100_01"},
                   {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment target-size {{workflow.parameters.target_structure}}"}'}]
             - name: prune
               dependencies: [target-size]
               template: train
+              when: "{{workflow.parameters.start}} < 4"
               arguments:
                 parameters: [
                   {name: prune, value: true},
@@ -83,6 +89,7 @@ workflow:
             - name: test
               dependencies: [prune]
               template: train
+              hen: "{{workflow.parameters.start}} < 5"
               arguments:
                 parameters: [
                   {name: prune, value: false},
@@ -102,7 +109,7 @@ workflow:
             {name: search_structure, value: true},
             {name: target_structure, value: "{{workflow.parameters.target_structure}}"},
             {name: epochs, value: 2},
-            {name: batch_size, value: 12},
+            {name: batch_size, value: 10},
             {name: model_src, value: ""},
             {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}"},
             {name: k_structure, value: 1.0},
@@ -147,7 +154,7 @@ workflow:
             - -batch_norm=true
             - -job
             - -k_prune_basis=1.0
-            - -ejector=None
+            - -ejector=prune_basis
           ports:
             - name: debug
               containerPort: 3000

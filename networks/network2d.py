@@ -14,6 +14,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from tensorboard import program
 import torch.profiler
+from torch.profiler import profile, record_function, ProfilerActivity
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data.sampler import SubsetRandomSampler
 from collections import namedtuple
@@ -345,13 +346,13 @@ def parse_arguments():
     parser.add_argument('-dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
     parser.add_argument('-class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=6, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
     parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220310p_t60_00')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220310p_t60_01p')
+    parser.add_argument('-model_src', type=str,  default=None)
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220319i_t60_00p')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
@@ -361,12 +362,12 @@ def parse_arguments():
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
-    parser.add_argument('-k_structure', type=float, default=1.0, help='Structure minimization weighting factor')
+    parser.add_argument('-k_structure', type=float, default=0.1, help='Structure minimization weighting factor')
     parser.add_argument('-k_prune_basis', type=float, default=0.01, help='prune base loss scaling')
     parser.add_argument('-k_prune_exp', type=float, default=5.0, help='prune basis exponential weighting factor')
     parser.add_argument('-k_prune_sigma', type=float, default=0.33, help='prune basis exponential weighting factor')
     parser.add_argument('-target_structure', type=float, default=0.60, help='Structure minimization weighting factor')
-    parser.add_argument('-batch_norm', type=str2bool, default=False)
+    parser.add_argument('-batch_norm', type=str2bool, default=True)
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
     parser.add_argument('-weight_gain', type=float, default=5.0, help='Channel convolution norm tanh weight gain')
@@ -378,7 +379,7 @@ def parse_arguments():
     parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=False)
-    parser.add_argument('-search_structure', type=str2bool, default=False)
+    parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
@@ -490,6 +491,7 @@ def Test(args):
 
     tb = None
     writer = None
+    write_graph = False
     class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.class_dict)
     if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0):
         os.makedirs(args.tensorboard_dir, exist_ok=True)
@@ -499,7 +501,7 @@ def Test(args):
         #tb.configure(('tensorboard', '--port', args.tensorboard_port))
         #tb.configure(argv=[None, '--bind_all'])
         url = tb.launch()
-        print(f"Tensorflow listening on {url}")
+        print(f"Tensorboard on {url}")
 
         writer = SummaryWriter(args.tensorboard_dir)
 
@@ -586,8 +588,9 @@ def Test(args):
 
     # Train
     if args.train:
-        with torch.profiler.profile(
-                schedule=torch.profiler.schedule(wait=30, warmup=2, active=5, repeat=1),
+        with profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                schedule=torch.profiler.schedule(skip_first=10, wait=3, warmup=2, active=5, repeat=1),
                 on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
                 record_shapes=True, profile_memory=True, with_stack=True
         ) as prof:
@@ -686,6 +689,9 @@ def Test(args):
                         segmentations = torch.argmax(outputs, 1)
                         segmentations = segmentations.cpu().numpy().astype('uint8')
                         if writer is not None:
+                            if not write_graph:
+                                writer.add_graph(model, inputs)
+                                write_graph = True
                             for j in range(1):
                                 imanseg = DisplayImgAn(images[j], labels[j], segmentations[j], dataset, mean[j], stdev[j])      
                                 writer.add_image('segmentation/train', imanseg, 0,dataformats='HWC')

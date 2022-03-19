@@ -112,6 +112,13 @@ class ConvBR(nn.Module):
         else:
             self.dropout = None
 
+        if self.relu:
+            self.activation = nn.ReLU()
+        else:
+            self.activation = None
+
+            
+
         self._initialize_weights()
 
     def _initialize_weights(self):
@@ -155,8 +162,8 @@ class ConvBR(nn.Module):
                     weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)[None,:,None,None]
                     x *= weight_scale  
 
-            if self.relu:
-                x = F.relu(x, inplace=True)
+            if self.activation:
+                x = self.activation(x)
         else :
             print("Failed to prune zero size convolution")
 

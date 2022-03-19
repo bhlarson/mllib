@@ -14,9 +14,9 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: target_structure
-          value: 0.50
+          value: 0.25
         - name: output_name
-          value: 20220318h_basis
+          value: 20220318i_basis
         - name: start
           value: 2
     entrypoint: train-crisp
@@ -109,7 +109,7 @@ workflow:
             {name: search_structure, value: true},
             {name: target_structure, value: "{{workflow.parameters.target_structure}}"},
             {name: epochs, value: 2},
-            {name: batch_size, value: 10},
+            {name: batch_size, value: 5},
             {name: model_src, value: ""},
             {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}"},
             {name: k_structure, value: 1.0},

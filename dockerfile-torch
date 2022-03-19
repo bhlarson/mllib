@@ -31,6 +31,7 @@ RUN pip3 --no-cache-dir install \
         torchvision \
         tensorboard \
         tensorboardX \
+        torch_tb_profiler \
         scipy \
         scikit-image \
         scikit-learn \

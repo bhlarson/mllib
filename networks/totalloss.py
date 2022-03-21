@@ -59,7 +59,7 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
             architecture_reduction = architecture_weights/total_trainable_weights
             architecture_loss = self.k_structure*self.archloss(architecture_reduction,self.target_structure)
 
-            if self.ejector == FenceSitterEjectors.prune_basis:
+            if self.ejector == FenceSitterEjectors.prune_basis or self.ejector == FenceSitterEjectors.prune_basis.value:
                 prune_basises = []
                 for cell_weight in cell_weights:
                     for conv_weights in cell_weight['cell_weight']:
@@ -80,7 +80,7 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
                     prune_basises = torch.stack(prune_basises)
                     prune_basis = torch.linalg.norm(prune_basises)/np.sqrt(len_prune_basis)
                     prune_loss = self.k_prune_basis*prune_basis*architecture_exp
-            elif self.ejector == FenceSitterEjectors.dais:
+            elif self.ejector == FenceSitterEjectors.dais or self.ejector == FenceSitterEjectors.dais.value:
                 sigmoid_scale = self.sigmoid_scale+torch.exp(self.k_prune_exp*(1-10.0*architecture_loss)).item()
                 sigmoid_scale = SigmoidScale(architecture_loss, sigmoid_scale=sigmoid_scale, k_prune_exp=self.k_prune_exp, exp_scale=self.exp_scale)
                 network.ApplyParameters(sigmoid_scale=sigmoid_scale)               

@@ -52,11 +52,12 @@ COPY creds.json creds.json
 #COPY ./dataset/cifar-10-python.tar.gz ./dataset/cifar-10-python.tar.gz
 
 ENV LANG C.UTF-8
+ENV PYTHONUNBUFFERED=1
 # Tensorboard
 EXPOSE 6006
 # Debugger
 EXPOSE 3000
 
 # Launch training
-ENTRYPOINT ["python3", "networks/cell2d.py"]
+ENTRYPOINT ["python3","-u", "networks/cell2d.py"]
 #RUN ["/bin/bash"]

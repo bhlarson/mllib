@@ -26,9 +26,9 @@ class s3store:
                 cert_location = cert_path
             else:
                 cert_location = certifi.where()
-            http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', ca_certs=cert_location, timeout=timeout)
+            http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', ca_certs=cert_location, timeout=timeout, maxsize=10, block=True)
         else:
-            http = urllib3.PoolManager(cert_reqs='CERT_NONE', timeout=timeout)
+            http = urllib3.PoolManager(cert_reqs='CERT_NONE', timeout=timeout, maxsize=10, block=True)
 
         self.s3 = Minio(address,
              access_key=access_key,

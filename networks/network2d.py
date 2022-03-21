@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+from dis import dis
 import math
 import os
 import sys
@@ -6,6 +7,7 @@ import copy
 import io
 import json
 import platform
+import time
 import numpy as np
 import torch
 from copy import deepcopy
@@ -348,7 +350,7 @@ def parse_arguments():
 
     parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
-    parser.add_argument('-num_workers', type=int, default=4, help='Training batch size')
+    parser.add_argument('-num_workers', type=int, default=1, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
     parser.add_argument('-model_src', type=str,  default=None)
@@ -375,7 +377,7 @@ def parse_arguments():
     parser.add_argument('-feature_threshold', type=float, default=0.0, help='cell tanh pruning threshold')
     parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='convolution channel sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
-    parser.add_argument('-ejector', type=FenceSitterEjectors, default=FenceSitterEjectors.dais, choices=list(FenceSitterEjectors))
+    parser.add_argument('-ejector', type=FenceSitterEjectors, default=FenceSitterEjectors.prune_basis, choices=list(FenceSitterEjectors))
     parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=False)
@@ -639,13 +641,18 @@ def Test(args):
             test_batches=int(val_indices.__len__()/args.batch_size)
             testloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, sampler=valid_sampler, pin_memory=pin_memory, collate_fn=collate_fn)
             test_freq = 10*int(math.ceil(train_batches/test_batches))
+            tstart = None
+            batch_per_epoch = int(len(train_indices)/args.batch_size)
 
-            for epoch in tqdm(range(args.epochs), desc="Train epochs"):  # loop over the dataset multiple times
+            for epoch in tqdm(range(args.epochs), desc="Train epochs", disable=args.job):  # loop over the dataset multiple times
                 iTest = iter(testloader)
 
                 running_loss = 0.0
-                for i, data in tqdm(enumerate(trainloader), total=len(train_indices)/args.batch_size, desc="Train steps"):
+                for i, data in tqdm(enumerate(trainloader), total=batch_per_epoch, desc="Train steps", disable=args.job):
                     # get the inputs; data is a list of [inputs, labels]
+                    prevtstart = tstart
+                    tstart = time.perf_counter()
+
                     inputs, labels, mean, stdev = data
 
                     if args.cuda:
@@ -657,16 +664,33 @@ def Test(args):
 
                     #with torch.cuda.amp.autocast():
                     outputs = model(inputs)
+                    tinfer = time.perf_counter()
                     loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale = loss_fcn(outputs, labels, model)
+                    tloss = time.perf_counter()
                     loss.backward()
                     optimizer.step()
+                    tend = time.perf_counter()
+
+                    dtInfer = tinfer - tstart
+                    dtLoss = tloss - tinfer
+                    dtBackprop = tend - tloss
+                    dtCompute = tend - tstart
+
+                    dtCycle = 0
+                    if prevtstart is not None:
+                        dtCycle = tstart - prevtstart
 
                     # print statistics
                     running_loss += loss.item()
-
+                    training_cross_entropy_loss = cross_entropy_loss
                     if writer is not None:
                         writer.add_scalar('loss/train', loss, iSample)
                         writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, iSample)
+                        writer.add_scalar('time/infer', dtInfer, iSample)
+                        writer.add_scalar('time/loss', dtLoss, iSample)
+                        writer.add_scalar('time/backpropegation', dtBackprop, iSample)
+                        writer.add_scalar('time/compute', dtCompute, iSample)
+                        writer.add_scalar('time/cycle', dtCycle, iSample)
                         writer.add_scalar('CRISP/architecture_loss', architecture_loss, iSample)
                         writer.add_scalar('CRISP/prune_loss', prune_loss, iSample)
                         writer.add_scalar('CRISP/architecture_reduction', architecture_reduction, iSample)
@@ -714,8 +738,11 @@ def Test(args):
                             
 
                         running_loss /=test_freq
-                        msg = '[{:3}/{}, {:6d}/{}]  loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test)'.format(
-                            epoch + 1,args.epochs, i + 1, len(train_indices)/args.batch_size, running_loss, loss.item(), architecture_reduction.item())
+                        msg = '[{:3}/{}, {:6d}/{}]  loss: {:0.5e}|{:0.5e} cross-entropy loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test) step time: {:0.3f}'.format(
+                            epoch + 1, args.epochs, i + 1, batch_per_epoch, 
+                            running_loss, loss.item(),
+                            training_cross_entropy_loss.item(), cross_entropy_loss.item(), 
+                            architecture_reduction.item(), dtCycle)
                         if args.job is True:
                             print(msg)
                         else:
@@ -818,7 +845,7 @@ def Test(args):
                 record_shapes=True, profile_memory=True, with_stack=True
         ) as prof:
 
-            for i, data in tqdm(enumerate(testloader), total=test_batches, desc="Inference steps"):
+            for i, data in tqdm(enumerate(testloader), total=test_batches, desc="Inference steps", disable=arg.job):
                 images, labels, mean, stdev = data
                 if args.cuda:
                     images = images.cuda()

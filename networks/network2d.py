@@ -845,7 +845,7 @@ def Test(args):
                 record_shapes=True, profile_memory=True, with_stack=True
         ) as prof:
 
-            for i, data in tqdm(enumerate(testloader), total=test_batches, desc="Inference steps", disable=arg.job):
+            for i, data in tqdm(enumerate(testloader), total=test_batches, desc="Inference steps", disable=args.job):
                 images, labels, mean, stdev = data
                 if args.cuda:
                     images = images.cuda()

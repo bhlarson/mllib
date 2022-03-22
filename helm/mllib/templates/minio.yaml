@@ -61,13 +61,13 @@ spec:
     app: minio
   ports:
     - name: api
-      port: 9000
-      targetPort: 9000
+      port: {{.Values.objectstore.apiContainerPort}}
+      targetPort: {{.Values.objectstore.apiContainerPort}}
       nodePort: {{.Values.objectstore.apinodePort}}
       protocol: TCP
     - name: console
-      port: 9001
-      targetPort: 9001
+      port: {{.Values.objectstore.consoleContainerPort}}
+      targetPort: {{.Values.objectstore.consoleContainerPort}}
       nodePort: {{.Values.objectstore.consolenodePort}}
       protocol: TCP
 
@@ -113,10 +113,10 @@ spec:
         - name: MINIO_SECRET_KEY
           value: {{.Values.objectstore.credentials.secret_key}}
         ports:
-        - containerPort: 9000
-          hostPort: 9000
-        - containerPort: 9001
-          hostPort: 9001
+          - containerPort: {{.Values.objectstore.apiContainerPort}}
+            hostPort: {{.Values.objectstore.apiContainerPort}}
+          - containerPort: {{.Values.objectstore.consoleContainerPort}}
+            hostPort: {{.Values.objectstore.consoleContainerPort}}
         # Mount the volume into the pod
         volumeMounts:
         - name: storage # must match the volume name, above
@@ -124,12 +124,12 @@ spec:
         livenessProbe:
           httpGet:
             path: /minio/health/live
-            port: 9000
+            port: {{.Values.objectstore.apiContainerPort}}
           initialDelaySeconds: 5
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /minio/health/ready
-            port: 9000
+            port: {{.Values.objectstore.apiContainerPort}}
           initialDelaySeconds: 5
           periodSeconds: 10

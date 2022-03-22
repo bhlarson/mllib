@@ -46,8 +46,10 @@ def main(args):
     cmdstr = "microk8s.helm3 dependency update {}".format(args.helmpath)
     result = cmd(cmdstr)
 
-    cmdstr = "microk8s.helm3 upgrade mllib {} -i --create-namespace --namespace {} --set release={} --wait --timeout {} ".format(
-        args.helmpath, args.namespace, args.version, args.timeout)
+    #cmdstr = "microk8s.helm3 upgrade mllib {} -i --create-namespace --namespace {} --set release={} --wait --timeout {} ".format(
+    #    args.helmpath, args.namespace, args.version, args.timeout)
+    cmdstr = "microk8s.helm3 upgrade mllib {} -i --create-namespace --namespace {} --set release={}".format(
+        args.helmpath, args.namespace, args.version)
     if args.dev:
         cmdstr = "{} -f helm/values_dev.yaml".format(cmdstr)
 

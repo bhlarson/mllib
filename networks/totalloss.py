@@ -79,11 +79,7 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
                 if len_prune_basis > 0:
                     prune_basises = torch.stack(prune_basises)
                     prune_basis = torch.linalg.norm(prune_basises)/np.sqrt(len_prune_basis)
-                    prune_loss = self.k_prune_basis*prune_basis*architecture_exp
-            elif self.ejector == FenceSitterEjectors.dais or self.ejector == FenceSitterEjectors.dais.value:
-                sigmoid_scale = self.sigmoid_scale+torch.exp(self.k_prune_exp*(1-10.0*architecture_loss)).item()
-                sigmoid_scale = SigmoidScale(architecture_loss, sigmoid_scale=sigmoid_scale, k_prune_exp=self.k_prune_exp, exp_scale=self.exp_scale)
-                network.ApplyParameters(sigmoid_scale=sigmoid_scale)               
+                    prune_loss = self.k_prune_basis*prune_basis*architecture_exp           
 
             total_loss = cross_entropy_loss + architecture_loss + prune_loss
         else:

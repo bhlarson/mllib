@@ -14,6 +14,10 @@ def NormGausBasis(len, i, depth, r=1.0):
             den = den + bias
         return num/den
 
-def SigmoidScale(err, sigmoid_scale = 5, k_prune_exp=5, exp_scale = 10):
-    kSigmoid = sigmoid_scale+math.exp(k_prune_exp*(1-exp_scale*err))
-    return kSigmoid
+#def SigmoidScale(err, sigmoid_scale = 5, k_prune_exp=5, exp_scale = 10):
+#    kSigmoid = sigmoid_scale+math.exp(k_prune_exp*(1-exp_scale*err))
+#    return kSigmoid
+
+def SigmoidScale(step, sigmoid_scale = 5, exp_scale = 0.1, maxscale=500):
+    kSigmoid = sigmoid_scale+math.exp(exp_scale*step)
+    return min(kSigmoid, maxscale)

@@ -35,6 +35,7 @@ from datasets.cocostore import CocoDataset
 from datasets.imstore import ImagesDataset
 from utils.metrics import similarity, jaccard, DatasetResults
 from networks.totalloss import TotalLoss, FenceSitterEjectors
+from utils.functions import GaussianBasis, SigmoidScale
 
 
 class Network2d(nn.Module):
@@ -353,8 +354,8 @@ def parse_arguments():
     parser.add_argument('-num_workers', type=int, default=1, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220319i_t60_00p')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220321i_l40_01')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220322i_l40_02')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
@@ -374,11 +375,12 @@ def parse_arguments():
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
     parser.add_argument('-weight_gain', type=float, default=5.0, help='Channel convolution norm tanh weight gain')
     parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convolution channels weights')
+    parser.add_argument('-sigmoid_scale_exp', type=float, default=0.1, help='Sigmoid scale domain for convolution channels weights')
     parser.add_argument('-feature_threshold', type=float, default=0.0, help='cell tanh pruning threshold')
     parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='convolution channel sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
-    parser.add_argument('-ejector', type=FenceSitterEjectors, default=FenceSitterEjectors.prune_basis, choices=list(FenceSitterEjectors))
-    parser.add_argument('-prune', type=str2bool, default=True)
+    parser.add_argument('-ejector', type=FenceSitterEjectors, default=FenceSitterEjectors.dais, choices=list(FenceSitterEjectors))
+    parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=False)
     parser.add_argument('-search_structure', type=str2bool, default=True)
@@ -694,7 +696,7 @@ def Test(args):
                         writer.add_scalar('CRISP/architecture_loss', architecture_loss, iSample)
                         writer.add_scalar('CRISP/prune_loss', prune_loss, iSample)
                         writer.add_scalar('CRISP/architecture_reduction', architecture_reduction, iSample)
-                        writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, iSample)
+                        #writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, iSample)
 
                     if i % test_freq == test_freq-1:    # Save image and run test
                         if writer is not None:
@@ -800,6 +802,11 @@ def Test(args):
                     s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
 
                 save(segment, s3, s3def, args)
+
+                if args.ejector == FenceSitterEjectors.dais or args.ejector == FenceSitterEjectors.dais.value:
+                    sigmoid_scale = SigmoidScale(step=epoch, sigmoid_scale=args.sigmoid_scale, exp_scale=args.sigmoid_scale_exp)
+                    segment.ApplyParameters(sigmoid_scale=sigmoid_scale)
+                    writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, iSample)
 
             print('{} training complete'.format(args.model_dest))
             test_results['training'] = {}

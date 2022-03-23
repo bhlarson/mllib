@@ -20,6 +20,7 @@ RUN zedpackage=ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run && \
 
 RUN pip3 install --upgrade pip
 RUN pip3 --no-cache-dir install \
+        numpy \
         opencv-python \
         minio \
         tqdm \

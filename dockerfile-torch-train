@@ -13,6 +13,7 @@ RUN apt-get update -y && apt-get upgrade -y && apt-get autoremove -y && \
 #WORKDIR /home/user
 
 RUN pip3 install --no-cache-dir \
+        numpy \
         opencv-python \
         minio \
         tqdm \

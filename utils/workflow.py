@@ -14,14 +14,23 @@ from utils.jsonutil import ReadDict, Dict2Json
 
 # paraemters is a dictionary of parameters to set
 def set_parameters(workflow, new_parameters, template_name='train'):
-        templates = workflow['workflow']['spec']['templates']
-        template = next(filter(lambda d: d.get('name') == template_name, templates), None)
-        if template:
-            parameters = template['inputs']['parameters']
-            for parameter in parameters:
-                name = parameter['name']
-                if name in new_parameters:
-                    parameter['value'] = new_parameters[name]
+    parameters = workflow['workflow']['spec']['arguments']['parameters']
+    for parameter in parameters:
+        for key, value in new_parameters.items():
+            if key == parameter['name']:
+                parameter['value'] = value
+
+    '''
+    templates = workflow['workflow']['spec']['templates']
+    template = next(filter(lambda d: d.get('name') == template_name, templates), None)
+    if template:
+        parameters = template['inputs']['parameters']
+        for parameter in parameters:
+            name = parameter['name']
+            if name in new_parameters:
+                parameter['value'] = new_parameters[name]
+    '''
+
 
 def run(workflow, argocreds):
     session = requests.session()
@@ -41,7 +50,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
 
     parser.add_argument('--debug', '-d', action='store_true',help='Wait for debuggee attach')   
-    parser.add_argument('-debug_port', type=int, default=3300, help='Debug port')
+    parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
     parser.add_argument('-test', action='store_true', help='Run unit tests')
 

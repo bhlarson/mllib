@@ -469,7 +469,7 @@ class Cell(nn.Module):
             else: # Nothing to prune here
                 architecture_weights = unallocated_weights
                 prune_weight = torch.tensor(1.0, device=self.device)
-            #prune_weight = torch.tensor(1.0, device=self.device)
+            prune_weight = torch.tensor(1.0, device=self.device) # Disable prune weight from ConvBR weights
 
         else:
             architecture_weights = torch.zeros((1), device=self.device)

@@ -354,8 +354,8 @@ def parse_arguments():
     parser.add_argument('-num_workers', type=int, default=1, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220321i_l40_01')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220322i_l40_02')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220323h_l40_01')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220324h_l40_02')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
@@ -374,7 +374,7 @@ def parse_arguments():
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
     parser.add_argument('-weight_gain', type=float, default=5.0, help='Channel convolution norm tanh weight gain')
-    parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convolution channels weights')
+    parser.add_argument('-sigmoid_scale', type=float, default=50.0, help='Sigmoid scale domain for convolution channels weights')
     parser.add_argument('-sigmoid_scale_exp', type=float, default=0.1, help='Sigmoid scale domain for convolution channels weights')
     parser.add_argument('-feature_threshold', type=float, default=0.0, help='cell tanh pruning threshold')
     parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='convolution channel sigmoid level to prune convolution channels')
@@ -486,6 +486,7 @@ def Test(args):
         'OpenCV': cv2.__version__,
     }
     print('Network2d Test system={}'.format(test_results['system'] ))
+    print('Network2d Test config={}'.format(test_results['config'] ))
 
     torch.autograd.set_detect_anomaly(True)
 
@@ -645,6 +646,7 @@ def Test(args):
             test_freq = 10*int(math.ceil(train_batches/test_batches))
             tstart = None
             batch_per_epoch = int(len(train_indices)/args.batch_size)
+            compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
 
             for epoch in tqdm(range(args.epochs), desc="Train epochs", disable=args.job):  # loop over the dataset multiple times
                 iTest = iter(testloader)
@@ -785,7 +787,6 @@ def Test(args):
                     prof.step()
                     iSample += 1
 
-                compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
                 img = plotsearch.plot(cell_weights)
                 if img.size > 0:
                     is_success, buffer = cv2.imencode(".png", img, compression_params)

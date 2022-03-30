@@ -351,6 +351,7 @@ def parse_arguments():
 
     parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
+    parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
     parser.add_argument('-num_workers', type=int, default=1, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
@@ -648,8 +649,10 @@ def Test(args):
             batch_per_epoch = int(len(train_indices)/args.batch_size)
             compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
 
-            for epoch in tqdm(range(args.epochs), desc="Train epochs", disable=args.job):  # loop over the dataset multiple times
+            for epoch in tqdm(range(start=args.start_epoch, stop=args.epochs), desc="Train epochs", disable=args.job):  # loop over the dataset multiple times
                 iTest = iter(testloader)
+
+                writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, iSample)
 
                 running_loss = 0.0
                 for i, data in tqdm(enumerate(trainloader), total=batch_per_epoch, desc="Train steps", disable=args.job):

@@ -504,8 +504,6 @@ def Test(args):
 
         tb = program.TensorBoard()
         tb.configure(('tensorboard', '--logdir', args.tensorboard_dir))
-        #tb.configure(('tensorboard', '--port', args.tensorboard_port))
-        #tb.configure(argv=[None, '--bind_all'])
         url = tb.launch()
         print(f"Tensorboard on {url}")
 

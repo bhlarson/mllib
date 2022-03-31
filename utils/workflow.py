@@ -80,6 +80,10 @@ def Test(args):
             #argocreds = random.choice(creds['argo'])
             argocreds = creds['argo'][0]
 
+    if not argocreds:
+        print("Failed to find argo credentials for {}".format(args.server))
+        return -1
+
     workflow = ReadDict(args.run)
     if not workflow:
         print('Failed to read {}'.format(args.run))

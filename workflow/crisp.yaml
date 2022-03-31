@@ -39,7 +39,7 @@ workflow:
                   {name: infer, value: false},
                   {name: search_structure, value: false},
                   {name: target_structure, value: "{{workflow.parameters.target_structure}}"},
-                  {name: epochs, value: 2},
+                  {name: epochs, value: 1},
                   {name: model_src, value: ""},
                   {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_00"},
                   {name: class_weight, value: "[0.01, 1.0]"},

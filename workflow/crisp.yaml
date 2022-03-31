@@ -63,7 +63,7 @@ workflow:
             - name: train-fine
               dependencies: [train]
               template: train
-              when: "{{workflow.parameters.start}} < 2"
+              when: "{{workflow.parameters.start}} < 3"
               arguments:
                 parameters: [
                   {name: prune, value: false},
@@ -72,8 +72,8 @@ workflow:
                   {name: search_structure, value: true},
                   {name: target_structure, value: "{{workflow.parameters.target_structure}}"},
                   {name: learning_rate, value: 1e-4},
+                  {name: start_epoch, value: 20},
                   {name: epochs, value: 30},
-                  {name: start_epoch, value: 0},
                   {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_01"},
                   {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_02"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment optimize obective and size target size {{workflow.parameters.target_structure}}"}'}]
@@ -92,7 +92,7 @@ workflow:
             - name: prune
               dependencies: [train-fine]
               template: train
-              when: "{{workflow.parameters.start}} < 3"
+              when: "{{workflow.parameters.start}} < 5"
               arguments:
                 parameters: [
                   {name: prune, value: true},
@@ -108,7 +108,7 @@ workflow:
             - name: test
               dependencies: [prune]
               template: train
-              when: "{{workflow.parameters.start}} < 4"
+              when: "{{workflow.parameters.start}} < 6"
               arguments:
                 parameters: [
                   {name: prune, value: false},

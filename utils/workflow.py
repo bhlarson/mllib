@@ -60,7 +60,7 @@ def parse_arguments():
     parser.add_argument('--server', '-s', type=str, default=None, help='Argo Server.')
 
     parser.add_argument('--run', '-r', type=str, default='workflow/train_dev.yaml', help='Run workflow')
-    parser.add_argument('--params', '-p', type=json.loads, default=None, help='Parameteers parsed by set_parameters  e.g.: {"output_name":"20220330h" "target_structure":0.0, "batch_size":3}')
+    parser.add_argument('--params', '-p', type=json.loads, default=None, help='Parameteers parsed by set_parameters  e.g.: {"output_name":"20220330h", "target_structure":0.0, "batch_size":3}')
 
     args = parser.parse_args()
     return args

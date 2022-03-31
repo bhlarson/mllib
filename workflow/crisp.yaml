@@ -21,6 +21,8 @@ workflow:
           value: 0
         - name: batch_size
           value: 4
+        - name: args
+          value: ''
     entrypoint: train-crisp
     priority: 1
     templates:

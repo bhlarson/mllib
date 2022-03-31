@@ -648,11 +648,10 @@ def Test(args):
             tstart = None
             batch_per_epoch = int(len(train_indices)/args.batch_size)
             compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
+            writer.add_scalar('CRISP/sigmoid_scale', args.sigmoid_scale, iSample)
 
             for epoch in tqdm(range(args.start_epoch, args.epochs), desc="Train epochs", disable=args.job):  # loop over the dataset multiple times
                 iTest = iter(testloader)
-
-                writer.add_scalar('CRISP/sigmoid_scale', args.sigmoid_scale, iSample)
 
                 running_loss = 0.0
                 for i, data in tqdm(enumerate(trainloader), total=batch_per_epoch, desc="Train steps", disable=args.job):

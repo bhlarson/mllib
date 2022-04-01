@@ -367,8 +367,8 @@ def parse_arguments():
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
     parser.add_argument('-k_structure', type=float, default=0.1, help='Structure minimization weighting factor')
-    parser.add_argument('-k_prune_basis', type=float, default=0.01, help='prune base loss scaling')
-    parser.add_argument('-k_prune_exp', type=float, default=5.0, help='prune basis exponential weighting factor')
+    parser.add_argument('-k_prune_basis', type=float, default=0.3, help='prune base loss scaling')
+    parser.add_argument('-k_prune_exp', type=float, default=50.0, help='prune basis exponential weighting factor')
     parser.add_argument('-k_prune_sigma', type=float, default=0.33, help='prune basis exponential weighting factor')
     parser.add_argument('-target_structure', type=float, default=0.00, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=str2bool, default=True)
@@ -648,11 +648,11 @@ def Test(args):
             compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
             writer.add_scalar('CRISP/sigmoid_scale', args.sigmoid_scale, iSample)
 
-            for epoch in tqdm(range(args.start_epoch, args.epochs), desc="Train epochs", disable=args.job):  # loop over the dataset multiple times
+            for epoch in tqdm(range(args.start_epoch, args.epochs), bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}', desc="Epochs", disable=args.job):  # loop over the dataset multiple times
                 iTest = iter(testloader)
 
                 running_loss = 0.0
-                for i, data in tqdm(enumerate(trainloader), total=batch_per_epoch, desc="Train steps", disable=args.job):
+                for i, data in tqdm(enumerate(trainloader), bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}', total=batch_per_epoch, desc="Batches", disable=args.job):
                     # get the inputs; data is a list of [inputs, labels]
                     prevtstart = tstart
                     tstart = time.perf_counter()

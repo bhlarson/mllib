@@ -74,6 +74,9 @@ workflow:
                   {name: learning_rate, value: 1e-4},
                   {name: start_epoch, value: 50},
                   {name: epochs, value: 70},
+                  {name: ejector, value: 'dais'},
+                  {name: ejector_epoch, value: 50},
+                  {name: ejector_max, value: 150.0},
                   {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_01"},
                   {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_02"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment optimize obective and size target size {{workflow.parameters.target_structure}}"}'}]
@@ -87,6 +90,8 @@ workflow:
                   {name: train, value: false},
                   {name: infer, value: true},
                   {name: search_structure, value: false},
+                  {name: learning_rate, value: 1e-4},
+                  {name: k_prune_basis, value: 1.0},
                   {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_02"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment test relaxed model target structure {{workflow.parameters.target_structure}}"}'}]
             - name: prune
@@ -129,11 +134,14 @@ workflow:
             {name: target_structure, value: "{{workflow.parameters.target_structure}}"},
             {name: epochs, value: 2},
             {name: start_epoch, value: 0},
-            {name: k_prune_basis, value: 0.3},
+            {name: ejector, value: 'None'},
+            {name: ejector_epoch, value: 0},
+            {name: ejector_max, value: 1.0},
+            {name: k_prune_basis, value: 1.0},
             {name: model_src, value: ""},
             {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}"},
             {name: k_structure, value: 0.01},
-            {name: learning_rate, value: 4e-4},
+            {name: learning_rate, value: 1e-4},
             {name: class_weight, value: "[1.0, 1.0]"},
             {name: description, value: '{"author":"Brad Larson","description":"Crisp LIT segmentation"}'}]
         outputs:
@@ -176,7 +184,9 @@ workflow:
             - -batch_norm=true
             - -job
             - -k_prune_basis={{inputs.parameters.k_prune_basis}}
-            - -ejector=prune_basis
+            - -ejector={{inputs.parameters.ejector}}
+            - -ejector_epoch={{inputs.parameters.ejector_epoch}}
+            - -ejector_max={{inputs.parameters.ejector_max}}
           ports:
             - name: debug
               containerPort: 3000

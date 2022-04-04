@@ -1004,8 +1004,9 @@ class PlotSearch():
 
         return img
 
-class PlotGradients():
-    def __init__(self, title = 'Gradient Norm', colormapname = 'jet', lenght = 5, dpi=1200, thickness=1, max_norm=1.0e-3, classification=True, pruning=True ):
+
+class PlotWeights():
+    def __init__(self, title = 'Conv Norm', colormapname = 'jet', lenght = 5, dpi=1200, thickness=1, classification=True, pruning=True ):
 
         self.title = title
         self.colormapname = colormapname
@@ -1013,7 +1014,93 @@ class PlotGradients():
         self.dpi = dpi
         self.cm = plt.get_cmap(colormapname)
         self.thickness=thickness
-        self.max_norm = max_norm
+        self.classification=classification
+        self.pruning=pruning
+
+    def plot(self, network, index = None): 
+        
+        if index:
+            title = '{} {}'.format(self.title, index)
+        else:
+            title = self.title
+
+        weight_norms = []
+        max_weight =  float('-inf')
+        min_weight = float('inf')
+        max_layers = 0
+        for i,  cell, in enumerate(network.cells):
+            if cell.cnn is not None:
+                for j, convbr in enumerate(cell.cnn):
+                    layer_norms = []
+                    if convbr.conv.weight is not None:
+                        if convbr.conv_transpose:
+                            weights = torch.linalg.norm(convbr.conv.weight , dim=(0,2,3))/np.sqrt(np.product(convbr.conv.weight.shape[1:]))
+                        else:
+                            weights = torch.linalg.norm(convbr.conv.weight, dim=(1,2,3))/np.sqrt(np.product(convbr.conv.weight.shape[0:]))
+                        numSums = 1                    
+
+                        if self.pruning:
+                            if convbr.channel_scale.grad is not None:
+                                weights += torch.abs(convbr.channel_scale.grad)
+                                numSums += 1
+
+                        weights /= (numSums)
+
+                        #x = i*self.lenght*len(cell.cnn)+j*self.lenght
+
+                        for k, gradient_norm in enumerate(grads.cpu().detach().numpy()):
+                            if gradient_norm > max_weight:
+                                max_weight = gradient_norm
+                            if gradient_norm < min_weight:
+                                min_weight = gradient_norm
+
+                            layer_norms.append(gradient_norm)
+                            
+                            '''y = int(k*self.thickness+self.thickness/2)
+                            start_point = (x,y)
+                            end_point=(x+self.lenght,y)
+
+                            color = 255*np.array(self.cm(gradient_norm))
+                            color = color.astype('uint8')
+                            colorbgr = (int(color[2]), int(color[1]), int(color[0]))
+
+                            cv2.line(img,start_point,end_point,colorbgr,self.thickness)'''
+                    weight_norms.append(layer_norms)
+                    max_layers = max(max_layers, len(layer_norms))
+
+        width = len(weight_norms)*self.lenght
+        height = max_layers*self.thickness
+        img = np.zeros([height,width,3]).astype(np.uint8)
+
+        x = 0
+        for j, weight_norm in enumerate(weight_norms):
+            for k, gradient in enumerate(weight_norm):
+                y = int(k*self.thickness)
+                start_point = (x,y)
+                end_point=(x+self.lenght-1,y)
+
+                gain = (gradient-min_weight)/(max_weight-min_weight)
+                color = 255*np.array(self.cm(gain))
+                color = color.astype('uint8')
+                colorbgr = (int(color[2]), int(color[1]), int(color[0]))
+
+                cv2.line(img,start_point,end_point,colorbgr,self.thickness)
+            x += self.lenght
+
+        grad_mag = '{:0.3e}'.format(max_weight, min_weight)
+        cv2.putText(img,grad_mag,(int(0.05*width), int(0.90*height)), cv2.FONT_HERSHEY_COMPLEX_SMALL, fontScale=0.75, color=(0, 255, 255))
+
+        return img
+
+class PlotGradients():
+    def __init__(self, title = 'Gradient Norm', colormapname = 'jet', lenght = 5, dpi=1200, thickness=1, classification=True, pruning=True ):
+
+        self.title = title
+        self.colormapname = colormapname
+        self.lenght = int(lenght)
+        self.dpi = dpi
+        self.cm = plt.get_cmap(colormapname)
+        self.thickness=thickness
         self.classification=classification
         self.pruning=pruning
 

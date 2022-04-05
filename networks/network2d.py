@@ -350,13 +350,13 @@ def parse_arguments():
     parser.add_argument('-class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
     parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
-    parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
+    parser.add_argument('-epochs', type=int, default=70, help='Training epochs')
+    parser.add_argument('-start_epoch', type=int, default=50, help='Start epoch')
     parser.add_argument('-num_workers', type=int, default=1, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220403h_00_00')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220404h_00_01')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220404h0_01')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220404i0_02')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
@@ -367,7 +367,7 @@ def parse_arguments():
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
     parser.add_argument('-k_structure', type=float, default=0.1, help='Structure minimization weighting factor')
-    parser.add_argument('-k_prune_basis', type=float, default=0.3, help='prune base loss scaling')
+    parser.add_argument('-k_prune_basis', type=float, default=1.0, help='prune base loss scaling')
     parser.add_argument('-k_prune_exp', type=float, default=50.0, help='prune basis exponential weighting factor')
     parser.add_argument('-k_prune_sigma', type=float, default=0.33, help='prune basis exponential weighting factor')
     parser.add_argument('-target_structure', type=float, default=0.00, help='Structure minimization weighting factor')
@@ -379,9 +379,9 @@ def parse_arguments():
     parser.add_argument('-feature_threshold', type=float, default=0.0, help='cell tanh pruning threshold')
     parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='convolution channel sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
-    parser.add_argument('-ejector', type=FenceSitterEjectors, default=FenceSitterEjectors.dais, choices=list(FenceSitterEjectors))
+    parser.add_argument('-ejector', type=FenceSitterEjectors, default=FenceSitterEjectors.prune_basis, choices=list(FenceSitterEjectors))
     parser.add_argument('-ejector_epoch', type=float, default=0, help='Ejector start epoch')
-    parser.add_argument('-ejector_max', type=float, default=100, help='Ejector start epoch')
+    parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector start epoch')
     parser.add_argument('-ejector_exp', type=float, default=3, help='Ejector exponent')
     parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)
@@ -650,14 +650,17 @@ def Test(args):
             compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
 
             # Set up fence sitter ejectors
+            ejector_exp = None
             if args.ejector == FenceSitterEjectors.dais or args.ejector == FenceSitterEjectors.dais.value:
                 writer.add_scalar('CRISP/sigmoid_scale', args.sigmoid_scale, iSample)
+                if args.epochs > args.ejector_epoch and args.ejector_max > args.sigmoid_scale:
+                    ejector_exp =  Exponential(vx=args.ejector_epoch, vy=args.sigmoid_scale, px=args.ejector_epoch+args.epochs, py=args.ejector_max, power=args.ejector_exp)
+
             elif args.ejector == FenceSitterEjectors.prune_basis or args.ejector == FenceSitterEjectors.prune_basis.value:
                 writer.add_scalar('CRISP/k_prune_basis', args.k_prune_basis, iSample)
-            if args.epochs > args.ejector_epoch and args.ejector_max > args.sigmoid_scale:
-                ejector_exp =  Exponential(vx=args.ejector_epoch, vy=args.sigmoid_scale, px=args.ejector_epoch+args.epochs, py=args.ejector_max, power=args.ejector_exp)
-            else:
-                ejector_exp = None
+                if args.epochs > args.ejector_epoch and args.ejector_max > 0:
+                    ejector_exp =  Exponential(vx=args.ejector_epoch, vy=0, px=args.ejector_epoch+args.epochs, py=args.ejector_max, power=args.ejector_exp)
+
 
             for epoch in tqdm(range(args.start_epoch, args.epochs), bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}', desc="Epochs", disable=args.job):  # loop over the dataset multiple times
                 iTest = iter(testloader)

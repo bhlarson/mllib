@@ -14,7 +14,7 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: target_structure
-          value: 0.2
+          value: 0.0
         - name: output_name
           value: 20220323h
         - name: start
@@ -39,7 +39,7 @@ workflow:
                   {name: infer, value: false},
                   {name: search_structure, value: false},
                   {name: target_structure, value: "{{workflow.parameters.target_structure}}"},
-                  {name: epochs, value: 1},
+                  {name: epochs, value: 2},
                   {name: model_src, value: ""},
                   {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_00"},
                   {name: class_weight, value: "[0.01, 1.0]"},
@@ -74,9 +74,9 @@ workflow:
                   {name: learning_rate, value: 1e-4},
                   {name: start_epoch, value: 50},
                   {name: epochs, value: 70},
-                  {name: ejector, value: 'dais'},
+                  {name: ejector, value: 'prune_basis'},
                   {name: ejector_epoch, value: 50},
-                  {name: ejector_max, value: 150.0},
+                  {name: ejector_max, value: 1.0},
                   {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_01"},
                   {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_02"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment optimize obective and size target size {{workflow.parameters.target_structure}}"}'}]

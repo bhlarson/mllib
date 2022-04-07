@@ -16,9 +16,9 @@ workflow:
         - name: target_structure
           value: 0.0
         - name: output_name
-          value: 20220323h
+          value: 20220404i0
         - name: start
-          value: 0
+          value: 2
         - name: batch_size
           value: 4
         - name: args

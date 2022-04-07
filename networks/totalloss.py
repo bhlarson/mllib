@@ -75,7 +75,7 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
                         #prune_basis = conv_weights.minimum(cell_weight['prune_weight'])
                         prune_basises.extend(prune_basis)
                 len_prune_basis = len(prune_basises)
-                architecture_exp = torch.exp(-1*self.k_prune_exp*architecture_loss/self.k_structure)
+                #architecture_exp = torch.exp(-1*self.k_prune_exp*architecture_loss/self.k_structure)
                 if len_prune_basis > 0:
                     prune_basises = torch.stack(prune_basises)
                     prune_basis = torch.linalg.norm(prune_basises)/np.sqrt(len_prune_basis)

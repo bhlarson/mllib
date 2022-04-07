@@ -32,7 +32,7 @@ class Exponential():
         if px <= vx:
             raise ValueError('Exponential error px={} must be > vx'.format(px, vx))
         else:
-            self.a = (py-vy)/np.power(px-vx,power)
+            self.a = (py-vy)/np.power(px-vx,self.power)
     def f(self, x):
         dx = x-self.vx
         y = self.a*np.power(x-self.vx,self.power) + self.vy

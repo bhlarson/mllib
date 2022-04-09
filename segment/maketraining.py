@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import tifffile
 from minio import Minio
 sys.path.insert(0, os.path.abspath(''))
-from utils.s3 import s3store
+from pymlutil.s3 import s3store
 from minio.error import (ResponseError, BucketAlreadyOwnedByYou,
                          BucketAlreadyExists)
 from tqdm import tqdm

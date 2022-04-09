@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.abspath(''))
 from segment.data import input_fn
 from segment.display import DrawFeatures
 from networks.unet import unet_model
-from utils.s3 import s3store
+from pymlutil.s3 import s3store
 
 #tf.config.experimental_run_functions_eagerly(True)
 

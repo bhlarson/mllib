@@ -14,8 +14,8 @@ import natsort as ns
 
 sys.path.insert(0, os.path.abspath('.'))
 sys.path.insert(0, os.path.abspath('..'))
-from utils.s3 import s3store, Connect
-from utils.jsonutil import WriteDictJson, ReadDictJson
+from pymlutil.s3 import s3store, Connect
+from pymlutil.jsonutil import WriteDictJson, ReadDictJson
 
 # %%
 def parse_arguments():

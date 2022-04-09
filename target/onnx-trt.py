@@ -12,7 +12,7 @@ import onnx
 import tensorrt as trt
 
 sys.path.insert(0, os.path.abspath(''))
-from utils.s3 import s3store
+from pymlutil.s3 import s3store
 
 __all__ = ['MB', 'GB', 'build_tensorrt_engine']
 

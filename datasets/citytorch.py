@@ -16,8 +16,8 @@ from torch.utils.data import Dataset
 from torchvision.io import read_image
 
 sys.path.insert(0, os.path.abspath(''))
-from utils.jsonutil import WriteDictJson, ReadDictJson
-from utils.s3 import s3store, Connect
+from pymlutil.jsonutil import WriteDictJson, ReadDictJson
+from pymlutil.s3 import s3store, Connect
 
 def str_prune(text, prefix, suffix):
     if text.startswith(prefix):

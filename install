@@ -12,7 +12,7 @@ from datetime import datetime
 
 
 sys.path.insert(0, os.path.abspath(''))
-from utils.jsonutil import WriteDictJson, ReadDictJson
+from pymlutil.jsonutil import WriteDictJson, ReadDictJson
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')

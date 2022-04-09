@@ -17,10 +17,10 @@ sys.path.insert(0, os.path.abspath(''))
 from segment.data import input_fn
 from segment.display import DrawFeatures, WritePredictions
 from networks.unet import unet_model
-from utils.s3 import s3store
-from utils.jsonutil import WriteDictJson, ReadDictJson
+from pymlutil.s3 import s3store
+from pymlutil.jsonutil import WriteDictJson, ReadDictJson
 from segment.loadmodel import LoadModel
-from utils.similarity import jaccard, similarity
+from pymlutil.similarity import jaccard, similarity
 
 
 parser = argparse.ArgumentParser()

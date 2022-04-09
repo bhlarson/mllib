@@ -19,9 +19,9 @@ sys.path.insert(0, os.path.abspath(''))
 from segment.data import input_fn
 from segment.display import DrawFeatures, WritePredictions
 from networks.unet import unet_model
-from utils.s3 import s3store
-from utils.jsonutil import WriteDictJson, ReadDictJson
-from utils.similarity import jaccard, similarity
+from pymlutil.s3 import s3store
+from pymlutil.jsonutil import WriteDictJson, ReadDictJson
+from pymlutil.similarity import jaccard, similarity
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')

@@ -16,8 +16,8 @@ from datetime import datetime
 from tqdm import tqdm
 
 sys.path.insert(0, os.path.abspath(''))
-from utils.s3 import s3store, Connect
-from utils.jsonutil import WriteDictJson
+from pymlutil.s3 import s3store, Connect
+from pymlutil.jsonutil import WriteDictJson
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')

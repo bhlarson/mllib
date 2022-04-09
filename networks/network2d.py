@@ -28,14 +28,14 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.abspath(''))
 from networks.cell2d import Cell, GaussianBasis, NormGausBasis, PlotSearch, PlotGradients
-from utils.torch_util import count_parameters, model_stats, model_weights
-from utils.jsonutil import ReadDict, WriteDict
-from utils.s3 import s3store, Connect
+from pymlutil.torch_util import count_parameters, model_stats, model_weights
+from pymlutil.jsonutil import ReadDict, WriteDict
+from pymlutil.s3 import s3store, Connect
 from datasets.cocostore import CocoDataset
 from datasets.imstore import ImagesDataset
-from utils.metrics import similarity, jaccard, DatasetResults
+from pymlutil.metrics import similarity, jaccard, DatasetResults
 from networks.totalloss import TotalLoss, FenceSitterEjectors
-from utils.functions import GaussianBasis, SigmoidScale, Exponential
+from pymlutil.functions import GaussianBasis, SigmoidScale, Exponential
 
 
 class Network2d(nn.Module):
@@ -355,8 +355,8 @@ def parse_arguments():
     parser.add_argument('-num_workers', type=int, default=1, help='Training batch size')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220404i0_01')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220404i0_02')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220406h0_01')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220406h0_0x')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
@@ -384,9 +384,9 @@ def parse_arguments():
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector start epoch')
     parser.add_argument('-ejector_exp', type=float, default=3, help='Ejector exponent')
     parser.add_argument('-prune', type=str2bool, default=False)
-    parser.add_argument('-train', type=str2bool, default=True)
-    parser.add_argument('-infer', type=str2bool, default=False)
-    parser.add_argument('-search_structure', type=str2bool, default=True)
+    parser.add_argument('-train', type=str2bool, default=False)
+    parser.add_argument('-infer', type=str2bool, default=True)
+    parser.add_argument('-search_structure', type=str2bool, default=False)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
 

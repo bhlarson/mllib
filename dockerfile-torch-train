@@ -38,7 +38,8 @@ RUN pip3 install --no-cache-dir \
         onnxruntime-gpu \
         pycuda \
         PyYAML \
-        mlflow
+        mlflow \
+        pymlutil
 
 
 #        scipy \

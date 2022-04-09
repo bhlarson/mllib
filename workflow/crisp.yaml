@@ -16,13 +16,11 @@ workflow:
         - name: target_structure
           value: 0.0
         - name: output_name
-          value: 20220404i0
+          value: 20220406
         - name: start
-          value: 2
+          value: 0
         - name: batch_size
-          value: 4
-        - name: args
-          value: ''
+          value: 3
     entrypoint: train-crisp
     priority: 1
     templates:
@@ -55,10 +53,11 @@ workflow:
                   {name: infer, value: false},
                   {name: search_structure, value: true},
                   {name: target_structure, value: "{{workflow.parameters.target_structure}}"},
-                  {name: learning_rate, value: 4e-4},
+                  {name: learning_rate, value: 2e-4},
                   {name: epochs, value: 50},
                   {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_00"},
                   {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_01"},
+                  {name: class_weight, value: "[0.01, 1.0]"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment optimize obective and size target size target {{workflow.parameters.target_structure}}"}'}]
             - name: train-fine
               dependencies: [train]
@@ -79,6 +78,7 @@ workflow:
                   {name: ejector_max, value: 1.0},
                   {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_01"},
                   {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_02"},
+                  {name: class_weight, value: "[0.01, 1.0]"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment optimize obective and size target size {{workflow.parameters.target_structure}}"}'}]
             - name: relaxed-test
               dependencies: [train-fine]
@@ -93,6 +93,7 @@ workflow:
                   {name: learning_rate, value: 1e-4},
                   {name: k_prune_basis, value: 1.0},
                   {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_02"},
+                  {name: class_weight, value: "[0.01, 1.0]"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment test relaxed model target structure {{workflow.parameters.target_structure}}"}'}]
             - name: prune
               dependencies: [train-fine]

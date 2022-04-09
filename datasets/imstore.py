@@ -11,6 +11,7 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
+from torch.utils.data.sampler import SubsetRandomSampler
 
 sys.path.insert(0, os.path.abspath(''))
 from utils.s3 import s3store, Connect
@@ -323,6 +324,40 @@ class ImagesDataset(Dataset):
             print('ImagesDataset.__getitem__ idx {} returned result=None.'.format(idx))
         return image, label, imgMean, imgStd
 
+def collate_fn(batch):
+    batch = list(filter(lambda x: x is not None, batch))
+    return torch.utils.data.dataloader.default_collate(batch)
+
+# def CreateDataLoaders(s3, 3def['sets']['dataset']['bucket'], args.dataset, args.class_dict, args.batch_size, cuda = args.cuda):
+def CreateDataLoaders(s3, bucket, dataset, class_dict, batch_size = 2, cuda = False, validation_split = .2, random_seed = None):
+
+    dataset = ImagesDataset(s3, bucket, dataset, class_dict)
+
+    # Creating data indices for training and validation splits:
+    dataset_size = len(dataset)
+    indices = list(range(dataset_size))
+    split = int(np.floor(validation_split * dataset_size))
+    if True:
+        np.random.seed(random_seed)
+        np.random.shuffle(indices)
+    train_indices, val_indices = indices[split:], indices[:split]
+
+    # Creating PT data samplers and loaders:
+    train_sampler = SubsetRandomSampler(train_indices)
+    valid_sampler = SubsetRandomSampler(val_indices)
+
+    pin_memory = False
+    if args.cuda:
+        pin_memory = True
+
+    train_batches=int(train_indices.__len__()/args.batch_size)
+    trainloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, sampler=train_sampler, num_workers=args.num_workers, pin_memory=pin_memory, collate_fn=collate_fn)
+
+    test_batches=int(val_indices.__len__()/args.batch_size)
+    testloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, sampler=valid_sampler, pin_memory=pin_memory, collate_fn=collate_fn)
+
+    return trainloader, train_batches, testloader, test_batches
+
 def Test(args):
 
     s3, creds, s3def = Connect(args.credentails)
@@ -335,6 +370,8 @@ def Test(args):
             if i >= args.num_images:
                 print ('test_iterator complete')
                 break
+
+    #trainloader, train_batches, testloader, test_batches = CreateDataLoaders(s3, 3def['sets']['dataset']['bucket'], args.dataset, args.batch_size, cuda = args.cuda, args.class_dict)
 
     if args.test_dataset:
         dataset = ImagesDataset(s3, s3def['sets']['dataset']['bucket'], args.dataset, args.class_dict)
@@ -355,6 +392,7 @@ def Test(args):
         print ('test_dataset complete')
 
     print('Test complete')
+
 
 #objdict = json.load(open('/data/git/mllib/datasets/coco.json'))
 #Test(objdict, '/store/Datasets/coco/instances_val2017.json', '/store/Datasets/coco/val2014', 'COCO_val2014_')

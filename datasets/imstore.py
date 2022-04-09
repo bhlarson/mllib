@@ -14,9 +14,9 @@ from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 
 sys.path.insert(0, os.path.abspath(''))
-from utils.s3 import s3store, Connect
-from utils.jsonutil import ReadDictJson
-from utils.imutil import ImUtil
+from pymlutil.s3 import s3store, Connect
+from pymlutil.jsonutil import ReadDictJson
+from pymlutil.imutil import ImUtil
 
 class ImagesStore:
 

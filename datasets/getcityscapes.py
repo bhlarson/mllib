@@ -6,7 +6,7 @@ import subprocess
 import shutil
 from os import fspath
 sys.path.insert(0, os.path.abspath(''))
-from utils.s3 import s3store
+from pymlutil.s3 import s3store
 from zipfile import ZipFile
 from tqdm import tqdm
 

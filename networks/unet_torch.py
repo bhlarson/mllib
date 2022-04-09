@@ -21,11 +21,11 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.abspath(''))
 from networks.cell2d import Cell, NormGausBasis, PlotSearch, PlotGradients
-from utils.torch_util import count_parameters, model_stats, model_weights
-from utils.jsonutil import ReadDictJson
-from utils.s3 import s3store, Connect
+from pymlutil.torch_util import count_parameters, model_stats, model_weights
+from pymlutil.jsonutil import ReadDictJson
+from pymlutil.s3 import s3store, Connect
 from datasets.cocostore import CocoDataset
-from utils.metrics import similarity, jaccard, DatasetResults
+from pymlutil.metrics import similarity, jaccard, DatasetResults
 from networks.totalloss import TotalLoss
 
 

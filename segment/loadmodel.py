@@ -3,7 +3,7 @@ import os
 import shutil
 import tempfile
 import tensorflow as tf
-from utils.s3 import s3store
+from pymlutil.s3 import s3store
 from networks.unet import unet_model, unet_compile
 
 def LoadModel(config, s3):

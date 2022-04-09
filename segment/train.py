@@ -18,8 +18,8 @@ from tensorflow.keras.utils import GeneratorEnqueuer, Sequence, OrderedEnqueuer
 sys.path.insert(0, os.path.abspath(''))
 from segment.display import DrawFeatures, WritePredictions
 from segment.data import input_fn
-from utils.s3 import s3store
-from utils.jsonutil import WriteDictJson
+from pymlutil.s3 import s3store
+from pymlutil.jsonutil import WriteDictJson
 from segment.loadmodel import LoadModel
 
 #disable_eager_execution()

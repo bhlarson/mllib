@@ -4,7 +4,7 @@ import torch.nn as nn
 import numpy as np
 from typing import Callable, Optional
 sys.path.insert(0, os.path.abspath(''))
-from utils.functions import GaussianBasis, SigmoidScale
+from pymlutil.functions import GaussianBasis, SigmoidScale
 from enum import Enum
 
 class FenceSitterEjectors(Enum):

@@ -16,8 +16,8 @@ import engine as eng
 
 sys.path.insert(0, os.path.abspath(''))
 from networks.unet import unet_model, unet_compile
-from utils.s3 import s3store
-from utils.jsonutil import WriteDictJson
+from pymlutil.s3 import s3store
+from pymlutil.jsonutil import WriteDictJson
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-debug', action='store_true',help='Wait for debuger attach')

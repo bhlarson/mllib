@@ -23,9 +23,9 @@ import cv2
 from mlflow import log_metric, log_param, log_artifacts
 
 sys.path.insert(0, os.path.abspath(''))
-from utils.torch_util import count_parameters, model_stats, model_weights
-from utils.jsonutil import ReadDictJson, WriteDictJson, str2bool
-from utils.s3 import s3store, Connect
+from pymlutil.torch_util import count_parameters, model_stats, model_weights
+from pymlutil.jsonutil import ReadDictJson, WriteDictJson, str2bool
+from pymlutil.s3 import s3store, Connect
 from torch.utils.tensorboard import SummaryWriter
 from networks.totalloss import TotalLoss
 from networks.cell2d import Resnet, ResnetCells, Classify, PlotSearch, PlotGradients

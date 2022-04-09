@@ -13,8 +13,8 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import ToTensor
 
 sys.path.insert(0, os.path.abspath(''))
-from utils.s3 import s3store, Connect
-from utils.jsonutil import WriteDictJson, ReadDictJson
+from pymlutil.s3 import s3store, Connect
+from pymlutil.jsonutil import WriteDictJson, ReadDictJson
 from datasets.citytorch import CityDataset
 from segment_nas.trainargs import trainargs
 from networks.cell2d import Cell, ConvBR

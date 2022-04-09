@@ -15,10 +15,10 @@ from datetime import datetime
 
 #sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath('')), '..')))
 sys.path.insert(0, os.path.abspath(''))
-from utils.jsonutil import ReadDictJson
-from utils.s3 import s3store, Connect
+from pymlutil.jsonutil import ReadDictJson
+from pymlutil.s3 import s3store, Connect
 from datasets.cocostore import CocoDataset
-from utils.metrics import jaccard, similarity, confusionmatrix, DatasetResults
+from pymlutil.metrics import jaccard, similarity, confusionmatrix, DatasetResults
 from datasets.cocostore import CocoDataset
 
 def parse_arguments():

@@ -19,11 +19,11 @@ from sklearn.metrics import confusion_matrix
 
 sys.path.insert(0, os.path.abspath(''))
 from networks.cell2d import Cell, NormGausBasis
-from utils.torch_util import count_parameters, model_stats, model_weights
-from utils.jsonutil import ReadDictJson
-from utils.s3 import s3store, Connect
+from pymlutil.torch_util import count_parameters, model_stats, model_weights
+from pymlutil.jsonutil import ReadDictJson
+from pymlutil.s3 import s3store, Connect
 from datasets.cocostore import CocoDataset
-from utils.metrics import DatasetResults
+from pymlutil.metrics import DatasetResults
 # from segment.display import DrawFeatures
 from torch.utils.tensorboard import SummaryWriter
 

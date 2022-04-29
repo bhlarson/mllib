@@ -5,8 +5,6 @@
     "whl":[],
     "dockerbuild":[
         {"name":"torch", "dockerfile":"dockerfile-torch", "context":"."},
-        {"name":"torch-train", "dockerfile":"dockerfile-torch-train", "context":"."},
-        {"name":"triton", "dockerfile":"dockerfile-triton", "context":"."},
-        {"name":"mlflow", "dockerfile":"dockerfile-mlflow", "context":"."}
+        {"name":"torch-train", "dockerfile":"dockerfile-torch-train", "context":"."}
     ]
 }

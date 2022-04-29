@@ -1,65 +1,6 @@
 import numpy as np
 import cv2
 
-def resize_crop_or_pad(img, target_height, target_width, 
-    normalize=True, borderType=cv2.BORDER_CONSTANT, borderValue=0, 
-    astype='float32'):
-
-    imgMean = None
-    imgStd = None
-    imgtype = img.dtype.name
-    if normalize:
-        imgMean = np.mean(img)
-        imgStd = np.std(img)
-        img = (img - imgMean)/imgStd
-    
-    if astype is not None:
-        img = img.astype(astype)
-    elif img.dtype.name is not  imgtype:
-        img = img.astype(imgtype)
-
-    height = img.shape[0]
-    width = img.shape[1]
-    
-    # Pad
-    pad = False
-    top=0
-    bottom=0
-    left=0
-    right=0
-    if target_height > height:
-        bottom = int((target_height-height)/2)
-        top = target_height-height-bottom
-        pad = True
-    if target_width > width:
-        right = int((target_width-width)/2)
-        left = target_width-width-right
-        pad = True
-
-    if pad:
-        img = cv2.copyMakeBorder(img, top, bottom, left, right, borderType, None, borderValue)
-
-    # Crop
-    height = img.shape[0]
-    width = img.shape[1]
-    maxX = width - target_width
-    maxY = height - target_height
-
-    crop = False
-    startX = 0
-    startY = 0
-    if maxX > 0:
-        startX = int(maxX/2)
-        crop = True
-    if  maxY > 0:
-        startY = int(maxY/2)
-        crop = True
-    if crop:
-
-        img = img[startY:startY+target_height, startX:startX+target_width]
-
-    return img, imgMean, imgStd
-
 class ImUtil():
     def __init__(self, s3, bucket, dataset_desc, image_paths, class_dictionary, 
         height=640, 
@@ -108,14 +49,18 @@ class ImUtil():
         annrgb = np.dstack(annrgb) 
         return annrgb
 
-        def MergeIman(self, img, ann, mean=None, stDev = None):
-            if mean is not None and stDev is not None:
-                img = (img*stDev) + mean
+    def MergeIman(self, img, ann, mean=None, stDev = None):
+        if mean is not None and stDev is not None:
+            img = (img*stDev) + mean
 
-            if self.class_dictionary is not None:
-                ann = self.ColorizeAnnotation(ann)
-            img = (img*ann).astype(np.uint8)
-            return img
+        if self.class_dictionary is not None:
+            ann = self.ColorizeAnnotation(ann)
+
+        if(self.isGrayscale(self.dataset_desc['image_colorspace'])):
+            img = cv2.cvtColor(img,cv2.COLOR_GRAY2RGB)
+
+        img = (img*ann).astype(np.uint8)
+        return img
 
     def DisplayImAn(self, img, ann, seg, mean, stdev):
 
@@ -127,7 +72,6 @@ class ImUtil():
         imseg = cv2.putText(imseg, 'TensorRT',(10,25), font, 1,(255,255,255),1,cv2.LINE_AA)
 
         im = cv2.hconcat([iman, imseg])
-        #im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
         return im
 
     # Expect img.shape[0]==ann.shape[0] and ann.shape[0]==ann.shape[0]
@@ -138,7 +82,10 @@ class ImUtil():
         if self.normalize:
             imgMean = np.mean(img)
             imgStd = np.std(img)
-            img = (img - imgMean)/imgStd
+            if imgStd > 0.0:
+                img = (img - imgMean)/imgStd
+            else:
+                print('ImagesDataset.random_resize_crop_or_pad: imgStd is 0.0')
         
         if self.astype is not None:
             img = img.astype(self.astype)

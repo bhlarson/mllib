@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/pytorch:21.12-py3
+FROM nvcr.io/nvidia/pytorch:22.04-py3
 LABEL maintainer="Brad Larson"
 
 ENV TZ=America/Los_Angeles
@@ -46,7 +46,11 @@ RUN pip3 --no-cache-dir install \
         pycuda \
         PyYAML \
         mlflow \
-        pymlutil
+        nni
+
+RUN pip3 --no-cache-dir install \
+        pymlutil==0.0.74 \
+        torchdatasetutil==0.0.33
 
 # ZED Python API https://stackoverflow.com/a/63457606/7036639
 RUN wget download.stereolabs.com/zedsdk/pyzed -O /usr/local/zed/get_python_api.py && \

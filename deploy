@@ -22,7 +22,7 @@ def parse_arguments():
     
     parser.add_argument('-out', type=str, default='mllib', help='Output path')
     parser.add_argument('-config', type=str, default='build.json', help='Configuration file')
-    parser.add_argument('-version', type=str, default='latest', help='Version number')
+    parser.add_argument('--version', '-v', type=str, default='latest', help='Version number')
 
     parser.add_argument('-archive', type=str, default='localhost:32000', help='destination archive')
     parser.add_argument('-dirs', type=json.loads, default=None, help='List of directories to create')

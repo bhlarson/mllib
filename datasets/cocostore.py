@@ -10,7 +10,6 @@ from torch.utils.data import Dataset
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
-sys.path.insert(0, os.path.abspath(''))
 from pymlutil.s3 import s3store, Connect
 from pymlutil.jsonutil import ReadDictJson
 

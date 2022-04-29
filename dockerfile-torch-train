@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/pytorch:21.12-py3
+FROM nvcr.io/nvidia/pytorch:22.04-py3
 LABEL maintainer="Brad Larson"
 
 #USER root
@@ -39,7 +39,7 @@ RUN pip3 install --no-cache-dir \
         pycuda \
         PyYAML \
         mlflow \
-        pymlutil
+        pymlutil==0.0.46
 
 
 #        scipy \

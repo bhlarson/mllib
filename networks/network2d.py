@@ -31,11 +31,11 @@ from networks.cell2d import Cell, GaussianBasis, NormGausBasis, PlotSearch, Plot
 from pymlutil.torch_util import count_parameters, model_stats, model_weights
 from pymlutil.jsonutil import ReadDict, WriteDict
 from pymlutil.s3 import s3store, Connect
-from datasets.cocostore import CocoDataset
-from datasets.imstore import ImagesDataset
+from torchdatasetutil.cocostore import CocoDataset, CreateCocoLoaders
+from torchdatasetutil.imstore import ImagesDataset, CreateImageLoaders
 from pymlutil.metrics import similarity, jaccard, DatasetResults
 from networks.totalloss import TotalLoss, FenceSitterEjectors
-from pymlutil.functions import GaussianBasis, SigmoidScale, Exponential
+from pymlutil.functions import GaussianBasis, Exponential
 
 
 class Network2d(nn.Module):
@@ -339,24 +339,24 @@ def parse_arguments():
 
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 
-    parser.add_argument('-trainingset', type=str, default='data/coco/annotations/instances_train2017.json', help='Coco dataset instance json file.')
-    parser.add_argument('-validationset', type=str, default='data/coco/annotations/instances_val2017.json', help='Coco dataset instance json file.')
-    parser.add_argument('-train_image_path', type=str, default='data/coco/train2017', help='Coco image path for dataset.')
     parser.add_argument('-imStatistics', type=str2bool, default=False, help='Record individual image statistics')
-    parser.add_argument('-val_image_path', type=str, default='data/coco/val2017', help='Coco image path for dataset.')
-    #parser.add_argument('-class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
-    parser.add_argument('-class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
+    parser.add_argument('-dataset', type=str, default='coco', choices=['coco', 'lit'], help='Dataset')
+
+    parser.add_argument('-lit_dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
+    parser.add_argument('-lit_class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
+
+    parser.add_argument('-coco_class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
     parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=70, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=50, help='Start epoch')
-    parser.add_argument('-num_workers', type=int, default=1, help='Training batch size')
+    parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
     parser.add_argument('-model_src', type=str,  default='crisplit_20220406h0_01')
     parser.add_argument('-model_dest', type=str, default='crisplit_20220406h0_0x')
+    parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
@@ -384,8 +384,8 @@ def parse_arguments():
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector start epoch')
     parser.add_argument('-ejector_exp', type=float, default=3, help='Ejector exponent')
     parser.add_argument('-prune', type=str2bool, default=False)
-    parser.add_argument('-train', type=str2bool, default=False)
-    parser.add_argument('-infer', type=str2bool, default=True)
+    parser.add_argument('-train', type=str2bool, default=True)
+    parser.add_argument('-infer', type=str2bool, default=False)
     parser.add_argument('-search_structure', type=str2bool, default=False)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
@@ -395,7 +395,6 @@ def parse_arguments():
     parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
     parser.add_argument('-class_weight', type=json.loads, default='[0.02, 1.0]', help='Loss class weight ')
-
 
     parser.add_argument('-description', type=json.loads, default='{"description":"CRISP training"}', help='Test description')
 
@@ -460,8 +459,8 @@ def DisplayImgAn(image, label, segmentation, trainingset, mean, stdev):
     image = np.squeeze(image)
     label = np.squeeze(label)
     segmentation = np.squeeze(segmentation)
-    iman = trainingset.store.MergeIman(image, label, mean.item(), stdev.item())
-    imseg = trainingset.store.MergeIman(image, segmentation, mean.item(), stdev.item())
+    iman = trainingset.dataset.store.MergeIman(image, label, mean.item(), stdev.item())
+    imseg = trainingset.dataset.store.MergeIman(image, segmentation, mean.item(), stdev.item())
 
     iman = cv2.putText(iman, 'Annotation',(10,25), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1,(255,255,255),1,cv2.LINE_AA)
     imseg = cv2.putText(imseg, 'Segmentation',(10,25), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1,(255,255,255),1,cv2.LINE_AA)
@@ -500,7 +499,15 @@ def Test(args):
     tb = None
     writer = None
     write_graph = False
-    class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.class_dict)
+
+    dataset_bucket = s3def['sets']['dataset']['bucket']
+    if args.dataset=='coco':
+        class_dictionary = s3.GetDict(dataset_bucket,args.lit_class_dict)
+    elif args.dataset=='lit':
+        class_dictionary = s3.GetDict(dataset_bucket,args.coco_class_dict)
+    else:
+        raise ValueError('{} {} unsupported dataset {}'.format(__file__, __name__, args.dataset)) 
+
     if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0):
         os.makedirs(args.tensorboard_dir, exist_ok=True)
 
@@ -510,8 +517,6 @@ def Test(args):
         print(f"Tensorboard on {url}")
 
         writer = SummaryWriter(args.tensorboard_dir)
-
-
 
     # Load dataset
     device = torch.device("cpu")
@@ -575,25 +580,38 @@ def Test(args):
     else:
         class_weight = None
 
-    dataset = ImagesDataset(s3, s3def['sets']['dataset']['bucket'], args.dataset, args.class_dict)
-    validation_split = .2
-    random_seed= 42
-
-    # Creating data indices for training and validation splits:
-    dataset_size = len(dataset)
-    indices = list(range(dataset_size))
-    split = int(np.floor(validation_split * dataset_size))
-    if True:
-        np.random.seed(random_seed)
-        np.random.shuffle(indices)
-    train_indices, val_indices = indices[split:], indices[:split]
-
-    # Creating PT data samplers and loaders:
-    train_sampler = SubsetRandomSampler(train_indices)
-    valid_sampler = SubsetRandomSampler(val_indices)
-
     # Train
     if args.train:
+        if args.dataset=='coco':
+            loaders = CreateImageLoaders(s3, dataset_bucket, 
+                dataset_dfn=args.lit_dataset,
+                class_dict=args.lit_class_dict, 
+                batch_size=args.batch_size,
+                num_workers=args.num_workers,
+                cuda = args.cuda,
+                height = args.height,
+                width = args.width,
+            )
+        elif args.dataset=='lit':
+            loaders = CreateImageLoaders(s3, dataset_bucket, 
+                class_dict=args.coco_class_dict, 
+                batch_size=args.batch_size,
+                num_workers=args.num_workers,
+                cuda = args.cuda,
+                height = args.height,
+                width = args.width,
+            )
+        else:
+            raise ValueError('{} {} unsupported dataset {}'.format(__file__, __name__, args.dataset)) 
+
+        trainloader = next(filter(lambda d: d.get('set') == 'train', loaders), None)
+        testloader = next(filter(lambda d: d.get('set') == 'test', loaders), None)
+
+        if trainloader is None:
+            raise ValueError('{} {} failed to load trainloader {}'.format(__file__, __name__, args.dataset)) 
+        if testloader is None:
+            raise ValueError('{} {} failed to load testloader {}'.format(__file__, __name__, args.dataset)) 
+
         with profile(
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 schedule=torch.profiler.schedule(skip_first=10, wait=3, warmup=2, active=5, repeat=1),
@@ -616,37 +634,8 @@ def Test(args):
             plotgrads = PlotGradients()
             iSample = 0
 
-            '''trainingset = ImagesDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.trainingset, 
-                image_paths=args.train_image_path,
-                class_dictionary=class_dictionary, 
-                height=args.height, 
-                width=args.width, 
-                imflags=args.imflags, 
-                astype='float32', 
-                enable_transform=True)'''
-
-            #dataset = ImagesDataset(s3, s3def['sets']['dataset']['bucket'], args.dataset, args.class_dict)
-
-            #train_batches=int(trainingset.__len__()/args.batch_size)
-            #trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=pin_memory)
-            train_batches=int(train_indices.__len__()/args.batch_size)
-            trainloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, sampler=train_sampler, num_workers=args.num_workers, pin_memory=pin_memory, collate_fn=collate_fn)
-
-            '''testset = ImagesDataset(s3=s3, bucket=s3def['sets']['dataset']['bucket'], dataset_desc=args.validationset, 
-                image_paths=args.val_image_path,
-                class_dictionary=class_dictionary, 
-                height=args.height, 
-                width=args.width, 
-                imflags=args.imflags, 
-                astype='float32',
-                enable_transform=False)'''
-            #test_batches=int(testset.__len__()/args.batch_size)
-            #testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
-            test_batches=int(val_indices.__len__()/args.batch_size)
-            testloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, sampler=valid_sampler, pin_memory=pin_memory, collate_fn=collate_fn)
-            test_freq = 10*int(math.ceil(train_batches/test_batches))
+            test_freq = args.test_sparsity*int(math.ceil(trainloader['batches']/testloader['batches']))
             tstart = None
-            batch_per_epoch = int(len(train_indices)/args.batch_size)
             compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
 
             # Set up fence sitter ejectors
@@ -663,10 +652,10 @@ def Test(args):
 
 
             for epoch in tqdm(range(args.start_epoch, args.epochs), bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}', desc="Epochs", disable=args.job):  # loop over the dataset multiple times
-                iTest = iter(testloader)
+                iTest = iter(testloader['dataloader'])
 
                 running_loss = 0.0
-                for i, data in tqdm(enumerate(trainloader), bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}', total=batch_per_epoch, desc="Batches", disable=args.job):
+                for i, data in tqdm(enumerate(trainloader['dataloader']), bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}', total=trainloader['batches'], desc="Batches", disable=args.job):
                     # get the inputs; data is a list of [inputs, labels]
                     prevtstart = tstart
                     tstart = time.perf_counter()
@@ -735,7 +724,7 @@ def Test(args):
                                 writer.add_graph(model, inputs)
                                 write_graph = True
                             for j in range(1):
-                                imanseg = DisplayImgAn(images[j], labels[j], segmentations[j], dataset, mean[j], stdev[j])      
+                                imanseg = DisplayImgAn(images[j], labels[j], segmentations[j], trainloader['dataloader'], mean[j], stdev[j])      
                                 writer.add_image('segmentation/train', imanseg, 0,dataformats='HWC')
 
                         with torch.no_grad():
@@ -757,7 +746,7 @@ def Test(args):
 
                         running_loss /=test_freq
                         msg = '[{:3}/{}, {:6d}/{}]  loss: {:0.5e}|{:0.5e} cross-entropy loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test) step time: {:0.3f}'.format(
-                            epoch + 1, args.epochs, i + 1, batch_per_epoch, 
+                            epoch + 1, args.epochs, i + 1, trainloader['batches'], 
                             running_loss, loss.item(),
                             training_cross_entropy_loss.item(), cross_entropy_loss.item(), 
                             architecture_reduction.item(), dtCycle)
@@ -774,7 +763,7 @@ def Test(args):
 
                         if writer is not None:
                             for j in range(1):
-                                imanseg = DisplayImgAn(images[j], labels[j], segmentations[j], dataset, mean[j], stdev[j])      
+                                imanseg = DisplayImgAn(images[j], labels[j], segmentations[j], trainloader['dataloader'], mean[j], stdev[j])      
                                 writer.add_image('segmentation/test', imanseg, 0,dataformats='HWC')
 
                     iSave = 1000
@@ -927,7 +916,7 @@ if __name__ == '__main__':
     args = parse_arguments()
 
     if args.debug:
-        print("Wait for debugger attach")
+        print("Wait for debugger attach on {}:{}".format(args.debug_address, args.debug_port))
         import debugpy
         ''' 
         https://code.visualstudio.com/docs/python/debugging#_remote-debugging

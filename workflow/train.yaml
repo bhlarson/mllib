@@ -18,7 +18,7 @@ workflow:
         - name: output_name
           value: 20220406
         - name: start
-          value: 0
+          value: 2
         - name: batch_size
           value: 3
     entrypoint: train-crisp
@@ -68,7 +68,7 @@ workflow:
                   {name: train, value: false},
                   {name: infer, value: true},
                   {name: search_structure, value: false},
-                  {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_02"},
+                  {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_01"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment test finetune {{workflow.parameters.target_structure}}"}'}]
 
       - name: train

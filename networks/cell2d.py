@@ -23,7 +23,7 @@ from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
-from mlflow import log_metric, log_param, log_artifacts
+#from mlflow import log_metric, log_param, log_artifacts
 
 sys.path.insert(0, os.path.abspath(''))
 from pymlutil.torch_util import count_parameters, model_stats, model_weights
@@ -1210,7 +1210,7 @@ def Test(args):
 
     test_results['args'] = {}
     for arg in vars(args):
-        log_param(arg, getattr(args, arg))
+        #log_param(arg, getattr(args, arg))
         test_results['args'][arg]=getattr(args, arg)
 
     print('arguments={}'.format(test_results['args']))
@@ -1398,7 +1398,7 @@ def Test(args):
                     #test_results['test']['architecture_reduction'].append(architecture_reduction.item())
                     #test_results['test']['accuracy'].append(test_accuracy.item())
 
-                    log_metric("accuracy", test_accuracy.item())
+                    #log_metric("accuracy", test_accuracy.item())
 
                 #iSave = 2000
                 #if i % iSave == iSave-1:    # print every iSave mini-batches
@@ -1449,7 +1449,7 @@ def Test(args):
             accuracy += torch.sum(results).item()
 
         accuracy /= args.batch_size*int(testset.__len__()/args.batch_size)
-        log_metric("test_accuracy", accuracy)
+        #log_metric("test_accuracy", accuracy)
         print("test_accuracy={}".format(accuracy))
         test_results['test_accuracy'] = accuracy
         test_results['current_weights'], test_results['original_weights'], test_results['remnent'] = classify.Parameters()

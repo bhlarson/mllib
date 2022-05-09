@@ -12,7 +12,7 @@ workflow:
         - name: resultspath
           value: /app/results.json
         - name: train_image
-          value: 'localhost:32000/torch-train:latest'
+          value: 'bhlarson/torch-train:latest'
         - name: dataset
           value: coco
         - name: height
@@ -22,7 +22,7 @@ workflow:
         - name: target_structure
           value: 0.0
         - name: output_name
-          value: 20220503
+          value: 20220509
         - name: start
           value: 0
         - name: batch_size
@@ -169,7 +169,6 @@ workflow:
           command:
             - python3
           args:
-            - -u
             - networks/network2d.py
             - -dataset={{workflow.parameters.dataset}}
             - -height={{workflow.parameters.height}}

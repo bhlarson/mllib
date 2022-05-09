@@ -352,7 +352,7 @@ def parse_arguments():
 
     parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=70, help='Training epochs')
-    parser.add_argument('-start_epoch', type=int, default=50, help='Start epoch')
+    parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
     parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
@@ -395,7 +395,7 @@ def parse_arguments():
     parser.add_argument('-test_dir', type=str, default='/store/data/network2d')
     parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
-    #parser.add_argument('-class_weight', type=json.loads, default='[0.02, 1.0]', help='Loss class weight ')
+    #parser.add_argument('-class_weight', type=json.loads, default='[0.02, 0.2 0.7, 1.0]', help='Loss class weight ')
     parser.add_argument('-class_weight', type=json.loads, default=None, help='Loss class weight ')
 
     parser.add_argument('-description', type=json.loads, default='{"description":"CRISP training"}', help='Test description')

@@ -14,11 +14,11 @@ workflow:
         - name: train_image
           value: 'bhlarson/torch-train:latest'
         - name: dataset
-          value: coco
+          value: lit
         - name: height
-          value: 480
+          value: 640
         - name: width
-          value: 512
+          value: 640
         - name: target_structure
           value: 0.00
         - name: output_name

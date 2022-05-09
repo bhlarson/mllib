@@ -1,7 +1,7 @@
 # yamllint disable-line rule:line-length
 workflow:
   metadata:
-    generateName: crisplit-
+    generateName: crispcoco-
   annotations:
     workflows.ml.argoproj.io/description: |
       Perform a training sequence
@@ -13,14 +13,20 @@ workflow:
           value: /app/results.json
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
+        - name: dataset
+          value: coco
+        - name: height
+          value: 480
+        - name: width
+          value: 512
         - name: target_structure
           value: 0.0
         - name: output_name
-          value: 20220406
+          value: 20220503
         - name: start
           value: 0
         - name: batch_size
-          value: 3
+          value: 4
     entrypoint: train-crisp
     priority: 1
     templates:
@@ -37,10 +43,11 @@ workflow:
                   {name: infer, value: false},
                   {name: search_structure, value: false},
                   {name: target_structure, value: "{{workflow.parameters.target_structure}}"},
+                  {name: learning_rate, value: 2e-4},
                   {name: epochs, value: 2},
                   {name: model_src, value: ""},
                   {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_00"},
-                  {name: class_weight, value: "[0.01, 1.0]"},
+                  {name: class_weight, value: "[0.01, 0.1, 0.5, 1.0]"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment class normzlized train target size target {{workflow.parameters.target_structure}}"}'}]
             - name: train
               dependencies: [normalized-train]
@@ -57,7 +64,7 @@ workflow:
                   {name: epochs, value: 50},
                   {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_00"},
                   {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_01"},
-                  {name: class_weight, value: "[0.01, 1.0]"},
+                  {name: class_weight, value: "[0.1, 0.7, 1.0, 1.0]"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment optimize obective and size target size target {{workflow.parameters.target_structure}}"}'}]
             - name: train-fine
               dependencies: [train]
@@ -78,7 +85,6 @@ workflow:
                   {name: ejector_max, value: 1.0},
                   {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_01"},
                   {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_02"},
-                  {name: class_weight, value: "[0.01, 1.0]"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment optimize obective and size target size {{workflow.parameters.target_structure}}"}'}]
             - name: relaxed-test
               dependencies: [train-fine]
@@ -93,7 +99,6 @@ workflow:
                   {name: learning_rate, value: 1e-4},
                   {name: k_prune_basis, value: 1.0},
                   {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_02"},
-                  {name: class_weight, value: "[0.01, 1.0]"},
                   {name: description, value: '{"author":"Brad Larson","description":"Crisp segment test relaxed model target structure {{workflow.parameters.target_structure}}"}'}]
             - name: prune
               dependencies: [train-fine]
@@ -143,7 +148,7 @@ workflow:
             {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}"},
             {name: k_structure, value: 0.01},
             {name: learning_rate, value: 1e-4},
-            {name: class_weight, value: "[1.0, 1.0]"},
+            {name: class_weight, value: "[1.0, 1.0, 1.0, 1.0]"},
             {name: description, value: '{"author":"Brad Larson","description":"Crisp LIT segmentation"}'}]
         outputs:
           parameters:
@@ -166,6 +171,9 @@ workflow:
           args:
             - -u
             - networks/network2d.py
+            - -dataset={{workflow.parameters.dataset}}
+            - -height={{workflow.parameters.height}}
+            - -width={{workflow.parameters.width}}
             - -prune={{inputs.parameters.prune}}
             - -train={{inputs.parameters.train}}
             - -epochs={{inputs.parameters.epochs}}

@@ -12,9 +12,15 @@ workflow:
         - name: resultspath
           value: /app/results.json
         - name: train_image
-          value: 'localhost:32000/torch-train:latest'
+          value: 'bhlarson/torch-train:latest'
+        - name: dataset
+          value: coco
+        - name: height
+          value: 480
+        - name: width
+          value: 512
         - name: target_structure
-          value: 0.50
+          value: 0.00
         - name: output_name
           value: 20220323h
         - name: start
@@ -115,7 +121,7 @@ workflow:
             {name: model_src, value: ""},
             {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}"},
             {name: k_structure, value: 1.0},
-            {name: learning_rate, value: 4e-4},
+            {name: learning_rate, value: 1e-4},
             {name: class_weight, value: "[1.0, 1.0]"},
             {name: description, value: '{"author":"Brad Larson","description":"Crisp LIT segmentation"}'}]
         outputs:
@@ -138,6 +144,9 @@ workflow:
             - python3
           args:
             - networks/network2d.py
+            - -dataset={{workflow.parameters.dataset}}
+            - -height={{workflow.parameters.height}}
+            - -width={{workflow.parameters.width}}
             - -prune={{inputs.parameters.prune}}
             - -train={{inputs.parameters.train}}
             - -epochs={{inputs.parameters.epochs}}

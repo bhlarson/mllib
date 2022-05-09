@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 import numpy as np
 from typing import Callable, Optional
-from pymlutil.functions import GaussianBasis
 from enum import Enum
 
 class FenceSitterEjectors(Enum):

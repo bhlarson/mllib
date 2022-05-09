@@ -26,17 +26,19 @@ import cv2
 from tqdm import tqdm
 from datetime import datetime
 
-sys.path.insert(0, os.path.abspath(''))
-from networks.cell2d import Cell, GaussianBasis, NormGausBasis, PlotSearch, PlotGradients
 from pymlutil.torch_util import count_parameters, model_stats, model_weights
 from pymlutil.jsonutil import ReadDict, WriteDict
 from pymlutil.s3 import s3store, Connect
-from torchdatasetutil.cocostore import CocoStore, CocoDataset, CreateCocoLoaders, default_loaders
-from torchdatasetutil.imstore import ImagesStore, ImagesDataset, CreateImageLoaders
-from pymlutil.metrics import similarity, jaccard, DatasetResults
-from networks.totalloss import TotalLoss, FenceSitterEjectors
-from pymlutil.functions import GaussianBasis, Exponential
+from pymlutil.functions import Exponential
+from torchdatasetutil.cocostore import CreateCocoLoaders
+from torchdatasetutil.imstore import  CreateImageLoaders
+from pymlutil.metrics import DatasetResults
+from pymlutil.functions import GaussianBasis
+#from pymlutil.version import version as pymlutil_version
 
+sys.path.insert(0, os.path.abspath(''))
+from networks.cell2d import Cell, GaussianBasis, NormGausBasis, PlotSearch, PlotGradients
+from networks.totalloss import TotalLoss, FenceSitterEjectors
 
 class Network2d(nn.Module):
     def __init__(self, 
@@ -361,7 +363,6 @@ def parse_arguments():
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=640, help='Batch image height')
     parser.add_argument('-width', type=int, default=640, help='Batch image width')
-    parser.add_argument('-imflags', type=int, default=cv2.IMREAD_GRAYSCALE, help='cv2.imdecode flags')
     parser.add_argument('-learning_rate', type=float, default=1.0e-4, help='Adam learning rate')
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
@@ -394,8 +395,8 @@ def parse_arguments():
     parser.add_argument('-test_dir', type=str, default='/store/data/network2d')
     parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
-    parser.add_argument('-class_weight', type=json.loads, default='[0.02, 1.0]', help='Loss class weight ')
-    #parser.add_argument('-class_weight', type=json.loads, default=None, help='Loss class weight ')
+    #parser.add_argument('-class_weight', type=json.loads, default='[0.02, 1.0]', help='Loss class weight ')
+    parser.add_argument('-class_weight', type=json.loads, default=None, help='Loss class weight ')
 
     parser.add_argument('-description', type=json.loads, default='{"description":"CRISP training"}', help='Test description')
 
@@ -812,7 +813,11 @@ def Test(args, s3, s3def, class_dictionary, segment, device, results):
             record_shapes=True, profile_memory=True, with_stack=True
     ) as prof:
 
-        for i, data in tqdm(enumerate(testloader['dataloader']), total=testloader['batches'], desc="Inference steps", disable=args.job):
+        for i, data in tqdm(enumerate(testloader['dataloader']), 
+                            total=testloader['batches'], 
+                            desc="Inference steps", 
+                            disable=args.job, 
+                            bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}'):
             images, labels, mean, stdev = data
             if args.cuda:
                 images = images.cuda()

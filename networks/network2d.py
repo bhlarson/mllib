@@ -587,13 +587,13 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
 
         for epoch in tqdm(range(args.start_epoch, args.epochs), 
                             bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}', 
-                            desc="Epochs", disable=args.job):  # loop over the dataset multiple times
+                            desc="Train epochs", disable=args.job):  # loop over the dataset multiple times
             iTest = iter(testloader['dataloader'])
 
             running_loss = 0.0
             for i, data in tqdm(enumerate(trainloader['dataloader']), 
                                 bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}', 
-                                total=trainloader['batches'], desc="Batches", disable=args.job):
+                                total=trainloader['batches'], desc="Train batches", disable=args.job):
                 # get the inputs; data is a list of [inputs, labels]
                 prevtstart = tstart
                 tstart = time.perf_counter()
@@ -815,7 +815,7 @@ def Test(args, s3, s3def, class_dictionary, segment, device, results):
 
         for i, data in tqdm(enumerate(testloader['dataloader']), 
                             total=testloader['batches'], 
-                            desc="Inference steps", 
+                            desc="Test steps", 
                             disable=args.job, 
                             bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}'):
             images, labels, mean, stdev = data

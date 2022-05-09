@@ -5,7 +5,7 @@ docker run --ipc=host --privileged --gpus all -it --rm --cap-add=CAP_SYS_ADMIN \
     -v /etc/localtime:/etc/localtime:ro \
     -p 3000:3000 \
     -p 6006:6006 \
-    localhost:32000/torch:latest
+    bhlarson/torch:latest
 
     #-p 8888:8888/tcp \
     #-p 5000:5000/tcp \  

@@ -41,8 +41,8 @@ RUN pip3 install --no-cache-dir \
         mlflow
 
 RUN pip3 --no-cache-dir install \
-        pymlutil==0.0.85  \
-        torchdatasetutil==0.0.36
+        pymlutil==0.0.87  \
+        torchdatasetutil==0.0.37
 
 WORKDIR /app
 COPY datasets datasets

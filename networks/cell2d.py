@@ -921,7 +921,7 @@ def parse_arguments():
     parser.add_argument('-model_type', type=str,  default='Classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
     parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default="crisp20220210_t00_00")
+    parser.add_argument('-model_dest', type=str, default="crisp20220511_t00_00")
     parser.add_argument('-cuda', type=bool, default=True)
     parser.add_argument('-k_structure', type=float, default=1e0, help='Structure minimization weighting factor')
     parser.add_argument('-target_structure', type=float, default=0.00, help='Structure minimization weighting factor')
@@ -1338,17 +1338,20 @@ def Test(args):
                 # zero the parameter gradients
                 optimizer.zero_grad()
                 outputs = model(inputs, isTraining=True)
-                loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights  = criterion(outputs, labels, classify)
+                loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale  = criterion(outputs, labels, classify)
+
                 loss.backward()
                 optimizer.step()
 
                 # print statistics
                 running_loss += loss.item()
 
-                writer.add_scalar('loss/train', loss, iSample)
-                writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, iSample)
-                writer.add_scalar('architecture_loss/train', architecture_loss, iSample)
-                writer.add_scalar('architecture_reduction/train', architecture_reduction, iSample)
+                if writer is not None:
+                    writer.add_scalar('loss/train', loss, iSample)
+                    writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, iSample)
+                    writer.add_scalar('CRISP/architecture_loss', architecture_loss, iSample)
+                    writer.add_scalar('CRISP/prune_loss', prune_loss, iSample)
+                    writer.add_scalar('CRISP/architecture_reduction', architecture_reduction, iSample)
                 #test_results['train']['loss'].append(loss.item())
                 #test_results['train']['cross_entropy_loss'].append(cross_entropy_loss.item())
                 #test_results['train']['architecture_loss'].append(architecture_loss.item())
@@ -1373,23 +1376,34 @@ def Test(args):
                     results = (classifications == labels).float()
                     test_accuracy = torch.sum(results)/len(results)
 
-                    loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights  = criterion(outputs, labels, classify)
+                    loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale  = criterion(outputs, labels, classify)
 
                     running_loss /=test_freq
                     msg = '[{:3}/{}, {:6d}/{}]  accuracy: {:05f}|{:05f} loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test)'.format(
-                        epoch + 1,args.epochs, i + 1, trainingset.__len__()/args.batch_size, training_accuracy, test_accuracy, running_loss, loss, architecture_reduction)
+                        epoch + 1,
+                        args.epochs, 
+                        i + 1, 
+                        trainingset.__len__()/args.batch_size, 
+                        training_accuracy.item(), 
+                        test_accuracy.item(), 
+                        running_loss, 
+                        loss.item(), 
+                        architecture_reduction.item()
+                    )
                     if args.job is True:
                         print(msg)
                     else:
                         tqdm.write(msg)
                     running_loss = 0.0
 
-                    writer.add_scalar('accuracy/train', training_accuracy, iSample)
-                    writer.add_scalar('accuracy/test', test_accuracy, iSample)
-                    writer.add_scalar('loss/test', loss, iSample)
-                    writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, iSample)
-                    writer.add_scalar('architecture_loss/test', architecture_loss, iSample)
-                    writer.add_scalar('architecture_reduction/train', architecture_reduction, iSample)
+                    if writer is not None:
+                        writer.add_scalar('accuracy/train', training_accuracy, iSample)
+                        writer.add_scalar('accuracy/test', test_accuracy, iSample)
+                        writer.add_scalar('loss/test', loss, iSample)
+                        writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, iSample)
+                        writer.add_scalar('CRISP/architecture_loss', architecture_loss, iSample)
+                        writer.add_scalar('CRISP/prune_loss', prune_loss, iSample)
+                        writer.add_scalar('CRISP/architecture_reduction', architecture_reduction, iSample)
 
                     #test_results['train']['loss'].append(running_loss)
                     #test_results['test']['loss'].append(loss)

@@ -343,7 +343,7 @@ def parse_arguments():
 
     parser.add_argument('-imStatistics', type=str2bool, default=False, help='Record individual image statistics')
 
-    parser.add_argument('-dataset', type=str, default='coco', choices=['coco', 'lit'], help='Dataset')
+    parser.add_argument('-dataset', type=str, default='lit', choices=['coco', 'lit'], help='Dataset')
 
     parser.add_argument('-lit_dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
     parser.add_argument('-lit_class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
@@ -392,6 +392,7 @@ def parse_arguments():
     parser.add_argument('-job', action='store_true',help='Run as job')
 
     parser.add_argument('-resultspath', type=str, default=None)
+    parser.add_argument('-prevresultspath', type=str, default=None)
     parser.add_argument('-test_dir', type=str, default='/store/data/network2d')
     parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
@@ -476,7 +477,7 @@ def collate_fn(batch):
     batch = list(filter(lambda x: x is not None, batch))
     return torch.utils.data.dataloader.default_collate(batch)
 
-def Train(args, s3, s3def, class_dictionary, segment, device, results):
+def Train(args, s3, s3def, class_dictionary, segment, device, results, iSample=0):
 
     # Enable multi-gpu processing
     if torch.cuda.device_count() > 1:
@@ -566,7 +567,6 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
         optimizer = optim.Adam(segment.parameters(), lr= args.learning_rate)
         plotsearch = PlotSearch()
         plotgrads = PlotGradients()
-        iSample = 0
 
         test_freq = args.test_sparsity*int(math.ceil(trainloader['batches']/testloader['batches']))
         tstart = None
@@ -575,12 +575,12 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
         # Set up fence sitter ejectors
         ejector_exp = None
         if args.ejector == FenceSitterEjectors.dais or args.ejector == FenceSitterEjectors.dais.value:
-            writer.add_scalar('CRISP/sigmoid_scale', args.sigmoid_scale, iSample)
+            writer.add_scalar('CRISP/sigmoid_scale', args.sigmoid_scale, results['batches'])
             if args.epochs > args.ejector_epoch and args.ejector_max > args.sigmoid_scale:
                 ejector_exp =  Exponential(vx=args.ejector_epoch, vy=args.sigmoid_scale, px=args.ejector_epoch+args.epochs, py=args.ejector_max, power=args.ejector_exp)
 
         elif args.ejector == FenceSitterEjectors.prune_basis or args.ejector == FenceSitterEjectors.prune_basis.value:
-            writer.add_scalar('CRISP/k_prune_basis', args.k_prune_basis, iSample)
+            writer.add_scalar('CRISP/k_prune_basis', args.k_prune_basis, results['batches'])
             if args.epochs > args.ejector_epoch and args.ejector_max > 0:
                 ejector_exp =  Exponential(vx=args.ejector_epoch, vy=0, px=args.ejector_epoch+args.epochs, py=args.ejector_max, power=args.ejector_exp)
 
@@ -629,17 +629,17 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
                 running_loss += loss.item()
                 training_cross_entropy_loss = cross_entropy_loss
                 if writer is not None:
-                    writer.add_scalar('loss/train', loss, iSample)
-                    writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, iSample)
-                    writer.add_scalar('time/infer', dtInfer, iSample)
-                    writer.add_scalar('time/loss', dtLoss, iSample)
-                    writer.add_scalar('time/backpropegation', dtBackprop, iSample)
-                    writer.add_scalar('time/compute', dtCompute, iSample)
-                    writer.add_scalar('time/cycle', dtCycle, iSample)
-                    writer.add_scalar('CRISP/architecture_loss', architecture_loss, iSample)
-                    writer.add_scalar('CRISP/prune_loss', prune_loss, iSample)
-                    writer.add_scalar('CRISP/architecture_reduction', architecture_reduction, iSample)
-                    #writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, iSample)
+                    writer.add_scalar('loss/train', loss, results['batches'])
+                    writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, results['batches'])
+                    writer.add_scalar('time/infer', dtInfer, results['batches'])
+                    writer.add_scalar('time/loss', dtLoss, results['batches'])
+                    writer.add_scalar('time/backpropegation', dtBackprop, results['batches'])
+                    writer.add_scalar('time/compute', dtCompute, results['batches'])
+                    writer.add_scalar('time/cycle', dtCycle, results['batches'])
+                    writer.add_scalar('CRISP/architecture_loss', architecture_loss, results['batches'])
+                    writer.add_scalar('CRISP/prune_loss', prune_loss, results['batches'])
+                    writer.add_scalar('CRISP/architecture_reduction', architecture_reduction, results['batches'])
+                    #writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
 
                 if i % test_freq == test_freq-1:    # Save image and run test
                     if writer is not None:
@@ -677,8 +677,8 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
                         loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale = loss_fcn(outputs, labels, model)
 
                     if writer is not None:
-                        writer.add_scalar('loss/test', loss, iSample)
-                        writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, iSample)
+                        writer.add_scalar('loss/test', loss, results['batches'])
+                        writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, results['batches'])
 
                         
 
@@ -726,7 +726,7 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
                     break
             
                 prof.step()
-                iSample += 1
+                results['batches'] += 1
 
             img = plotsearch.plot(cell_weights)
             if img.size > 0:
@@ -748,11 +748,11 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
             if ejector_exp is not None and (args.ejector == FenceSitterEjectors.dais or args.ejector == FenceSitterEjectors.dais.value):
                 sigmoid_scale = ejector_exp.f(epoch)
                 segment.ApplyParameters(sigmoid_scale=sigmoid_scale)
-                writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, iSample)
+                writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
             elif args.ejector == FenceSitterEjectors.prune_basis or args.ejector == FenceSitterEjectors.prune_basis.value:
                 k_prune_basis = ejector_exp.f(epoch)
                 loss_fcn.k_prune_basis = k_prune_basis
-                writer.add_scalar('CRISP/k_prune_basis', k_prune_basis, iSample)
+                writer.add_scalar('CRISP/k_prune_basis', k_prune_basis, results['batches'])
 
         print('{} training complete'.format(args.model_dest))
         results['training'] = {}
@@ -864,6 +864,10 @@ def Test(args, s3, s3def, class_dictionary, segment, device, results):
 def main(args): 
     print('Network2D Test')
 
+    prevresultspath = None
+    if args.prevresultspath:
+        prevresultspath = args.prevresultspath = ReadDict()
+
     results={}
     results['config'] = args.__dict__
     results['config']['ejector'] = args.ejector.value
@@ -890,12 +894,14 @@ def main(args):
         device = torch.device("cuda")
         pin_memory = True
 
+    class_dictionary = None
     if args.dataset=='coco':
         class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.coco_class_dict)
     elif args.dataset=='lit':
         class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.lit_class_dict)
-    else:
-        raise ValueError('{} {} unsupported dataset {}'.format(__file__, __name__, args.dataset)) 
+        
+    if not class_dictionary:
+        raise ValueError('{} {} unsupported dataset {}'.format(__file__, __name__, args.dataset))
 
     if(args.model_src and args.model_src != ''):
         modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))

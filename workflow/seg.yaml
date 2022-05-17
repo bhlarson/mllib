@@ -11,6 +11,8 @@ workflow:
       parameters:
         - name: resultspath
           value: /app/results.json
+        - name: prevresultspath
+          value: /app/prevresults.json
         - name: train_image
           value: 'bhlarson/torch-train:latest'
         - name: dataset
@@ -124,11 +126,13 @@ workflow:
             {name: learning_rate, value: 1e-4},
             {name: class_weight, value: "[1.0, 1.0]"},
             {name: description, value: '{"author":"Brad Larson","description":"Crisp LIT segmentation"}'}]
+          artifacts:
+          - name: prev_results
+            path: '{{workflow.parameters.prevresultspath}}'
         outputs:
-          parameters:
+          artifacts:
             - name: results
-              valueFrom:
-                path: '{{workflow.parameters.resultspath}}'
+              path: '{{workflow.parameters.resultspath}}'
         # Shared memory volume needed for worker threads: 
         # https://stackoverflow.com/questions/46085748/define-size-for-dev-shm-on-container-engine/46434614#46434614
         volumes:
@@ -160,6 +164,7 @@ workflow:
             - -model_dest={{inputs.parameters.model_dest}}
             - -description={{inputs.parameters.description}}
             - -resultspath={{workflow.parameters.resultspath}}
+            - -prevresultspath={{workflow.parameters.prevresultspath}}
             - -batch_size={{workflow.parameters.batch_size}}
             - -class_weight={{inputs.parameters.class_weight}}
             - -batch_norm=true

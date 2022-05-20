@@ -29,12 +29,15 @@ from datetime import datetime
 from pymlutil.torch_util import count_parameters, model_stats, model_weights
 from pymlutil.jsonutil import ReadDict, WriteDict
 from pymlutil.s3 import s3store, Connect
-from pymlutil.functions import Exponential
+from pymlutil.functions import Exponential, GaussianBasis
+from pymlutil.metrics import DatasetResults
+import pymlutil.version as pymlutil_version
+
 from torchdatasetutil.cocostore import CreateCocoLoaders
 from torchdatasetutil.imstore import  CreateImageLoaders
-from pymlutil.metrics import DatasetResults
-from pymlutil.functions import GaussianBasis
-#from pymlutil.version import version as pymlutil_version
+import torchdatasetutil.version as  torchdatasetutil_version
+
+
 
 sys.path.insert(0, os.path.abspath(''))
 from networks.cell2d import Cell, GaussianBasis, NormGausBasis, PlotSearch, PlotGradients
@@ -334,10 +337,12 @@ def parse_arguments():
     import argparse
     parser = argparse.ArgumentParser(description='Process arguments')
 
-    parser.add_argument('--debug', '-d', action='store_true',help='Wait for debuggee attach')   
+    parser.add_argument('-d', action='store_true',help='Wait for debuggee attach')   
+    parser.add_argument('-debug', type=str2bool, default=False, help='Wait for debuggee attach')  
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
-    parser.add_argument('-fast', action='store_true', help='Fast run with a few iterations')
+    parser.add_argument('-min', action='store_true', help='Minimum run with a few iterations to test execution')
+    parser.add_argument('-minimum', type=str2bool, default=False, help='Minimum run with a few iterations to test execution')
 
     parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
 
@@ -358,6 +363,7 @@ def parse_arguments():
     parser.add_argument('-model_class', type=str,  default='crisplit')
     parser.add_argument('-model_src', type=str,  default=None)
     parser.add_argument('-model_dest', type=str, default='crispcoco_20220502')
+    parser.add_argument('-tb_dest', type=str, default='crispcoco_20220502')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
@@ -391,8 +397,8 @@ def parse_arguments():
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
-    parser.add_argument('-resultspath', type=str, default=None)
-    parser.add_argument('-prevresultspath', type=str, default=None)
+    parser.add_argument('-resultspath', type=str, default='results.yaml')
+    parser.add_argument('-prevresultspath', type=str, default='results.yaml')
     parser.add_argument('-test_dir', type=str, default='/store/data/network2d')
     parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
@@ -402,6 +408,12 @@ def parse_arguments():
     parser.add_argument('-description', type=json.loads, default='{"description":"CRISP training"}', help='Test description')
 
     args = parser.parse_args()
+
+    if args.d:
+        args.debug = args.d
+    if args.min:
+        args.minimum = args.min
+
     return args
 
 def MakeNetwork2d(class_dictionary, args):
@@ -477,7 +489,21 @@ def collate_fn(batch):
     batch = list(filter(lambda x: x is not None, batch))
     return torch.utils.data.dataloader.default_collate(batch)
 
-def Train(args, s3, s3def, class_dictionary, segment, device, results, iSample=0):
+def Train(args, s3, s3def, class_dictionary, segment, device, results):
+
+    # Load number of previous batches to continue tensorboard from previous training
+    prevresultspath = None
+    if args.prevresultspath and len(args.prevresultspath) > 0:
+        prevresultspath = ReadDict(args.prevresultspath)
+        if prevresultspath is not None and 'batches' in prevresultspath:
+            results['batches'] = prevresultspath['batches']
+
+    if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
+        tb_path = '{}/{}/{}_tb'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
+        s3.GetDir(s3def['sets']['test']['bucket'], tb_path, args.tensorboard_dir )
+
+    if 'batches' not in results:
+        results['batches'] = 0
 
     # Enable multi-gpu processing
     if torch.cuda.device_count() > 1:
@@ -721,12 +747,12 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results, iSample=0
                         # Save calls zero_grads so call it after plotgrads.plot
 
                     save(segment, s3, s3def, args)
-
-                if args.fast and i+1 >= test_freq:
-                    break
-            
+          
                 prof.step()
                 results['batches'] += 1
+
+                if args.minimum and i >= test_freq:
+                    break
 
             img = plotsearch.plot(cell_weights)
             if img.size > 0:
@@ -745,14 +771,18 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results, iSample=0
 
             save(segment, s3, s3def, args)
 
-            if ejector_exp is not None and (args.ejector == FenceSitterEjectors.dais or args.ejector == FenceSitterEjectors.dais.value):
-                sigmoid_scale = ejector_exp.f(epoch)
-                segment.ApplyParameters(sigmoid_scale=sigmoid_scale)
-                writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
-            elif args.ejector == FenceSitterEjectors.prune_basis or args.ejector == FenceSitterEjectors.prune_basis.value:
-                k_prune_basis = ejector_exp.f(epoch)
+            if ejector_exp is not None:
+                if (args.ejector == FenceSitterEjectors.dais or args.ejector == FenceSitterEjectors.dais.value):
+                    sigmoid_scale = ejector_exp.f(epoch)
+                    segment.ApplyParameters(sigmoid_scale=sigmoid_scale)
+                    writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
+                elif args.ejector == FenceSitterEjectors.prune_basis or args.ejector == FenceSitterEjectors.prune_basis.value:
+                    k_prune_basis = ejector_exp.f(epoch)
                 loss_fcn.k_prune_basis = k_prune_basis
                 writer.add_scalar('CRISP/k_prune_basis', k_prune_basis, results['batches'])
+
+            if args.minimum:
+                break
 
         print('{} training complete'.format(args.model_dest))
         results['training'] = {}
@@ -761,8 +791,8 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results, iSample=0
         if prune_loss: results['training']['prune_loss']=prune_loss.item()
         if architecture_reduction: results['training']['architecture_reduction']=architecture_reduction.item()
 
-        if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.model_dest is not None and len(args.model_dest) > 0):
-            tb_path = '{}/{}/{}_tb'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+        if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
+            tb_path = '{}/{}/{}_tb'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
             s3.PutDir(s3def['sets']['test']['bucket'], args.tensorboard_dir, tb_path )
 
     return results
@@ -835,7 +865,7 @@ def Test(args, s3, s3def, class_dictionary, segment, device, results):
 
             dsResults.infer_results(i, images, labels, segmentations, mean.numpy(), stdev.numpy(), dt)
 
-            if args.fast and i+1 >= 10:
+            if args.minimum and i+1 >= 10:
                 break
             prof.step() 
 
@@ -864,19 +894,17 @@ def Test(args, s3, s3def, class_dictionary, segment, device, results):
 def main(args): 
     print('Network2D Test')
 
-    prevresultspath = None
-    if args.prevresultspath:
-        prevresultspath = args.prevresultspath = ReadDict()
-
     results={}
     results['config'] = args.__dict__
     results['config']['ejector'] = args.ejector.value
     results['system'] = {
-        'platform':platform.platform(),
-        'python':platform.python_version(),
-        'numpy': np.__version__,
-        'torch': torch.__version__,
-        'OpenCV': cv2.__version__,
+        'platform':str(platform.platform()),
+        'python':str(platform.python_version()),
+        'numpy': str(np.__version__),
+        'torch': str(torch.__version__),
+        'OpenCV': str(cv2.__version__),
+        'pymlutil': str(pymlutil_version.__version__),
+        'torchdatasetutil':str(torchdatasetutil_version.__version__),
     }
     print('Network2d Test system={}'.format(results['system'] ))
     print('Network2d Test config={}'.format(results['config'] ))
@@ -950,7 +978,8 @@ def main(args):
     if args.resultspath is not None and len(args.resultspath) > 0:
         WriteDict(results, args.resultspath)
 
-    print('Finished {} {}'.format(args.model_dest, results))
+    print('Finished {}'.format(args.model_dest, json.dumps(results, indent=2)))
+    print(json.dumps(results, indent=2))
     return 0
 
 if __name__ == '__main__':

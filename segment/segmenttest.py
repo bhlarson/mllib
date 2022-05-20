@@ -79,7 +79,7 @@ def PrepareResults(test_data):
                 'model type': test['config']['model_type'],
                 'model class': test['config']['model_class'],
                 'test images':test['results']['num images'],
-                'mean IoU':test['results']['mean intersection over union'], 
+                'mean IoU':test['results']['miou'], 
                 'inference time':test['results']['average time'],
                 'description': description
                 }
@@ -185,7 +185,7 @@ def PlotModelsData(models, sort=True):
 
             x.append(model_name)
             row = []
-            row.append(results['mean intersection over union'])
+            row.append(results['miou'])
             for value in results['similarity'].values():
                 row.append(value['similarity'])
 

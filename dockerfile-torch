@@ -48,9 +48,10 @@ RUN pip3 --no-cache-dir install \
         mlflow \
         nni
 
+ADD "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
 RUN pip3 --no-cache-dir install --upgrade\
-        pymlutil==0.0.87  \
-        torchdatasetutil==0.0.37
+        pymlutil  \
+        torchdatasetutil
 
 # ZED Python API https://stackoverflow.com/a/63457606/7036639
 RUN wget download.stereolabs.com/zedsdk/pyzed -O /usr/local/zed/get_python_api.py && \

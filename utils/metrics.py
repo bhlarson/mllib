@@ -231,7 +231,7 @@ class DatasetResults:
         results = {'confusion':self.totalConfusion.tolist(), 
                    'similarity':dataset_similarity,
                    'average time': average_time,
-                   'mean intersection over union': miou,
+                   'miou': miou.item(),
                    'num images': num_images,
                 }
         if self.imStatistics:

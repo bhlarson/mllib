@@ -40,9 +40,10 @@ RUN pip3 install --no-cache-dir \
         PyYAML \
         mlflow
 
+ADD "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
 RUN pip3 --no-cache-dir install \
-        pymlutil==0.0.87  \
-        torchdatasetutil==0.0.37
+        pymlutil  \
+        torchdatasetutil
 
 WORKDIR /app
 COPY datasets datasets

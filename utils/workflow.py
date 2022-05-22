@@ -20,17 +20,6 @@ def set_parameters(workflow, new_parameters, template_name='train'):
             if key == parameter['name']:
                 parameter['value'] = value
 
-    '''
-    templates = workflow['workflow']['spec']['templates']
-    template = next(filter(lambda d: d.get('name') == template_name, templates), None)
-    if template:
-        parameters = template['inputs']['parameters']
-        for parameter in parameters:
-            name = parameter['name']
-            if name in new_parameters:
-                parameter['value'] = new_parameters[name]
-    '''
-
 
 def run(workflow, argocreds):
     session = requests.session()
@@ -65,7 +54,7 @@ def parse_arguments():
     args = parser.parse_args()
     return args
 
-def Test(args):
+def main(args):
 
     s3, creds, s3def = Connect(args.credentails, s3_name=args.objectserver)
     if not s3:
@@ -107,5 +96,5 @@ if __name__ == '__main__':
         debugpy.wait_for_client()
         print("Debugger attached")
 
-    result = Test(args)
+    result = main(args)
     sys.exit(result)

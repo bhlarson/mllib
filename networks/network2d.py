@@ -363,7 +363,7 @@ def parse_arguments():
     parser.add_argument('-model_class', type=str,  default='crisplit')
     parser.add_argument('-model_src', type=str,  default=None)
     parser.add_argument('-model_dest', type=str, default='crispcoco_20220502')
-    parser.add_argument('-tb_dest', type=str, default='crispcoco_20220502')
+    parser.add_argument('-tb_dest', type=str, default='crispcoco_20220502_tb')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
@@ -792,7 +792,7 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
         if architecture_reduction: results['training']['architecture_reduction']=architecture_reduction.item()
 
         if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
-            tb_path = '{}/{}/{}_tb'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
+            tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
             s3.PutDir(s3def['sets']['test']['bucket'], args.tensorboard_dir, tb_path )
 
     return results

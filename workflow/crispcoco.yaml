@@ -231,6 +231,8 @@ workflow:
             - -ejector={{inputs.parameters.ejector}}
             - -ejector_epoch={{inputs.parameters.ejector_epoch}}
             - -ejector_max={{inputs.parameters.ejector_max}}
+            - -debug={{workflow.parameters.debug}}
+            - -min={{workflow.parameters.min}}
           ports:
             - name: debug
               containerPort: 3000

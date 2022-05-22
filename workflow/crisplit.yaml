@@ -28,10 +28,10 @@ workflow:
           value: 0
           # Start container and wait for debugger to attach
         - name: debug
-          value: false
+          value: true
           # Perform minimum run to test code execution
         - name: min
-          value: false
+          value: true
 
     entrypoint: train-crisp
     priority: 1
@@ -220,7 +220,7 @@ workflow:
             - -learning_rate={{inputs.parameters.learning_rate}}
             - -model_src={{inputs.parameters.model_src}}
             - -model_dest={{inputs.parameters.model_dest}}
-            - -tb_dest="crisplit_{{workflow.parameters.output_name}}_tb"
+            - -tb_dest=crisplit_{{workflow.parameters.output_name}}_tb
             - -description={{inputs.parameters.description}}
             - -resultspath={{inputs.parameters.resultspath}}
             - -prevresultspath={{inputs.parameters.prevresultspath}}
@@ -232,6 +232,8 @@ workflow:
             - -ejector={{inputs.parameters.ejector}}
             - -ejector_epoch={{inputs.parameters.ejector_epoch}}
             - -ejector_max={{inputs.parameters.ejector_max}}
+            - -debug={{workflow.parameters.debug}}
+            - -minimum={{workflow.parameters.min}}
           ports:
             - name: debug
               containerPort: 3000

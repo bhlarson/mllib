@@ -28,10 +28,10 @@ workflow:
           value: 0
           # Start container and wait for debugger to attach
         - name: debug
-          value: true
+          value: false
           # Perform minimum run to test code execution
         - name: min
-          value: true
+          value: false
 
     entrypoint: train-crisp
     priority: 1
@@ -131,7 +131,7 @@ workflow:
                   - {name: infer, value: false}
                   - {name: search_structure, value: false}
                   - {name: learning_rate, value: 1e-4}
-                  - {name: epochs, value: 20}
+                  - {name: epochs, value: 30}
                   - {name: target_structure, value: '{{workflow.parameters.target_structure}}'}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_02"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_03"}
@@ -220,7 +220,7 @@ workflow:
             - -learning_rate={{inputs.parameters.learning_rate}}
             - -model_src={{inputs.parameters.model_src}}
             - -model_dest={{inputs.parameters.model_dest}}
-            - -tb_dest=crisplit_{{workflow.parameters.output_name}}_tb
+            - -tb_dest=crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_tb
             - -description={{inputs.parameters.description}}
             - -resultspath={{inputs.parameters.resultspath}}
             - -prevresultspath={{inputs.parameters.prevresultspath}}

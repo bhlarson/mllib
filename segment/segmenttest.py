@@ -73,13 +73,18 @@ def PrepareResults(test_data):
                 if 'description' in test['config']['description']:
                     description = test['config']['description']['description']
 
+            miou = None
+            if 'mean intersection over union' in test['results']: 
+                miou=test['results']['mean intersection over union']
+            elif 'miou' in test['results']:
+                miou=test['results']['miou']
             
             test_overview = {
                 'date': test['date'],
                 'model type': test['config']['model_type'],
                 'model class': test['config']['model_class'],
                 'test images':test['results']['num images'],
-                'mean IoU':test['results']['miou'], 
+                'mean IoU':miou, 
                 'inference time':test['results']['average time'],
                 'description': description
                 }
@@ -185,7 +190,14 @@ def PlotModelsData(models, sort=True):
 
             x.append(model_name)
             row = []
-            row.append(results['miou'])
+
+            miou = None
+            if 'mean intersection over union' in results: 
+                miou=results['mean intersection over union']
+            elif 'miou' in results:
+                miou=results
+
+            row.append(miou)
             for value in results['similarity'].values():
                 row.append(value['similarity'])
 

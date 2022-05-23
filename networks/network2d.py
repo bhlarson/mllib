@@ -37,8 +37,6 @@ from torchdatasetutil.cocostore import CreateCocoLoaders
 from torchdatasetutil.imstore import  CreateImageLoaders
 import torchdatasetutil.version as  torchdatasetutil_version
 
-
-
 sys.path.insert(0, os.path.abspath(''))
 from networks.cell2d import Cell, GaussianBasis, NormGausBasis, PlotSearch, PlotGradients
 from networks.totalloss import TotalLoss, FenceSitterEjectors
@@ -358,6 +356,7 @@ def parse_arguments():
     parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=70, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
+
     parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')

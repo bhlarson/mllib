@@ -492,13 +492,15 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
 
     # Load number of previous batches to continue tensorboard from previous training
     prevresultspath = None
+    print('prevresultspath={}'.format(args.prevresultspath))
     if args.prevresultspath and len(args.prevresultspath) > 0:
         prevresultspath = ReadDict(args.prevresultspath)
         if prevresultspath is not None and 'batches' in prevresultspath:
+            print('found prevresultspath={}'.format(prevresultspath))
             results['batches'] = prevresultspath['batches']
 
     if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
-        tb_path = '{}/{}/{}_tb'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
+        tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
         s3.GetDir(s3def['sets']['test']['bucket'], tb_path, args.tensorboard_dir )
 
     if 'batches' not in results:
@@ -555,8 +557,8 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
         tb.configure(('tensorboard', '--logdir', args.tensorboard_dir))
         url = tb.launch()
         print(f"Tensorboard on {url}")
-
-        writer = SummaryWriter(args.tensorboard_dir)
+        writer_path = '{}/{}'.format(args.tensorboard_dir, args.model_dest)
+        writer = SummaryWriter(writer_path)
 
     # Define a Loss function and optimizer
     target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32, device=device)
@@ -619,6 +621,7 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
             for i, data in tqdm(enumerate(trainloader['dataloader']), 
                                 bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}', 
                                 total=trainloader['batches'], desc="Train batches", disable=args.job):
+
                 # get the inputs; data is a list of [inputs, labels]
                 prevtstart = tstart
                 tstart = time.perf_counter()

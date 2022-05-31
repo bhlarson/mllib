@@ -68,7 +68,7 @@ workflow:
                   - {name: prune, value: false}
                   - {name: train, value: true}
                   - {name: infer, value: false}
-                  - {name: search_structure, value: true}
+                  - {name: search_structure, value: false}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
                   - {name: learning_rate, value: 2e-4}
                   - {name: epochs, value: 50}
@@ -89,6 +89,7 @@ workflow:
                   - {name: train, value: true}
                   - {name: infer, value: false}
                   - {name: search_structure, value: true}
+                  - {name: k_structure, value: 0.1}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
                   - {name: learning_rate, value: 1e-4}
                   - {name: start_epoch, value: 50}
@@ -176,7 +177,7 @@ workflow:
             - {name: class_weight, value: "[1.0, 1.0, 1.0, 1.0]"}
             - {name: description, value: '{"author":"Brad Larson","description":"Crisp LIT segmentation"}'}
             - {name: resultspath, value: "/app/results.yaml"}
-            - {name: prevresultspath, value: "/app/prevresults.yam"}
+            - {name: prevresultspath, value: "/app/prevresults.yaml"}
 
           artifacts:
             - name: prev_results

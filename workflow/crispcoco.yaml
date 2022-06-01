@@ -89,13 +89,13 @@ workflow:
                   - {name: train, value: true}
                   - {name: infer, value: false}
                   - {name: search_structure, value: true}
-                  - {name: k_structure, value: 0.1}
+                  - {name: k_structure, value: 1.0}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
                   - {name: learning_rate, value: 1e-4}
-                  - {name: start_epoch, value: 50}
-                  - {name: epochs, value: 70}
+                  - {name: start_epoch, value: 0}
+                  - {name: epochs, value: 50}
                   - {name: ejector, value: 'prune_basis'}
-                  - {name: ejector_epoch, value: 50}
+                  - {name: ejector_epoch, value: 25}
                   - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_01"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_02"}

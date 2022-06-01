@@ -386,7 +386,7 @@ def parse_arguments():
     parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='convolution channel sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
     parser.add_argument('-ejector', type=FenceSitterEjectors, default=FenceSitterEjectors.prune_basis, choices=list(FenceSitterEjectors))
-    parser.add_argument('-ejector_epoch', type=float, default=50, help='Ejector start epoch')
+    parser.add_argument('-ejector_epoch', type=float, default=10, help='Ejector start epoch')
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector start epoch')
     parser.add_argument('-ejector_exp', type=float, default=3, help='Ejector exponent')
     parser.add_argument('-prune', type=str2bool, default=False)
@@ -598,6 +598,11 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
         test_freq = args.test_sparsity*int(math.ceil(trainloader['batches']/testloader['batches']))
         tstart = None
         compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
+
+
+        # parser.add_argument('-ejector_epoch', type=float, default=50, help='Ejector start epoch')
+        # parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector start epoch')
+        # parser.add_argument('-ejector_exp', type=float, default=3, help='Ejector exponent')
 
         # Set up fence sitter ejectors
         ejector_exp = None

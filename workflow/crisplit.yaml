@@ -90,7 +90,7 @@ workflow:
                   - {name: train, value: true}
                   - {name: infer, value: false}
                   - {name: search_structure, value: true}
-                  - {name: k_structure, value: 1.0}
+                  - {name: k_structure, value: 0.1}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
                   - {name: learning_rate, value: 1e-4}
                   - {name: start_epoch, value: 0}

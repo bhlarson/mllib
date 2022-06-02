@@ -622,6 +622,15 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
                             desc="Train epochs", disable=args.job):  # loop over the dataset multiple times
             iTest = iter(testloader['dataloader'])
 
+            if ejector_exp is not None:
+                if (args.ejector == FenceSitterEjectors.dais or args.ejector == FenceSitterEjectors.dais.value):
+                    sigmoid_scale = ejector_exp.f(epoch)
+                    segment.ApplyParameters(sigmoid_scale=sigmoid_scale)
+                    writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
+                elif args.ejector == FenceSitterEjectors.prune_basis or args.ejector == FenceSitterEjectors.prune_basis.value:
+                    loss_fcn.k_prune_basis = ejector_exp.f(epoch).item()
+                writer.add_scalar('CRISP/k_prune_basis', loss_fcn.k_prune_basis, results['batches'])
+
             running_loss = 0.0
             for i, data in tqdm(enumerate(trainloader['dataloader']), 
                                 bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}', 
@@ -777,15 +786,6 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
                 s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
 
             save(segment, s3, s3def, args)
-
-            if ejector_exp is not None:
-                if (args.ejector == FenceSitterEjectors.dais or args.ejector == FenceSitterEjectors.dais.value):
-                    sigmoid_scale = ejector_exp.f(epoch)
-                    segment.ApplyParameters(sigmoid_scale=sigmoid_scale)
-                    writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
-                elif args.ejector == FenceSitterEjectors.prune_basis or args.ejector == FenceSitterEjectors.prune_basis.value:
-                    loss_fcn.k_prune_basis = ejector_exp.f(epoch).item()
-                writer.add_scalar('CRISP/k_prune_basis', loss_fcn.k_prune_basis, results['batches'])
 
             if args.minimum:
                 break

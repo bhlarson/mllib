@@ -353,16 +353,16 @@ def parse_arguments():
 
     parser.add_argument('-coco_class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=70, help='Training epochs')
+    parser.add_argument('-batch_size', type=int, default=3, help='Training batch size')
+    parser.add_argument('-epochs', type=int, default=20, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
     parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default='crispcoco_20220502')
-    parser.add_argument('-tb_dest', type=str, default='crispcoco_20220502_tb')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220601i0_01')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220601i0_02')
+    parser.add_argument('-tb_dest', type=str, default='crisplit_20220601i_tb')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
@@ -386,13 +386,13 @@ def parse_arguments():
     parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='convolution channel sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
     parser.add_argument('-ejector', type=FenceSitterEjectors, default=FenceSitterEjectors.prune_basis, choices=list(FenceSitterEjectors))
-    parser.add_argument('-ejector_epoch', type=float, default=10, help='Ejector start epoch')
+    parser.add_argument('-ejector_epoch', type=float, default=0.0, help='Ejector start epoch')
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector start epoch')
     parser.add_argument('-ejector_exp', type=float, default=3, help='Ejector exponent')
     parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=True)
-    parser.add_argument('-search_structure', type=str2bool, default=False)
+    parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
@@ -784,9 +784,8 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
                     segment.ApplyParameters(sigmoid_scale=sigmoid_scale)
                     writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
                 elif args.ejector == FenceSitterEjectors.prune_basis or args.ejector == FenceSitterEjectors.prune_basis.value:
-                    k_prune_basis = ejector_exp.f(epoch)
-                loss_fcn.k_prune_basis = k_prune_basis
-                writer.add_scalar('CRISP/k_prune_basis', k_prune_basis, results['batches'])
+                    loss_fcn.k_prune_basis = ejector_exp.f(epoch).item()
+                writer.add_scalar('CRISP/k_prune_basis', loss_fcn.k_prune_basis, results['batches'])
 
             if args.minimum:
                 break

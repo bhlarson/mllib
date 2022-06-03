@@ -360,9 +360,9 @@ def parse_arguments():
     parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220601i0_01')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220601i0_02')
-    parser.add_argument('-tb_dest', type=str, default='crisplit_20220601i_tb')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220602i0_01')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220602i0_02')
+    parser.add_argument('-tb_dest', type=str, default='crisplit_20220602i_tb')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
@@ -386,9 +386,9 @@ def parse_arguments():
     parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='convolution channel sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
     parser.add_argument('-ejector', type=FenceSitterEjectors, default=FenceSitterEjectors.prune_basis, choices=list(FenceSitterEjectors))
-    parser.add_argument('-ejector_epoch', type=float, default=0.0, help='Ejector start epoch')
+    parser.add_argument('-ejector_epoch', type=float, default=0, help='Ejector start epoch')
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector start epoch')
-    parser.add_argument('-ejector_exp', type=float, default=3, help='Ejector exponent')
+    parser.add_argument('-ejector_exp', type=float, default=3.0, help='Ejector exponent')
     parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-infer', type=str2bool, default=True)
@@ -511,7 +511,6 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
         print("Let's use", torch.cuda.device_count(), "GPUs!")
         # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
         model = nn.DataParallel(segment)
-        segment = model.module
     else:
         model = segment
 
@@ -609,12 +608,12 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
         if args.ejector == FenceSitterEjectors.dais or args.ejector == FenceSitterEjectors.dais.value:
             writer.add_scalar('CRISP/sigmoid_scale', args.sigmoid_scale, results['batches'])
             if args.epochs > args.ejector_epoch and args.ejector_max > args.sigmoid_scale:
-                ejector_exp =  Exponential(vx=args.ejector_epoch, vy=args.sigmoid_scale, px=args.ejector_epoch+args.epochs, py=args.ejector_max, power=args.ejector_exp)
+                ejector_exp =  Exponential(vx=args.ejector_epoch, vy=args.sigmoid_scale, px=args.epochs-1, py=args.ejector_max, power=args.ejector_exp)
 
         elif args.ejector == FenceSitterEjectors.prune_basis or args.ejector == FenceSitterEjectors.prune_basis.value:
             writer.add_scalar('CRISP/k_prune_basis', args.k_prune_basis, results['batches'])
             if args.epochs > args.ejector_epoch and args.ejector_max > 0:
-                ejector_exp =  Exponential(vx=args.ejector_epoch, vy=0, px=args.ejector_epoch+args.epochs, py=args.ejector_max, power=args.ejector_exp)
+                ejector_exp =  Exponential(vx=args.ejector_epoch, vy=0, px=args.epochs-1, py=args.ejector_max, power=args.ejector_exp)
 
 
         for epoch in tqdm(range(args.start_epoch, args.epochs), 
@@ -624,11 +623,11 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
 
             if ejector_exp is not None:
                 if (args.ejector == FenceSitterEjectors.dais or args.ejector == FenceSitterEjectors.dais.value):
-                    sigmoid_scale = ejector_exp.f(epoch)
+                    sigmoid_scale = ejector_exp.f(float(epoch))
                     segment.ApplyParameters(sigmoid_scale=sigmoid_scale)
                     writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
                 elif args.ejector == FenceSitterEjectors.prune_basis or args.ejector == FenceSitterEjectors.prune_basis.value:
-                    loss_fcn.k_prune_basis = ejector_exp.f(epoch).item()
+                    loss_fcn.k_prune_basis = ejector_exp.f(float(epoch)).item()
                 writer.add_scalar('CRISP/k_prune_basis', loss_fcn.k_prune_basis, results['batches'])
 
             running_loss = 0.0
@@ -652,7 +651,7 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
                 #with torch.cuda.amp.autocast():
                 outputs = model(inputs)
                 tinfer = time.perf_counter()
-                loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale = loss_fcn(outputs, labels, model)
+                loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale = loss_fcn(outputs, labels, segment)
                 tloss = time.perf_counter()
                 loss.backward()
                 optimizer.step()
@@ -933,7 +932,7 @@ def main(args):
         class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.coco_class_dict)
     elif args.dataset=='lit':
         class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.lit_class_dict)
-        
+
     if not class_dictionary:
         raise ValueError('{} {} unsupported dataset {}'.format(__file__, __name__, args.dataset))
 

@@ -95,7 +95,7 @@ workflow:
                   - {name: learning_rate, value: 1e-4}
                   - {name: start_epoch, value: 0}
                   - {name: epochs, value: 50}
-                  - {name: ejector, value: 'dais'}
+                  - {name: ejector, value: 'prune_basis'}
                   - {name: ejector_epoch, value: 25}
                   - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_01"}

@@ -933,7 +933,7 @@ def main(args):
         class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.coco_class_dict)
     elif args.dataset=='lit':
         class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.lit_class_dict)
-        
+
     if not class_dictionary:
         raise ValueError('{} {} unsupported dataset {}'.format(__file__, __name__, args.dataset))
 

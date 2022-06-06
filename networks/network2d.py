@@ -342,7 +342,7 @@ def parse_arguments():
     parser.add_argument('-min', action='store_true', help='Minimum run with a few iterations to test execution')
     parser.add_argument('-minimum', type=str2bool, default=False, help='Minimum run with a few iterations to test execution')
 
-    parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
+    parser.add_argument('-credentails', type=str, default='creds.yaml', help='Credentials file.')
 
     parser.add_argument('-imStatistics', type=str2bool, default=False, help='Record individual image statistics')
 
@@ -357,7 +357,7 @@ def parse_arguments():
     parser.add_argument('-epochs', type=int, default=20, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
-    parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
+    parser.add_argument('-num_workers', type=int, default=0, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
     parser.add_argument('-model_src', type=str,  default='crisplit_20220602i0_01')
@@ -386,7 +386,8 @@ def parse_arguments():
     parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='convolution channel sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
     parser.add_argument('-ejector', type=FenceSitterEjectors, default=FenceSitterEjectors.prune_basis, choices=list(FenceSitterEjectors))
-    parser.add_argument('-ejector_epoch', type=float, default=0, help='Ejector start epoch')
+    parser.add_argument('-ejector_start', type=float, default=10, help='Ejector start epoch')
+    parser.add_argument('-ejector_full', type=float, default=20, help='Ejector start epoch')
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector start epoch')
     parser.add_argument('-ejector_exp', type=float, default=3.0, help='Ejector exponent')
     parser.add_argument('-prune', type=str2bool, default=False)
@@ -401,7 +402,7 @@ def parse_arguments():
     parser.add_argument('-test_dir', type=str, default='/store/data/network2d')
     parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
-    #parser.add_argument('-class_weight', type=json.loads, default='[0.02, 0.2 0.7, 1.0]', help='Loss class weight ')
+    #parser.add_argument('-class_weight', type=json.loads, default='[0.02, 1.0]', help='Loss class weight ')
     parser.add_argument('-class_weight', type=json.loads, default=None, help='Loss class weight ')
 
     parser.add_argument('-description', type=json.loads, default='{"description":"CRISP training"}', help='Test description')
@@ -483,10 +484,6 @@ def DisplayImgAn(image, label, segmentation, trainingset, mean, stdev):
     imanseg = cv2.cvtColor(imanseg, cv2.COLOR_BGR2RGB)
 
     return imanseg
-
-def collate_fn(batch):
-    batch = list(filter(lambda x: x is not None, batch))
-    return torch.utils.data.dataloader.default_collate(batch)
 
 def Train(args, s3, s3def, class_dictionary, segment, device, results):
 
@@ -598,22 +595,17 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
         tstart = None
         compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
 
-
-        # parser.add_argument('-ejector_epoch', type=float, default=50, help='Ejector start epoch')
-        # parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector start epoch')
-        # parser.add_argument('-ejector_exp', type=float, default=3, help='Ejector exponent')
-
         # Set up fence sitter ejectors
         ejector_exp = None
         if args.ejector == FenceSitterEjectors.dais or args.ejector == FenceSitterEjectors.dais.value:
             writer.add_scalar('CRISP/sigmoid_scale', args.sigmoid_scale, results['batches'])
-            if args.epochs > args.ejector_epoch and args.ejector_max > args.sigmoid_scale:
-                ejector_exp =  Exponential(vx=args.ejector_epoch, vy=args.sigmoid_scale, px=args.epochs-1, py=args.ejector_max, power=args.ejector_exp)
+            if args.epochs > args.ejector_start and args.ejector_max > args.sigmoid_scale:
+                ejector_exp =  Exponential(vx=args.ejector_start, vy=args.sigmoid_scale, px=args.ejector_full, py=args.ejector_max, power=args.ejector_exp)
 
         elif args.ejector == FenceSitterEjectors.prune_basis or args.ejector == FenceSitterEjectors.prune_basis.value:
             writer.add_scalar('CRISP/k_prune_basis', args.k_prune_basis, results['batches'])
-            if args.epochs > args.ejector_epoch and args.ejector_max > 0:
-                ejector_exp =  Exponential(vx=args.ejector_epoch, vy=0, px=args.epochs-1, py=args.ejector_max, power=args.ejector_exp)
+            if args.epochs > args.ejector_start and args.ejector_max > 0:
+                ejector_exp =  Exponential(vx=args.ejector_start, vy=0, px=args.ejector_full, py=args.ejector_max, power=args.ejector_exp)
 
 
         for epoch in tqdm(range(args.start_epoch, args.epochs), 

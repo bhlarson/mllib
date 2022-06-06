@@ -49,7 +49,7 @@ WORKDIR /app
 COPY datasets datasets
 COPY networks networks
 COPY utils utils
-COPY creds.json creds.json
+COPY creds.yaml creds.yaml
 #COPY ./dataset/cifar-10-python.tar.gz ./dataset/cifar-10-python.tar.gz
 
 ENV LANG C.UTF-8

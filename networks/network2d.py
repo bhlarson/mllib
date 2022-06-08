@@ -966,7 +966,6 @@ def main(args):
         results = Train(args, s3, s3def, class_dictionary, segment, device, results)
 
     if args.infer:
-
         results = Test(args, s3, s3def, class_dictionary, segment, device, results)
 
     if args.onnx:

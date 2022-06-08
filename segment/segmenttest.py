@@ -1,4 +1,3 @@
-# %%
 import sys, os
 import json
 import argparse
@@ -17,11 +16,10 @@ sys.path.insert(0, os.path.abspath('..'))
 from pymlutil.s3 import s3store, Connect
 from pymlutil.jsonutil import WriteDictJson, ReadDictJson
 
-# %%
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
 
-    parser.add_argument('-debug', action='store_true',help='Wait for debuggee attach')   
+    parser.add_argument('--debug', '-d', action='store_true',help='Wait for debuggee attach')   
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
 
@@ -37,11 +35,11 @@ def parse_arguments():
     parser.add_argument('-class_dict', type=str, default='model/deeplabv3/coco.json', help='Model class definition file.')
 
     parser.add_argument('-epochs', type=int, default=4, help='Training epochs')
+    parser.add_argument('--index', '-i', type=int, default=-2, help='Display index')
 
-    args = parser.parse_args("")
+    args = parser.parse_args()
     return args
 
-# %%
 def PrepareResults(test_data):
     test_names = []
     overview = {}
@@ -107,7 +105,6 @@ def PrepareResults(test_data):
 
     return test_names, overview, results, model_dict
 
-#%%
 def PlotConfusion(objects, confusion_matrix, colorscale='plasma'):
     c = np.array(confusion_matrix)
     norm_confusion = (c.T / c.astype(np.float).sum(axis=1)).T
@@ -236,11 +233,10 @@ def UpdateModel(plot, models):
             scatter.y = np.array(data)[:,i]
         
 
-#%%            
+         
 def ClearOutput(b, output):
     output.clear_output()
 
-# %%
 def SelectTest(change, output, select, display, results):
     with output:
         print('SelectTest change={}',format(change))
@@ -258,7 +254,6 @@ def SelectTest(change, output, select, display, results):
             for i in range(len(confusion_text)):
                 display.layout.annotations[i].text = confusion_text[i]'''
 
-# %%
 def SelectModel(change, output, select, display, results):
     with output:
         print('SelectModel change={}',format(change))
@@ -274,7 +269,6 @@ def SelectModel(change, output, select, display, results):
             for i in range(len(confusion_text)):
                 display.layout.annotations[i].text = confusion_text[i]
 
-#%%
 def main(args):
     print('segmenttest args:{}'.format(args))
 
@@ -288,22 +282,22 @@ def main(args):
     print(pd.DataFrame(overview).T)
 
     if len(test_data) > 0:
-        plot = PlotConfusion(test_data[0]['objects'], test_data[0]['results']['confusion'])
+        plot = PlotConfusion(test_data[args.index]['objects'], test_data[args.index]['results']['confusion'])
         confusion_display = graph_obj.FigureWidget(plot)
         display(confusion_display)
         confusion_display.show()
 
-    if len(model_dict) > 0:
-        model_values = list(model_dict.values())[0]
+    if len(model_dict) > args.index:
+        model_values = list(model_dict.values())[args.index]
         if len(model_values) > 0:
 
-            modelsplot = PlotModels(list(model_dict.values())[0])
+            modelsplot = PlotModels(list(model_dict.values())[args.index])
             models_display = graph_obj.FigureWidget(modelsplot)
             display(models_display)
             models_display.show()
 
-    if len(model_dict) > 1:
-        model_values = list(model_dict.values())[1]
+    if len(model_dict) > args.index+1:
+        model_values = list(model_dict.values())[args.index+1]
         if len(model_values) > 0:
             UpdateModel(models_display, model_values)
             display(models_display)
@@ -342,26 +336,21 @@ def main(args):
 
     if len(test_names) > 0:
         test_select.options = test_names
-        test_select.value = test_names[0]
+        test_select.value = test_names[args.index]
 
     display(segment_interactive)
 
-# %%
 if __name__ == '__main__':
-    import argparse
     args = parse_arguments()
 
     if args.debug:
-        print("Wait for debugger attach")
+        print("Wait for debugger attach on {}:{}".format(args.debug_address, args.debug_port))
         import debugpy
-        # https://code.visualstudio.com/docs/python/debugging#_remote-debugging
 
-        debugpy.listen(address=(args.debug_address, args.debug_port))
-        # Pause the program until a remote debugger is attached
-
+        debugpy.listen(address=(args.debug_address, args.debug_port)) # Pause the program until a remote debugger is attached
         debugpy.wait_for_client()
         print("Debugger attached")
 
-    # %%
-    main(args)
+    result = main(args)
+    sys.exit(result)
 

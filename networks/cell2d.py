@@ -893,7 +893,7 @@ def parse_arguments():
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
     parser.add_argument('-fast', action='store_true', help='Fast run with a few iterations')
     parser.add_argument('-description', type=str, default="", help='Training description to record with resuts')
-    parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
+    parser.add_argument('-credentails', type=str, default='creds.yaml', help='Credentials file.')
 
     parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)

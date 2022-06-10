@@ -279,7 +279,7 @@ def main(args):
 
     test_names, overview, results, model_dict = PrepareResults(test_data)
     display(pd.DataFrame(overview).T)
-    print(pd.DataFrame(overview).T)
+    #print(pd.DataFrame(overview).T)
 
     if len(test_data) > 0:
         plot = PlotConfusion(test_data[args.index]['objects'], test_data[args.index]['results']['confusion'])

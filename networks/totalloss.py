@@ -60,7 +60,7 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
             if self.ejector == FenceSitterEjectors.prune_basis or self.ejector == FenceSitterEjectors.prune_basis.value:
                 prune_basises = []
                 for cell_weight in cell_weights:
-                    for conv_weights in cell_weight['cell_weight']:
+                    for weight_basis in cell_weight['weight_basis']:
                         # conv_weights is from 0..1
                         # prune_weight is from 0..1
                         # weight is pruned if either cell weight < threshold or prunewight is < threshold.  
@@ -69,9 +69,9 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
                         # Product will return more to prune that will be pruned
                         # Minimum is discontinuous and will shift the optimizer focuse from convolution to cell
                         #prune_basis = (conv_weights+cell_weight['prune_weight'])/2.0
-                        prune_basis = conv_weights*cell_weight['prune_weight']
+                        #prune_basis = conv_weights*cell_weight['prune_weight']
                         #prune_basis = conv_weights.minimum(cell_weight['prune_weight'])
-                        prune_basises.extend(prune_basis)
+                        prune_basises.extend(weight_basis*cell_weight['prune_weight'])
                 len_prune_basis = len(prune_basises)
                 #architecture_exp = torch.exp(-1*self.k_prune_exp*architecture_loss/self.k_structure)
                 if len_prune_basis > 0:

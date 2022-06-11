@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.abspath('..'))
 from pymlutil.torch_util import count_parameters, model_stats, model_weights
 from pymlutil.jsonutil import ReadDictJson, WriteDictJson, str2bool
 from pymlutil.s3 import s3store, Connect
-from pymlutil.functions import GaussianBasis, NormGausBasis
+from pymlutil.functions import GaussianBasis
 from networks.totalloss import TotalLoss
 
 # Inner neural architecture cell repetition structure
@@ -172,6 +172,7 @@ class ConvBR(nn.Module):
 
     def ArchitectureWeights(self):
         if self.search_structure:
+            weight_basis = GaussianBasis(self.channel_scale)
             weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)
 
             '''if not self.batch_norm:
@@ -193,7 +194,9 @@ class ConvBR(nn.Module):
             conv_weights = weight_scale
 
         else:
+            weight_basis = torch.zeros_like(self.channel_scale, device=self.device)
             conv_weights = torch.ones_like(self.channel_scale, device=self.device)
+
 
         cell_weights = model_weights(self)
 
@@ -203,7 +206,7 @@ class ConvBR(nn.Module):
         else:
             architecture_weights = conv_weights.sum_to_size((1))
 
-        return architecture_weights, cell_weights, conv_weights
+        return architecture_weights, cell_weights, conv_weights, weight_basis
 
     # Remove specific network dimensions
     # remove dimension where inDimensions and outDimensions arrays are 0 for channels to be removed
@@ -444,13 +447,15 @@ class Cell(nn.Module):
         architecture_weights = []
         layer_weights = []
         conv_weights = []
+        weight_basises = []
         norm_conv_weight = []
         search_structure = []
         unallocated_weights  = torch.zeros((1), device=self.device)
         if self.cnn is not None:
             for i, l in enumerate(self.cnn): 
-                layer_weight, cnn_weight, conv_weight = l.ArchitectureWeights()
+                layer_weight, cnn_weight, conv_weight, weight_basis = l.ArchitectureWeights()
                 conv_weights.append(conv_weight)
+                weight_basises.append(weight_basis)
 
                 if self.convolutions[i]['search_structure']:
                     architecture_weights.append(layer_weight)
@@ -476,7 +481,7 @@ class Cell(nn.Module):
             architecture_weights = torch.zeros((1), device=self.device)
             prune_weight = torch.tensor(1.0, device=self.device)
 
-        cell_weights = {'prune_weight':prune_weight, 'cell_weight':conv_weights}
+        cell_weights = {'prune_weight':prune_weight, 'cell_weight':conv_weights, 'weight_basis': weight_basises}
 
         return architecture_weights, model_weights(self), cell_weights
 

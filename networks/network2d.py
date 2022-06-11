@@ -38,7 +38,7 @@ from torchdatasetutil.imstore import  CreateImageLoaders
 import torchdatasetutil.version as  torchdatasetutil_version
 
 sys.path.insert(0, os.path.abspath(''))
-from networks.cell2d import Cell, GaussianBasis, NormGausBasis, PlotSearch, PlotGradients
+from networks.cell2d import Cell, PlotSearch, PlotGradients
 from networks.totalloss import TotalLoss, FenceSitterEjectors
 
 class Network2d(nn.Module):
@@ -361,8 +361,8 @@ def parse_arguments():
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
     parser.add_argument('-model_src', type=str,  default='crisplit_20220604i0_01')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220607i_test')
-    parser.add_argument('-tb_dest', type=str, default='crisplit_20220607i_tb')
+    parser.add_argument('-model_dest', type=str, default='crisplit_202206011i_test')
+    parser.add_argument('-tb_dest', type=str, default='crisplit_202206011i_tb')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
@@ -385,10 +385,10 @@ def parse_arguments():
     parser.add_argument('-feature_threshold', type=float, default=0.0, help='cell tanh pruning threshold')
     parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='convolution channel sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
-    parser.add_argument('-ejector', type=FenceSitterEjectors, default=FenceSitterEjectors.dais, choices=list(FenceSitterEjectors))
+    parser.add_argument('-ejector', type=FenceSitterEjectors, default=FenceSitterEjectors.prune_basis, choices=list(FenceSitterEjectors))
     parser.add_argument('-ejector_start', type=float, default=0, help='Ejector start epoch')
-    parser.add_argument('-ejector_full', type=float, default=20, help='Ejector start epoch')
-    parser.add_argument('-ejector_max', type=float, default=500.0, help='Ejector start epoch')
+    parser.add_argument('-ejector_full', type=float, default=1, help='Ejector full epoch')
+    parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector max value')
     parser.add_argument('-ejector_exp', type=float, default=3.0, help='Ejector exponent')
     parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)
@@ -398,7 +398,7 @@ def parse_arguments():
     parser.add_argument('-job', action='store_true',help='Run as job')
 
     parser.add_argument('-resultspath', type=str, default='results.yaml')
-    parser.add_argument('-prevresultspath', type=str, default='results.yaml')
+    parser.add_argument('-prevresultspath', type=str, default=None)
     parser.add_argument('-test_dir', type=str, default='/store/data/network2d')
     parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')

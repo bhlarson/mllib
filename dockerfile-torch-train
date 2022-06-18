@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/pytorch:21.12-py3
+FROM nvcr.io/nvidia/pytorch:22.05-py3
 LABEL maintainer="Brad Larson"
 
 #USER root
@@ -14,7 +14,7 @@ RUN apt-get update -y && apt-get upgrade -y && apt-get autoremove -y && \
 
 RUN pip3 install --no-cache-dir \
         numpy \
-        opencv-python \
+        opencv-python==4.5.5.64 \
         minio \
         tqdm \
         natsort \

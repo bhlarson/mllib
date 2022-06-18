@@ -41,10 +41,11 @@ dataset/cifar-10-batches-py/
 img/
 jupyter/
 None/
+tb/
+test/
 triton/
 trt/
 record/
-tb/
 
 
 # ignore all *.crt files in all folders, including build root

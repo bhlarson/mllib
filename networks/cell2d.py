@@ -172,7 +172,7 @@ class ConvBR(nn.Module):
 
     def ArchitectureWeights(self):
         if self.search_structure:
-            weight_basis = GaussianBasis(self.channel_scale)
+            weight_basis = GaussianBasis(self.channel_scale, sigma=self.k_prune_sigma)
             weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)
 
             '''if not self.batch_norm:
@@ -196,7 +196,6 @@ class ConvBR(nn.Module):
         else:
             weight_basis = torch.zeros_like(self.channel_scale, device=self.device)
             conv_weights = torch.ones_like(self.channel_scale, device=self.device)
-
 
         cell_weights = model_weights(self)
 

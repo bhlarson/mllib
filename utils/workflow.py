@@ -43,7 +43,7 @@ def parse_arguments():
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
     parser.add_argument('-test', action='store_true', help='Run unit tests')
 
-    parser.add_argument('-credentails', type=str, default='creds.json', help='Credentials file.')
+    parser.add_argument('-credentails', type=str, default='creds.yaml', help='Credentials file.')
     parser.add_argument('-objectserver', type=str, default='store', help='Object server name.')
 
     parser.add_argument('--server', '-s', type=str, default=None, help='Argo Server.')

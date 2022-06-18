@@ -46,7 +46,7 @@ workflow:
                 parameters:
                   - {name: prune, value: false}
                   - {name: train, value: true}
-                  - {name: infer, value: false}
+                  - {name: test, value: false}
                   - {name: search_structure, value: false}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
                   - {name: learning_rate, value: 2e-4}
@@ -68,7 +68,7 @@ workflow:
                 parameters:
                   - {name: prune, value: false}
                   - {name: train, value: true}
-                  - {name: infer, value: false}
+                  - {name: test, value: false}
                   - {name: search_structure, value: false}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
                   - {name: learning_rate, value: 2e-4}
@@ -88,7 +88,7 @@ workflow:
                 parameters:
                   - {name: prune, value: false}
                   - {name: train, value: true}
-                  - {name: infer, value: false}
+                  - {name: test, value: false}
                   - {name: search_structure, value: true}
                   - {name: k_structure, value: 0.1}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
@@ -112,7 +112,7 @@ workflow:
                 parameters:
                   - {name: prune, value: false}
                   - {name: train, value: false}
-                  - {name: infer, value: true}
+                  - {name: test, value: true}
                   - {name: search_structure, value: false}
                   - {name: learning_rate, value: 1e-4}
                   - {name: k_prune_basis, value: 1.0}
@@ -129,7 +129,7 @@ workflow:
                 parameters:
                   - {name: prune, value: true}
                   - {name: train, value: true}
-                  - {name: infer, value: false}
+                  - {name: test, value: false}
                   - {name: search_structure, value: false}
                   - {name: learning_rate, value: 1e-4}
                   - {name: epochs, value: 20}
@@ -148,7 +148,7 @@ workflow:
                 parameters:
                   - {name: prune, value: false}
                   - {name: train, value: false}
-                  - {name: infer, value: true}
+                  - {name: test, value: true}
                   - {name: search_structure, value: false}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_03"}
                   - {name: description, value: '{"author":"Brad Larson","description":"Crisp segment test finetune {{workflow.parameters.target_structure}}"}'}
@@ -161,7 +161,7 @@ workflow:
           parameters:
             - {name: prune, value: false}
             - {name: train, value: true}
-            - {name: infer, value: true}
+            - {name: test, value: true}
             - {name: onnx, value: false}
             - {name: search_structure, value: true}
             - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
@@ -213,7 +213,7 @@ workflow:
             - -train={{inputs.parameters.train}}
             - -epochs={{inputs.parameters.epochs}}
             - -start_epoch={{inputs.parameters.start_epoch}}
-            - -infer={{inputs.parameters.infer}}
+            - -test={{inputs.parameters.test}}
             - -onnx={{inputs.parameters.onnx}}
             - -search_structure={{inputs.parameters.search_structure}}
             - -target_structure={{inputs.parameters.target_structure}}

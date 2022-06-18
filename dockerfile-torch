@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/pytorch:21.12-py3
+FROM nvcr.io/nvidia/pytorch:22.05-py3
 LABEL maintainer="Brad Larson"
 
 ENV TZ=America/Los_Angeles
@@ -21,7 +21,7 @@ RUN zedpackage=ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run && \
 RUN pip3 install --upgrade pip
 RUN pip3 --no-cache-dir install \
         numpy \
-        opencv-python \
+        opencv-python==4.5.5.64 \
         minio \
         tqdm \
         natsort \

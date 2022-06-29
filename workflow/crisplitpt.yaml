@@ -10,7 +10,7 @@ workflow:
     arguments:
       parameters:
         - name: train_image
-          value: 'bhlarson/torch-train:latest'
+          value: 'localhost:32000/torch-train:latest'
         - name: batch_size
           value: 3
         - name: output_name
@@ -54,8 +54,8 @@ workflow:
                   - {name: start_epoch, value: 0}
                   - {name: epochs, value: 35}
                   - {name: ejector, value: 'prune_basis'}
-                  - {name: ejector_start, value: 25}
-                  - {name: ejector_full, value: 30}
+                  - {name: ejector_start, value: 7}
+                  - {name: ejector_full, value: 12}
                   - {name: ejector_max, value: 1}
                   - {name: model_src, value: "crisplit_20220604i0_01"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train-fine"}
@@ -166,8 +166,8 @@ workflow:
             - -ejector_max={{inputs.parameters.ejector_max}}
             - -debug={{workflow.parameters.debug}}
             - -minimum={{workflow.parameters.min}}
-            - -lit_dataset=data/lit/dataset.yaml
-            - -lit_class_dict=data/lit/lit.json
+            - -lit_dataset=annotations/lit/dataset.yaml
+            - -lit_class_dict=model/crisplit/lit.json
             - -k_prune_sigma=1.0
           ports:
             - name: debug

@@ -134,7 +134,7 @@ class ConvBR(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None,
-                        sigmoid_scale=None, weight_gain=None):
+                        sigmoid_scale=None, weight_gain=None, k_prune_sigma=None):
         if search_structure is not None:
             if self.search_structure == False and search_structure == True:
                 #nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
@@ -148,6 +148,8 @@ class ConvBR(nn.Module):
             self.sigmoid_scale = sigmoid_scale
         if weight_gain is not None:
             self.weight_gain = weight_gain
+        if k_prune_sigma is not None:
+            self.k_prune_sigma = k_prune_sigma
 
     def forward(self, x):
         if self.out_channels > 0:
@@ -440,7 +442,7 @@ class Cell(nn.Module):
         if self.cnn is not None and len(self.cnn) > 0:
             for conv in self.cnn:
                 conv.ApplyParameters(search_structure=search_structure, convMaskThreshold=convMaskThreshold, dropout=dropout,
-                                     weight_gain=weight_gain, sigmoid_scale=sigmoid_scale)
+                                     weight_gain=weight_gain, sigmoid_scale=sigmoid_scale, k_prune_sigma=k_prune_sigma)
 
     def ArchitectureWeights(self):
         architecture_weights = []

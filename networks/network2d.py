@@ -375,7 +375,7 @@ def parse_arguments():
     parser.add_argument('-k_structure', type=float, default=0.1, help='Structure minimization weighting factor')
     parser.add_argument('-k_prune_basis', type=float, default=1.0, help='prune base loss scaling')
     parser.add_argument('-k_prune_exp', type=float, default=50.0, help='prune basis exponential weighting factor')
-    parser.add_argument('-k_prune_sigma', type=float, default=0.33, help='prune basis exponential weighting factor')
+    parser.add_argument('-k_prune_sigma', type=float, default=3.0, help='prune basis exponential weighting factor')
     parser.add_argument('-target_structure', type=float, default=0.00, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=str2bool, default=True)
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
@@ -399,7 +399,7 @@ def parse_arguments():
 
     parser.add_argument('-resultspath', type=str, default='results.yaml')
     parser.add_argument('-prevresultspath', type=str, default=None)
-    parser.add_argument('-test_dir', type=str, default=None')
+    parser.add_argument('-test_dir', type=str, default=None)
     parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
     #parser.add_argument('-class_weight', type=json.loads, default='[0.02, 1.0]', help='Loss class weight ')
@@ -632,7 +632,7 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
             if ejector_exp is not None:
                 if (args.ejector == FenceSitterEjectors.dais or args.ejector == FenceSitterEjectors.dais.value):
                     sigmoid_scale = ejector_exp.f(float(epoch)).item()
-                    segment.ApplyParameters(sigmoid_scale=sigmoid_scale)
+                    segment.ApplyParameters(sigmoid_scale=sigmoid_scale, k_prune_sigma=args.k_prune_sigma)
                     writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
                 elif args.ejector == FenceSitterEjectors.prune_basis or args.ejector == FenceSitterEjectors.prune_basis.value:
                     loss_fcn.k_prune_basis = ejector_exp.f(float(epoch)).item()
@@ -953,7 +953,7 @@ def main(args):
                                 sigmoid_scale=args.sigmoid_scale,
                                 feature_threshold=args.feature_threshold,
                                 convMaskThreshold=args.convMaskThreshold,
-                                k_prune_sigma=args.k_prune_sigma,)
+                                k_prune_sigma=args.k_prune_sigma)
         segment.ApplyStructure()
         reduced_parameters = count_parameters(segment)
         save(segment, s3, s3def, args)

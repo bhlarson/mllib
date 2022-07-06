@@ -957,7 +957,7 @@ def main(args):
         segment.ApplyStructure()
         reduced_parameters = count_parameters(segment)
         save(segment, s3, s3def, args)
-        results['prune'] = {'final parameters':reduced_parameters, 'initial parametes' : total_parameters, 'remaning ratio':reduced_parameters/total_parameters }
+        results['prune'] = {'final parameters':reduced_parameters, 'initial parameters' : total_parameters, 'remaning ratio':reduced_parameters/total_parameters }
         print('{} remaining parameters {}/{} = {}'.format(args.model_dest, reduced_parameters, total_parameters, reduced_parameters/total_parameters))
 
     # Prune with loaded parameters than apply current search_structure setting

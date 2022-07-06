@@ -10,7 +10,7 @@ workflow:
     arguments:
       parameters:
         - name: train_image
-          value: 'bhlarson/torch-train:latest'
+          value: 'localhost:32000/torch-train:latest'
         - name: batch_size
           value: 3
         - name: output_name
@@ -52,9 +52,9 @@ workflow:
                   - {name: learning_rate, value: 2e-4}
                   - {name: epochs, value: 2}
                   - {name: model_src, value: ""}
-                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_00"}
+                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
                   - {name: class_weight, value: "[0.01, 1.0]"}
-                  - {name: description, value: '{"author":"Brad Larson","description":"Crisp segment class normzlized train target size target {{workflow.parameters.target_structure}}"}'}
+                  - {name: description, value: '{"author":"Brad Larson","description":"Crisp segment class normalized train target size target {{workflow.parameters.target_structure}}"}'}
                 artifacts:
                   - name: prev_results
                     raw:
@@ -68,15 +68,15 @@ workflow:
                 parameters:
                   - {name: prune, value: false}
                   - {name: train, value: true}
-                  - {name: test, value: false}
+                  - {name: test, value: true}
                   - {name: search_structure, value: false}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
                   - {name: learning_rate, value: 2e-4}
                   - {name: epochs, value: 30}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_00"}
-                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_01"}
+                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
+                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
                   - {name: class_weight, value: "[1.0, 1.0]"}
-                  - {name: description, value: '{"author":"Brad Larson","description":"Crisp segment optimize obective and size target size target {{workflow.parameters.target_structure}}"}'}
+                  - {name: description, value: '{"author":"Brad Larson","description":"CRISP segment minimize cross entropy loss {{workflow.parameters.target_structure}}"}'}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.normalized-train.outputs.artifacts.results}}"
@@ -88,73 +88,42 @@ workflow:
                 parameters:
                   - {name: prune, value: false}
                   - {name: train, value: true}
-                  - {name: test, value: false}
+                  - {name: test, value: true}
                   - {name: search_structure, value: true}
                   - {name: k_structure, value: 0.1}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
                   - {name: learning_rate, value: 1e-4}
                   - {name: start_epoch, value: 0}
-                  - {name: epochs, value: 50}
-                  - {name: ejector, value: 'dais'}
-                  - {name: ejector_start, value: 25}
+                  - {name: epochs, value: 40}
+                  - {name: ejector, value: 'prune_basis'}
+                  - {name: ejector_start, value: 10}
+                  - {name: ejector_full, value: 15}
                   - {name: ejector_max, value: 1.0}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_01"}
-                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_02"}
-                  - {name: description, value: '{"author":"Brad Larson","description":"Crisp segment optimize obective and size target size {{workflow.parameters.target_structure}}"}'}
+                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
+                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train-fine"}
+                  - {name: description, value: '{"author":"Brad Larson","description":"CRISP segment minimize cross entropy loss and size target size {{workflow.parameters.target_structure}}"}'}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.train.outputs.artifacts.results}}"
-            - name: relaxed-test
+            - name: prune
               dependencies: [train-fine]
               template: train
               when: "{{workflow.parameters.start}} < 4"
               arguments:
                 parameters:
-                  - {name: prune, value: false}
-                  - {name: train, value: false}
-                  - {name: test, value: true}
-                  - {name: search_structure, value: false}
-                  - {name: learning_rate, value: 1e-4}
-                  - {name: k_prune_basis, value: 1.0}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_02"}
-                  - {name: description, value: '{"author":"Brad Larson","description":"Crisp segment test relaxed model target structure {{workflow.parameters.target_structure}}"}'}
-                artifacts:
-                  - name: prev_results
-                    from: "{{tasks.train-fine.outputs.artifacts.results}}"
-            - name: prune
-              dependencies: [train-fine]
-              template: train
-              when: "{{workflow.parameters.start}} < 5"
-              arguments:
-                parameters:
                   - {name: prune, value: true}
                   - {name: train, value: true}
-                  - {name: test, value: false}
+                  - {name: test, value: true}
                   - {name: search_structure, value: false}
                   - {name: learning_rate, value: 1e-4}
-                  - {name: epochs, value: 20}
+                  - {name: epochs, value: 15}
                   - {name: target_structure, value: '{{workflow.parameters.target_structure}}'}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_02"}
-                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_03"}
-                  - {name: description, value: '{"author":"Brad Larson","description":"Crisp segment test-target-size {{workflow.parameters.target_structure}}"}'}
+                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train-fine"}
+                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_prune"}
+                  - {name: description, value: '{"author":"Brad Larson","description":"Crisp prune and minimize cross entropy loss size {{workflow.parameters.target_structure}}"}'}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.train-fine.outputs.artifacts.results}}"
-            - name: test
-              dependencies: [prune]
-              template: train
-              when: "{{workflow.parameters.start}} < 6"
-              arguments:
-                parameters:
-                  - {name: prune, value: false}
-                  - {name: train, value: false}
-                  - {name: test, value: true}
-                  - {name: search_structure, value: false}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_03"}
-                  - {name: description, value: '{"author":"Brad Larson","description":"Crisp segment test finetune {{workflow.parameters.target_structure}}"}'}
-                artifacts:
-                  - name: prev_results
-                    from: "{{tasks.prune.outputs.artifacts.results}}"
 
       - name: train
         inputs:
@@ -169,11 +138,12 @@ workflow:
             - {name: start_epoch, value: 0}
             - {name: ejector, value: 'None'}
             - {name: ejector_start, value: 0}
+            - {name: ejector_full, value: 2}
             - {name: ejector_max, value: 1.0}
             - {name: k_prune_basis, value: 1.0}
             - {name: model_src, value: ""}
             - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}"}
-            - {name: k_structure, value: 0.01}
+            - {name: k_structure, value: 0.1}
             - {name: learning_rate, value: 1e-4}
             - {name: class_weight, value: "[1.0, 1.0]"}
             - {name: description, value: '{"author":"Brad Larson","description":"Crisp LIT segmentation"}'}
@@ -227,14 +197,18 @@ workflow:
             - -prevresultspath={{inputs.parameters.prevresultspath}}
             - -batch_size={{workflow.parameters.batch_size}}
             - -class_weight={{inputs.parameters.class_weight}}
-            - -batch_norm=true
+            - -batch_norm=false
             - -job
             - -k_prune_basis={{inputs.parameters.k_prune_basis}}
             - -ejector={{inputs.parameters.ejector}}
             - -ejector_start={{inputs.parameters.ejector_start}}
+            - -ejector_full={{inputs.parameters.ejector_full}}
             - -ejector_max={{inputs.parameters.ejector_max}}
             - -debug={{workflow.parameters.debug}}
             - -minimum={{workflow.parameters.min}}
+            - -lit_dataset=annotations/lit/dataset.yaml
+            - -lit_class_dict=model/crisplit/lit.json
+            - -k_prune_sigma=1.0
           ports:
             - name: debug
               containerPort: 3000

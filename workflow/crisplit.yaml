@@ -12,7 +12,7 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: batch_size
-          value: 3
+          value: 4
         - name: output_name
           value: 20220520i
         - name: target_structure
@@ -72,7 +72,7 @@ workflow:
                   - {name: search_structure, value: false}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
                   - {name: learning_rate, value: 2e-4}
-                  - {name: epochs, value: 30}
+                  - {name: epochs, value: 15}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
                   - {name: class_weight, value: "[1.0, 1.0]"}
@@ -96,8 +96,8 @@ workflow:
                   - {name: start_epoch, value: 0}
                   - {name: epochs, value: 40}
                   - {name: ejector, value: 'prune_basis'}
-                  - {name: ejector_start, value: 10}
-                  - {name: ejector_full, value: 15}
+                  - {name: ejector_start, value: 0}
+                  - {name: ejector_full, value: 1}
                   - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train-fine"}
@@ -116,7 +116,7 @@ workflow:
                   - {name: test, value: true}
                   - {name: search_structure, value: false}
                   - {name: learning_rate, value: 1e-4}
-                  - {name: epochs, value: 15}
+                  - {name: epochs, value: 5}
                   - {name: target_structure, value: '{{workflow.parameters.target_structure}}'}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train-fine"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_prune"}

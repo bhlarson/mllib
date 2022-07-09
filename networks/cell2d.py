@@ -139,7 +139,8 @@ class ConvBR(nn.Module):
         if search_structure is not None:
             if self.search_structure == False and search_structure == True:
                 #nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
-                nn.init.ones_(self.channel_scale)
+                #nn.init.ones_(self.channel_scale)
+                nn.init.zeros_(self.channel_scale)
             self.search_structure = search_structure
         if convMaskThreshold is not None:
             self.convMaskThreshold = convMaskThreshold

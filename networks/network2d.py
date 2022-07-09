@@ -373,7 +373,7 @@ def parse_arguments():
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
     parser.add_argument('-k_structure', type=float, default=0.1, help='Structure minimization weighting factor')
-    parser.add_argument('-k_prune_basis', type=float, default=1.0, help='prune base loss scaling')
+    parser.add_argument('-k_prune_basis', type=float, default=0.1, help='prune base loss scaling')
     parser.add_argument('-k_prune_exp', type=float, default=50.0, help='prune basis exponential weighting factor')
     parser.add_argument('-k_prune_sigma', type=float, default=3.0, help='prune basis exponential weighting factor')
     parser.add_argument('-target_structure', type=float, default=0.00, help='Structure minimization weighting factor')
@@ -957,7 +957,7 @@ def main(args):
         segment.ApplyStructure()
         reduced_parameters = count_parameters(segment)
         save(segment, s3, s3def, args)
-        results['prune'] = {'final parameters':reduced_parameters, 'initial parameters' : total_parameters, 'remaning ratio':reduced_parameters/total_parameters }
+        results['prune'] = {'final parameters':reduced_parameters, 'initial parameters' : total_parameters, 'remaining ratio':reduced_parameters/total_parameters }
         print('{} remaining parameters {}/{} = {}'.format(args.model_dest, reduced_parameters, total_parameters, reduced_parameters/total_parameters))
 
     # Prune with loaded parameters than apply current search_structure setting

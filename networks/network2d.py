@@ -375,9 +375,9 @@ def parse_arguments():
     parser.add_argument('-k_structure', type=float, default=0.1, help='Structure minimization weighting factor')
     parser.add_argument('-k_prune_basis', type=float, default=0.1, help='prune base loss scaling')
     parser.add_argument('-k_prune_exp', type=float, default=50.0, help='prune basis exponential weighting factor')
-    parser.add_argument('-k_prune_sigma', type=float, default=3.0, help='prune basis exponential weighting factor')
+    parser.add_argument('-k_prune_sigma', type=float, default=1.0, help='prune basis exponential weighting factor')
     parser.add_argument('-target_structure', type=float, default=0.00, help='Structure minimization weighting factor')
-    parser.add_argument('-batch_norm', type=str2bool, default=True)
+    parser.add_argument('-batch_norm', type=str2bool, default=False)
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
     parser.add_argument('-weight_gain', type=float, default=5.0, help='Channel convolution norm tanh weight gain')
@@ -635,7 +635,7 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
                     segment.ApplyParameters(sigmoid_scale=sigmoid_scale, k_prune_sigma=args.k_prune_sigma)
                     writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
                 elif args.ejector == FenceSitterEjectors.prune_basis or args.ejector == FenceSitterEjectors.prune_basis.value:
-                    loss_fcn.k_prune_basis = ejector_exp.f(float(epoch)).item()
+                    loss_fcn.k_prune_basis = args.k_prune_basis*ejector_exp.f(float(epoch)).item()
                 writer.add_scalar('CRISP/k_prune_basis', loss_fcn.k_prune_basis, results['batches'])
 
             running_loss = 0.0

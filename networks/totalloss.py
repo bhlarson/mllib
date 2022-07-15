@@ -45,7 +45,7 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
 
     def forward(self, input: torch.Tensor, target: torch.Tensor, network) -> torch.Tensor:
         assert self.weight is None or isinstance(self.weight, torch.Tensor)
-        cross_entropy_loss = 1.0*self.cross_entropy_loss(input, target.long())
+        cross_entropy_loss = self.cross_entropy_loss(input, target.long())
 
         dims = []
         depths = []

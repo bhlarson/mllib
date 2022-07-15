@@ -134,9 +134,14 @@ class Network2d(nn.Module):
                 final_stride = 2
                 conv_transpose = True
 
+            if i < self.unet_depth-1:
+                search_structure = True
+            else:
+                 search_structure = False
+
             convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
                           {'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
-                          {'out_channels':out_channels, 'kernel_size': final_kernel_size, 'stride': final_stride, 'dilation': 1, 'search_structure':True, 'conv_transpose':conv_transpose}]
+                          {'out_channels':out_channels, 'kernel_size': final_kernel_size, 'stride': final_stride, 'dilation': 1, 'search_structure':search_structure, 'conv_transpose':conv_transpose}]
 
             cell = self.cell(prev_encoder_chanels, 
                              feedforward,
@@ -357,7 +362,7 @@ def parse_arguments():
     parser.add_argument('-epochs', type=int, default=1, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
-    parser.add_argument('-num_workers', type=int, default=0, help='Data loader workers')
+    parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
     parser.add_argument('-model_src', type=str,  default='crisplit_20220604i0_01')
@@ -390,9 +395,9 @@ def parse_arguments():
     parser.add_argument('-ejector_full', type=float, default=0, help='Ejector full epoch')
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector max value')
     parser.add_argument('-ejector_exp', type=float, default=3.0, help='Ejector exponent')
-    parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-test', type=str2bool, default=True)
+    parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
@@ -454,12 +459,13 @@ def load(s3, s3def, args, class_dictionary):
 
     return segment
 
-def save(model, s3, s3def, args):
+def save(model, s3, s3def, args, loc=''):
     out_buffer = io.BytesIO()
     model.zero_grad(set_to_none=True)
     #torch.save(model.state_dict(), out_buffer)
     torch.save(model, out_buffer)
-    s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), out_buffer)
+    outname = '{}/{}/{}{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest,loc)
+    s3.PutObject(s3def['sets']['model']['bucket'], outname, out_buffer)
 
 def onnx(model, s3, s3def, args):
     import torch.onnx as torch_onnx
@@ -904,6 +910,15 @@ def Test(args, s3, s3def, class_dictionary, segment, device, results):
     results['test'] = test_summary['results']
     return results
 
+def Prune(args, s3, s3def, class_dictionary, segment, device, results):
+    total_parameters = count_parameters(segment)
+    segment.ApplyStructure()
+    reduced_parameters = count_parameters(segment)
+    save(segment, s3, s3def, args, '_prune')
+    results['prune'] = {'final parameters':reduced_parameters, 'initial parameters' : total_parameters, 'remaining ratio':reduced_parameters/total_parameters }
+    print('{} remaining parameters {}/{} = {}'.format(args.model_dest, reduced_parameters, total_parameters, reduced_parameters/total_parameters))
+    return results
+
 def main(args): 
     print('Network2D Test')
 
@@ -948,20 +963,12 @@ def main(args):
 
     total_parameters = count_parameters(segment)
 
-    if args.prune:
-        segment.ApplyParameters(weight_gain=args.weight_gain, 
-                                sigmoid_scale=args.sigmoid_scale,
-                                feature_threshold=args.feature_threshold,
-                                convMaskThreshold=args.convMaskThreshold,
-                                k_prune_sigma=args.k_prune_sigma)
-        segment.ApplyStructure()
-        reduced_parameters = count_parameters(segment)
-        save(segment, s3, s3def, args)
-        results['prune'] = {'final parameters':reduced_parameters, 'initial parameters' : total_parameters, 'remaining ratio':reduced_parameters/total_parameters }
-        print('{} remaining parameters {}/{} = {}'.format(args.model_dest, reduced_parameters, total_parameters, reduced_parameters/total_parameters))
-
     # Prune with loaded parameters than apply current search_structure setting
-    segment.ApplyParameters(search_structure=args.search_structure, convMaskThreshold=args.convMaskThreshold, 
+    segment.ApplyParameters(weight_gain=args.weight_gain, 
+                            sigmoid_scale=args.sigmoid_scale,
+                            feature_threshold=args.feature_threshold,
+                            search_structure=args.search_structure, 
+                            convMaskThreshold=args.convMaskThreshold, 
                             k_prune_sigma=args.k_prune_sigma,)
 
     #specify device for model
@@ -970,6 +977,9 @@ def main(args):
     # Train
     if args.train:
         results = Train(args, s3, s3def, class_dictionary, segment, device, results)
+
+    if args.prune:
+        results = Prune(args, s3, s3def, class_dictionary, segment, device, results)
 
     if args.test:
         results = Test(args, s3, s3def, class_dictionary, segment, device, results)

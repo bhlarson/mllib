@@ -59,6 +59,7 @@ class ConvBR(nn.Module):
                  conv_transpose=False, # https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html
                  k_prune_sigma=0.33,
                  device=torch.device("cpu"),
+                 disable_search_structure = False,
                  ):
         super(ConvBR, self).__init__()
         self.in_channels = in_channels
@@ -78,6 +79,7 @@ class ConvBR(nn.Module):
         self.dropout_rate = dropout_rate
         self.sigmoid_scale = sigmoid_scale
         self.search_structure = search_structure
+        self.disable_search_structure = disable_search_structure
         self.residual = residual
         self.use_dropout = dropout
         self.conv_transpose = conv_transpose
@@ -137,11 +139,12 @@ class ConvBR(nn.Module):
     def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None,
                         sigmoid_scale=None, weight_gain=None, k_prune_sigma=None):
         if search_structure is not None:
-            if self.search_structure == False and search_structure == True:
-                #nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
-                #nn.init.ones_(self.channel_scale)
-                nn.init.zeros_(self.channel_scale)
-            self.search_structure = search_structure
+            if search_structure == False:
+                if self.disable_search_structure == False:
+                    #nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
+                    #nn.init.ones_(self.channel_scale)
+                    nn.init.zeros_(self.channel_scale)
+                self.disable_search_structure = True
         if convMaskThreshold is not None:
             self.convMaskThreshold = convMaskThreshold
         if dropout is not None:
@@ -163,7 +166,7 @@ class ConvBR(nn.Module):
             if self.batch_norm:
                 x = self.batchnorm2d(x)
 
-            if self.search_structure: #scale channels based on self.channel_scale
+            if self.search_structure and not self.disable_search_structure: #scale channels based on self.channel_scale
                     weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)[None,:,None,None]
                     x *= weight_scale  
 
@@ -175,7 +178,7 @@ class ConvBR(nn.Module):
         return x
 
     def ArchitectureWeights(self):
-        if self.search_structure:
+        if self.search_structure and not self.disable_search_structure:
             weight_basis = GaussianBasis(self.channel_scale, sigma=self.k_prune_sigma)
             weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)
 
@@ -233,7 +236,7 @@ class ConvBR(nn.Module):
         # Convolution norm gain mask
         if self.in_channels ==0: # No output if no input
             conv_mask = torch.zeros((self.out_channels), dtype=torch.bool, device=self.device)
-        elif self.search_structure:
+        elif self.search_structure and not self.disable_search_structure:
             conv_mask = self.sigmoid(self.sigmoid_scale*self.channel_scale)
 
             '''if self.batch_norm:
@@ -268,7 +271,7 @@ class ConvBR(nn.Module):
         prev_convolutions = len(conv_mask)
         pruned_convolutions = len(conv_mask[conv_mask==False])
 
-        if self.search_structure:
+        if self.search_structure and not self.disable_search_structure:
             if self.residual and prev_convolutions==pruned_convolutions: # Pruning full convolution 
                 conv_mask = ~conv_mask # Residual connection becomes a straight through connection
             else:

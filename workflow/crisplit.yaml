@@ -44,8 +44,8 @@ workflow:
               when: "{{workflow.parameters.start}} < 1"
               arguments:
                 parameters:
-                  - {name: prune, value: false}
                   - {name: train, value: true}
+                  - {name: prune, value: false}
                   - {name: test, value: false}
                   - {name: search_structure, value: false}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
@@ -66,13 +66,13 @@ workflow:
               when: "{{workflow.parameters.start}} < 2"
               arguments:
                 parameters:
-                  - {name: prune, value: false}
                   - {name: train, value: true}
+                  - {name: prune, value: false}
                   - {name: test, value: true}
                   - {name: search_structure, value: false}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
                   - {name: learning_rate, value: 2e-4}
-                  - {name: epochs, value: 15}
+                  - {name: epochs, value: 5}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
                   - {name: class_weight, value: "[1.0, 1.0]"}
@@ -80,50 +80,100 @@ workflow:
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.normalized-train.outputs.artifacts.results}}"
-            - name: train-fine
+            - name: search-structure-00
               dependencies: [train]
               template: train
               when: "{{workflow.parameters.start}} < 3"
               arguments:
                 parameters:
-                  - {name: prune, value: false}
                   - {name: train, value: true}
+                  - {name: prune, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
                   - {name: k_structure, value: 0.1}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-                  - {name: learning_rate, value: 1e-4}
+                  - {name: learning_rate, value: 2e-4}
                   - {name: start_epoch, value: 0}
-                  - {name: epochs, value: 40}
+                  - {name: epochs, value: 10}
                   - {name: ejector, value: 'prune_basis'}
                   - {name: ejector_start, value: 0}
                   - {name: ejector_full, value: 1}
                   - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
-                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train-fine"}
+                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00"}
                   - {name: description, value: '{"author":"Brad Larson","description":"CRISP segment minimize cross entropy loss and size target size {{workflow.parameters.target_structure}}"}'}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.train.outputs.artifacts.results}}"
-            - name: prune
-              dependencies: [train-fine]
+            - name: search-structure-01
+              dependencies: [search-structure-00]
+              template: train
+              when: "{{workflow.parameters.start}} < 3"
+              arguments:
+                parameters:
+                  - {name: train, value: true}
+                  - {name: prune, value: true}
+                  - {name: test, value: true}
+                  - {name: search_structure, value: true}
+                  - {name: k_structure, value: 0.1}
+                  - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
+                  - {name: learning_rate, value: 2e-4}
+                  - {name: start_epoch, value: 0}
+                  - {name: epochs, value: 15}
+                  - {name: ejector, value: 'prune_basis'}
+                  - {name: ejector_start, value: 0}
+                  - {name: ejector_full, value: 1}
+                  - {name: ejector_max, value: 1.0}
+                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00_prune"}
+                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01"}
+                  - {name: description, value: '{"author":"Brad Larson","description":"CRISP segment minimize cross entropy loss and size target size {{workflow.parameters.target_structure}}"}'}
+                artifacts:
+                  - name: prev_results
+                    from: "{{tasks.search-structure-00.outputs.artifacts.results}}"
+            - name: search-structure-02
+              dependencies: [search-structure-01]
+              template: train
+              when: "{{workflow.parameters.start}} < 3"
+              arguments:
+                parameters:
+                  - {name: train, value: true}
+                  - {name: prune, value: true}
+                  - {name: test, value: true}
+                  - {name: search_structure, value: true}
+                  - {name: k_structure, value: 0.1}
+                  - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
+                  - {name: learning_rate, value: 2e-4}
+                  - {name: start_epoch, value: 0}
+                  - {name: epochs, value: 20}
+                  - {name: ejector, value: 'prune_basis'}
+                  - {name: ejector_start, value: 0}
+                  - {name: ejector_full, value: 1}
+                  - {name: ejector_max, value: 1.0}
+                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01_prune"}
+                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02"}
+                  - {name: description, value: '{"author":"Brad Larson","description":"CRISP segment minimize cross entropy loss and size target size {{workflow.parameters.target_structure}}"}'}
+                artifacts:
+                  - name: prev_results
+                    from: "{{tasks.search-structure-01.outputs.artifacts.results}}"
+            - name: train-fine
+              dependencies: [search-structure-02]
               template: train
               when: "{{workflow.parameters.start}} < 4"
               arguments:
                 parameters:
-                  - {name: prune, value: true}
                   - {name: train, value: true}
+                  - {name: prune, value: false}
                   - {name: test, value: true}
                   - {name: search_structure, value: false}
                   - {name: learning_rate, value: 1e-4}
                   - {name: epochs, value: 5}
                   - {name: target_structure, value: '{{workflow.parameters.target_structure}}'}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train-fine"}
-                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_prune"}
-                  - {name: description, value: '{"author":"Brad Larson","description":"CRISP prune and minimize cross entropy loss size {{workflow.parameters.target_structure}}"}'}
+                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02_prune"}
+                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}"}
+                  - {name: description, value: '{"author":"Brad Larson","description":"CRISP Finetune training after pruning size {{workflow.parameters.target_structure}}"}'}
                 artifacts:
                   - name: prev_results
-                    from: "{{tasks.train-fine.outputs.artifacts.results}}"
+                    from: "{{tasks.search-structure-02.outputs.artifacts.results}}"
 
       - name: train
         inputs:
@@ -138,7 +188,7 @@ workflow:
             - {name: start_epoch, value: 0}
             - {name: ejector, value: 'None'}
             - {name: ejector_start, value: 0}
-            - {name: ejector_full, value: 2}
+            - {name: ejector_full, value: 1}
             - {name: ejector_max, value: 1.0}
             - {name: k_prune_basis, value: 1.0}
             - {name: model_src, value: ""}
@@ -149,6 +199,8 @@ workflow:
             - {name: description, value: '{"author":"Brad Larson","description":"Crisp LIT segmentation"}'}
             - {name: resultspath, value: "/app/results.yaml"}
             - {name: prevresultspath, value: "/app/prevresults.yaml"}
+            - {name: k_prune_sigma, value: 1.0}
+            - {name: convMaskThreshold, value: 0.1}
 
           artifacts:
             - name: prev_results
@@ -208,7 +260,8 @@ workflow:
             - -minimum={{workflow.parameters.min}}
             - -lit_dataset=annotations/lit/dataset.yaml
             - -lit_class_dict=model/crisplit/lit.json
-            - -k_prune_sigma=1.0
+            - -k_prune_sigma={{inputs.parameters.k_prune_sigma}}
+            - -convMaskThreshold={{inputs.parameters.convMaskThreshold}}
           ports:
             - name: debug
               containerPort: 3000

@@ -139,12 +139,7 @@ class ConvBR(nn.Module):
     def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None,
                         sigmoid_scale=None, weight_gain=None, k_prune_sigma=None):
         if search_structure is not None:
-            if search_structure == False:
-                if self.disable_search_structure == False:
-                    #nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
-                    #nn.init.ones_(self.channel_scale)
-                    nn.init.zeros_(self.channel_scale)
-                self.disable_search_structure = True
+            self.disable_search_structure = not search_structure
         if convMaskThreshold is not None:
             self.convMaskThreshold = convMaskThreshold
         if dropout is not None:

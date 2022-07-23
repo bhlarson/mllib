@@ -41,7 +41,7 @@ dataset/cifar-10-batches-py/
 img/
 jupyter/
 None/
-tb/
+tb_logs/
 test/
 triton/
 trt/

@@ -111,6 +111,6 @@ venv.bak/
 /dataset
 /trainings
 /tflite
-/tb
+/tb_logs
 class_weights.png
 gradient_norm.png

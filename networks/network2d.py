@@ -365,9 +365,9 @@ def parse_arguments():
     parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220604i0_01')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220615i')
-    parser.add_argument('-tb_dest', type=str, default='crisplit_20220615i_tb')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220722i0_train')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220723i')
+    parser.add_argument('-tb_dest', type=str, default='crisplit_20220723i_tb')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
@@ -405,7 +405,7 @@ def parse_arguments():
     parser.add_argument('-resultspath', type=str, default='results.yaml')
     parser.add_argument('-prevresultspath', type=str, default=None)
     parser.add_argument('-test_dir', type=str, default=None)
-    parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
+    parser.add_argument('-tensorboard_dir', type=str, default='./tb_logs', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
     #parser.add_argument('-class_weight', type=json.loads, default='[0.02, 1.0]', help='Loss class weight ')
     parser.add_argument('-class_weight', type=json.loads, default=None, help='Loss class weight ')
@@ -433,7 +433,6 @@ def MakeNetwork2d(class_dictionary, args):
             max_cell_steps=args.max_cell_steps, 
             channel_multiple=args.channel_multiple,
             batch_norm=args.batch_norm,
-            search_structure=args.search_structure,
             residual=args.residual,
             dropout=args.dropout,
             feature_threshold = args.feature_threshold,

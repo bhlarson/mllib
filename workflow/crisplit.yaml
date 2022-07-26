@@ -90,7 +90,6 @@ workflow:
                   - {name: prune, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: k_structure, value: 0.1}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
                   - {name: learning_rate, value: 2e-4}
                   - {name: start_epoch, value: 0}
@@ -111,11 +110,12 @@ workflow:
               when: "{{workflow.parameters.start}} < 3"
               arguments:
                 parameters:
+                  - {name: batch_size, value: "{{workflow.parameters.batch_size}}"}
                   - {name: train, value: true}
                   - {name: prune, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: k_structure, value: 0.1}
+                  - {name: k_prune_basis, value: 1.0}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
                   - {name: learning_rate, value: 2e-4}
                   - {name: start_epoch, value: 0}
@@ -136,11 +136,12 @@ workflow:
               when: "{{workflow.parameters.start}} < 3"
               arguments:
                 parameters:
+                  - {name: batch_size, value: "{{workflow.parameters.batch_size}}"}
                   - {name: train, value: true}
                   - {name: prune, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: k_structure, value: 0.1}
+                  - {name: k_prune_basis, value: 10.0}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
                   - {name: learning_rate, value: 2e-4}
                   - {name: start_epoch, value: 0}
@@ -161,6 +162,7 @@ workflow:
               when: "{{workflow.parameters.start}} < 4"
               arguments:
                 parameters:
+                  - {name: batch_size, value: "{{workflow.parameters.batch_size}}"}
                   - {name: train, value: true}
                   - {name: prune, value: false}
                   - {name: test, value: true}
@@ -178,6 +180,7 @@ workflow:
       - name: train
         inputs:
           parameters:
+            - {name: batch_size, value: "{{workflow.parameters.batch_size}}"}
             - {name: prune, value: false}
             - {name: train, value: true}
             - {name: test, value: true}
@@ -193,7 +196,7 @@ workflow:
             - {name: k_prune_basis, value: 0.10}
             - {name: model_src, value: ""}
             - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}"}
-            - {name: k_structure, value: 0.1}
+            - {name: k_structure, value: 0.01}
             - {name: learning_rate, value: 1e-4}
             - {name: class_weight, value: "[1.0, 1.0]"}
             - {name: description, value: '{"author":"Brad Larson","description":"Crisp LIT segmentation"}'}
@@ -247,7 +250,7 @@ workflow:
             - -description={{inputs.parameters.description}}
             - -resultspath={{inputs.parameters.resultspath}}
             - -prevresultspath={{inputs.parameters.prevresultspath}}
-            - -batch_size={{workflow.parameters.batch_size}}
+            - -batch_size={{inputs.parameters.batch_size}}
             - -class_weight={{inputs.parameters.class_weight}}
             - -batch_norm=false
             - -job

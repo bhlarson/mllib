@@ -365,9 +365,9 @@ def parse_arguments():
     parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220722i0_train')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220723i')
-    parser.add_argument('-tb_dest', type=str, default='crisplit_20220723i_tb')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220723i010')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220725i')
+    parser.add_argument('-tb_dest', type=str, default='crisplit_20220725i_tb')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
@@ -442,7 +442,7 @@ def MakeNetwork2d(class_dictionary, args):
             sigmoid_scale = args.sigmoid_scale,
             k_prune_sigma = args.k_prune_sigma)
 
-def load(s3, s3def, args, class_dictionary):
+def load(s3, s3def, args, class_dictionary, results):
     segment = None
     if(args.model_src and args.model_src != ''):
         modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
@@ -456,7 +456,7 @@ def load(s3, s3def, args, class_dictionary):
         # Create Default segmenter
         segment = MakeNetwork2d(class_dictionary, args)
 
-    return segment
+    return segment, results
 
 def save(model, s3, s3def, args, loc=''):
     out_buffer = io.BytesIO()
@@ -507,15 +507,6 @@ def DisplayImgAn(image, label, segmentation, trainingset, mean, stdev):
     return imanseg
 
 def Train(args, s3, s3def, class_dictionary, segment, device, results):
-
-    # Load number of previous batches to continue tensorboard from previous training
-    prevresultspath = None
-    print('prevresultspath={}'.format(args.prevresultspath))
-    if args.prevresultspath and len(args.prevresultspath) > 0:
-        prevresultspath = ReadDict(args.prevresultspath)
-        if prevresultspath is not None and 'batches' in prevresultspath:
-            print('found prevresultspath={}'.format(prevresultspath))
-            results['batches'] = prevresultspath['batches']
 
     if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
         tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
@@ -910,12 +901,16 @@ def Test(args, s3, s3def, class_dictionary, segment, device, results):
     return results
 
 def Prune(args, s3, s3def, class_dictionary, segment, device, results):
-    total_parameters = count_parameters(segment)
+    if not 'initial_parameters' in results:
+        initial_parameters = count_parameters(segment)
+        results['initial_parameters'] = initial_parameters
+    else:
+        initial_parameters = results['initial_parameters']
     segment.ApplyStructure()
     reduced_parameters = count_parameters(segment)
     save(segment, s3, s3def, args, '_prune')
-    results['prune'] = {'final parameters':reduced_parameters, 'initial parameters' : total_parameters, 'remaining ratio':reduced_parameters/total_parameters }
-    print('{} remaining parameters {}/{} = {}'.format(args.model_dest, reduced_parameters, total_parameters, reduced_parameters/total_parameters))
+    results['prune'] = {'final parameters':reduced_parameters, 'initial parameters' : initial_parameters, 'remaining ratio':reduced_parameters/initial_parameters }
+    print('{} remaining parameters {}/{} = {}'.format(args.model_dest, reduced_parameters, initial_parameters, reduced_parameters/initial_parameters))
     return results
 
 def main(args): 
@@ -958,9 +953,22 @@ def main(args):
     if not class_dictionary:
         raise ValueError('{} {} unsupported dataset {}'.format(__file__, __name__, args.dataset))
 
-    segment = load(s3, s3def, args, class_dictionary)
+    # Load number of previous batches to continue tensorboard from previous training
+    prevresultspath = None
+    print('prevresultspath={}'.format(args.prevresultspath))
+    if args.prevresultspath and len(args.prevresultspath) > 0:
+        prevresults = ReadDict(args.prevresultspath)
+        if prevresults is not None:
+            if 'batches' in prevresults:
+                print('found prevresultspath={}'.format(prevresults))
+                results['batches'] = prevresults['batches']
+            if 'initial_parameters' in prevresults:
+                results['initial_parameters'] = prevresults['initial_parameters']
 
-    total_parameters = count_parameters(segment)
+    segment, results = load(s3, s3def, args, class_dictionary, results)
+
+    if not 'initial_parameters' in results:
+        results['initial_parameters'] = count_parameters(segment)
 
     # Prune with loaded parameters than apply current search_structure setting
     segment.ApplyParameters(weight_gain=args.weight_gain, 

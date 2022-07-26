@@ -190,7 +190,7 @@ workflow:
             - {name: ejector_start, value: 0}
             - {name: ejector_full, value: 1}
             - {name: ejector_max, value: 1.0}
-            - {name: k_prune_basis, value: 1.0}
+            - {name: k_prune_basis, value: 0.10}
             - {name: model_src, value: ""}
             - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}"}
             - {name: k_structure, value: 0.1}
@@ -200,7 +200,7 @@ workflow:
             - {name: resultspath, value: "/app/results.yaml"}
             - {name: prevresultspath, value: "/app/prevresults.yaml"}
             - {name: k_prune_sigma, value: 1.0}
-            - {name: convMaskThreshold, value: 0.1}
+            - {name: convMaskThreshold, value: 0.01}
 
           artifacts:
             - name: prev_results

@@ -460,11 +460,11 @@ def load(s3, s3def, args, class_dictionary, results):
             print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
             return segment
 
-    macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=True,
-                                        print_per_layer_stat=True, verbose=True)
+    macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=False)
     print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
     print('{:<30}  {:<8}'.format('Number of parameters: ', params))
-
+    results['initial_flops'] = macs
+    results['initial_parameters'] = params
     return segment, results
 
 def save(model, s3, s3def, args, loc=''):
@@ -912,11 +912,6 @@ def Test(args, s3, s3def, class_dictionary, segment, device, results):
 def Prune(args, s3, s3def, class_dictionary, segment, device, results):
     if not 'initial_parameters' in results:
         initial_parameters = count_parameters(segment)
-        macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=True,
-                                           print_per_layer_stat=True, verbose=True)
-        print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
-        print('{:<30}  {:<8}'.format('Number of parameters: ', params))
-
         results['initial_parameters'] = initial_parameters
     else:
         initial_parameters = results['initial_parameters']
@@ -926,6 +921,9 @@ def Prune(args, s3, s3def, class_dictionary, segment, device, results):
                                         print_per_layer_stat=True, verbose=True)
     print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
     print('{:<30}  {:<8}'.format('Number of parameters: ', params))
+    
+    results['flops_after_prune'] = macs
+    results['parameters_after_prune'] = params
     save(segment, s3, s3def, args, '_prune')
     results['prune'] = {'final parameters':reduced_parameters, 'initial parameters' : initial_parameters, 'remaining ratio':reduced_parameters/initial_parameters }
     print('{} remaining parameters {}/{} = {}'.format(args.model_dest, reduced_parameters, initial_parameters, reduced_parameters/initial_parameters))

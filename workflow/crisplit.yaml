@@ -110,14 +110,14 @@ workflow:
               when: "{{workflow.parameters.start}} < 3"
               arguments:
                 parameters:
-                  - {name: batch_size, value: 40}
+                  - {name: batch_size, value: 12}
                   - {name: train, value: true}
                   - {name: prune, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
                   - {name: k_prune_basis, value: 1.0}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-                  - {name: learning_rate, value: 6e-4}
+                  - {name: learning_rate, value: 2e-4}
                   - {name: start_epoch, value: 0}
                   - {name: epochs, value: 15}
                   - {name: ejector, value: 'prune_basis'}
@@ -136,14 +136,14 @@ workflow:
               when: "{{workflow.parameters.start}} < 3"
               arguments:
                 parameters:
-                  - {name: batch_size, value: 100}
+                  - {name: batch_size, value: 36}
                   - {name: train, value: true}
                   - {name: prune, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
                   - {name: k_prune_basis, value: 10.0}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-                  - {name: learning_rate, value: 20e-4}
+                  - {name: learning_rate, value: 2e-4}
                   - {name: start_epoch, value: 0}
                   - {name: epochs, value: 20}
                   - {name: ejector, value: 'prune_basis'}
@@ -162,12 +162,12 @@ workflow:
               when: "{{workflow.parameters.start}} < 4"
               arguments:
                 parameters:
-                  - {name: batch_size, value: 400}
+                  - {name: batch_size, value: 100}
                   - {name: train, value: true}
                   - {name: prune, value: false}
                   - {name: test, value: true}
                   - {name: search_structure, value: false}
-                  - {name: learning_rate, value: 40e-4}
+                  - {name: learning_rate, value: 2e-4}
                   - {name: epochs, value: 5}
                   - {name: target_structure, value: '{{workflow.parameters.target_structure}}'}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02_prune"}

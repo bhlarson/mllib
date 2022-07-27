@@ -37,6 +37,8 @@ from torchdatasetutil.cocostore import CreateCocoLoaders
 from torchdatasetutil.imstore import  CreateImageLoaders
 import torchdatasetutil.version as  torchdatasetutil_version
 
+from ptflops import get_model_complexity_info
+
 sys.path.insert(0, os.path.abspath(''))
 from networks.cell2d import Cell, PlotSearch, PlotGradients
 from networks.totalloss import TotalLoss, FenceSitterEjectors
@@ -444,6 +446,11 @@ def MakeNetwork2d(class_dictionary, args):
 
 def load(s3, s3def, args, class_dictionary, results):
     segment = None
+
+    if 'initial_parameters' not in results or args.model_src is None or args.model_src == '':
+        segment = MakeNetwork2d(class_dictionary, args)
+        results['initial_parameters'] = count_parameters(segment)
+
     if(args.model_src and args.model_src != ''):
         modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
 
@@ -452,9 +459,11 @@ def load(s3, s3def, args, class_dictionary, results):
         else:
             print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
             return segment
-    else:
-        # Create Default segmenter
-        segment = MakeNetwork2d(class_dictionary, args)
+
+    macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=True,
+                                        print_per_layer_stat=True, verbose=True)
+    print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
+    print('{:<30}  {:<8}'.format('Number of parameters: ', params))
 
     return segment, results
 
@@ -466,10 +475,10 @@ def save(model, s3, s3def, args, loc=''):
     outname = '{}/{}/{}{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest,loc)
     s3.PutObject(s3def['sets']['model']['bucket'], outname, out_buffer)
 
-def onnx(model, s3, s3def, args):
+def onnx(model, s3, s3def, args, class_dictionary):
     import torch.onnx as torch_onnx
 
-    dummy_input = torch.randn(args.batch_size, 3, args.height, args.width, device='cuda')
+    dummy_input = torch.randn(args.batch_size, class_dictionary['input_channels'], args.height, args.width, device='cuda')
     input_names = ["image"]
     output_names = ["segmentation"]
     oudput_dir = '{}/{}'.format(args.test_dir,args.model_class)
@@ -903,11 +912,20 @@ def Test(args, s3, s3def, class_dictionary, segment, device, results):
 def Prune(args, s3, s3def, class_dictionary, segment, device, results):
     if not 'initial_parameters' in results:
         initial_parameters = count_parameters(segment)
+        macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=True,
+                                           print_per_layer_stat=True, verbose=True)
+        print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
+        print('{:<30}  {:<8}'.format('Number of parameters: ', params))
+
         results['initial_parameters'] = initial_parameters
     else:
         initial_parameters = results['initial_parameters']
     segment.ApplyStructure()
     reduced_parameters = count_parameters(segment)
+    macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=True,
+                                        print_per_layer_stat=True, verbose=True)
+    print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
+    print('{:<30}  {:<8}'.format('Number of parameters: ', params))
     save(segment, s3, s3def, args, '_prune')
     results['prune'] = {'final parameters':reduced_parameters, 'initial parameters' : initial_parameters, 'remaining ratio':reduced_parameters/initial_parameters }
     print('{} remaining parameters {}/{} = {}'.format(args.model_dest, reduced_parameters, initial_parameters, reduced_parameters/initial_parameters))
@@ -969,6 +987,7 @@ def main(args):
 
     if not 'initial_parameters' in results:
         results['initial_parameters'] = count_parameters(segment)
+        
 
     # Prune with loaded parameters than apply current search_structure setting
     segment.ApplyParameters(weight_gain=args.weight_gain, 
@@ -992,7 +1011,7 @@ def main(args):
         results = Test(args, s3, s3def, class_dictionary, segment, device, results)
 
     if args.onnx:
-        onnx(segment, s3, s3def, args)
+        onnx(segment, s3, s3def, args, class_dictionary)
 
     if args.resultspath is not None and len(args.resultspath) > 0:
         WriteDict(results, args.resultspath)

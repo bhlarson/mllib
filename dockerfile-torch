@@ -46,7 +46,8 @@ RUN pip3 --no-cache-dir install \
         pycuda \
         PyYAML \
         mlflow \
-        nni
+        nni \
+        ptflops
 
 ADD "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
 RUN pip3 --no-cache-dir install --upgrade\

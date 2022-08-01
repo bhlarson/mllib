@@ -361,15 +361,15 @@ def parse_arguments():
     parser.add_argument('-coco_class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
     parser.add_argument('-batch_size', type=int, default=2, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=1, help='Training epochs')
+    parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
     parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220723i010')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220725i')
-    parser.add_argument('-tb_dest', type=str, default='crisplit_20220725i_tb')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220727h010_train')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220727h010_search_structure_00')
+    parser.add_argument('-tb_dest', type=str, default='crisplit_20220727h010_tb')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
@@ -379,7 +379,7 @@ def parse_arguments():
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
-    parser.add_argument('-k_structure', type=float, default=0.1, help='Structure minimization weighting factor')
+    parser.add_argument('-k_structure', type=float, default=0.01, help='Structure minimization weighting factor')
     parser.add_argument('-k_prune_basis', type=float, default=0.1, help='prune base loss scaling')
     parser.add_argument('-k_prune_exp', type=float, default=50.0, help='prune basis exponential weighting factor')
     parser.add_argument('-k_prune_sigma', type=float, default=1.0, help='prune basis exponential weighting factor')
@@ -399,7 +399,7 @@ def parse_arguments():
     parser.add_argument('-ejector_exp', type=float, default=3.0, help='Ejector exponent')
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-test', type=str2bool, default=True)
-    parser.add_argument('-prune', type=str2bool, default=False)
+    parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
@@ -520,12 +520,13 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
         results['batches'] = 0
 
     # Enable multi-gpu processing
-    if torch.cuda.device_count() > 1:
-        print("Let's use", torch.cuda.device_count(), "GPUs!")
-        # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-        model = nn.DataParallel(segment)
-    else:
-        model = segment
+    # if torch.cuda.device_count() > 1:
+    #     print("Let's use", torch.cuda.device_count(), "GPUs!")
+    #     # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+    #     model = nn.DataParallel(segment)
+    # else:
+    #     model = segment
+    model = segment
 
     dataset_bucket = s3def['sets']['dataset']['bucket']
     if args.dataset=='coco':
@@ -912,7 +913,8 @@ def Prune(args, s3, s3def, class_dictionary, segment, device, results):
         initial_parameters = results['initial_parameters']
     segment.ApplyStructure()
     reduced_parameters = count_parameters(segment)
-    macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=True,
+    model_copy = copy.deepcopy(segment)
+    macs, params = get_model_complexity_info(model_copy, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
                                         print_per_layer_stat=False, verbose=False)
 
     results['flops_after_prune'] = macs
@@ -991,7 +993,8 @@ def main(args):
     #specify device for model
     segment.to(device)
 
-    macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=True,
+    model_copy = copy.deepcopy(segment)
+    macs, params = get_model_complexity_info(model_copy, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
                                         print_per_layer_stat=False, verbose=False)
     print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
     print('{:<30}  {:<8}'.format('Number of parameters: ', params))

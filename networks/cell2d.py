@@ -126,8 +126,8 @@ class ConvBR(nn.Module):
 
     def _initialize_weights(self):
         #nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
-        #nn.init.ones_(self.channel_scale)
-        nn.init.zeros_(self.channel_scale)
+        nn.init.ones_(self.channel_scale)
+        #nn.init.zeros_(self.channel_scale)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 #nn.init.normal_(m.weight)

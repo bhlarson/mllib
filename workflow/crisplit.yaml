@@ -92,10 +92,10 @@ workflow:
                   - {name: search_structure, value: true}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
                   - {name: start_epoch, value: 0}
-                  - {name: epochs, value: 20}
+                  - {name: epochs, value: 25}
                   - {name: ejector, value: 'prune_basis'}
-                  - {name: ejector_start, value: 0}
-                  - {name: ejector_full, value: 1}
+                  - {name: ejector_start, value: 10}
+                  - {name: ejector_full, value: 11}
                   - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00"}
@@ -115,10 +115,10 @@ workflow:
                   - {name: search_structure, value: true}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
                   - {name: start_epoch, value: 0}
-                  - {name: epochs, value: 20}
+                  - {name: epochs, value: 25}
                   - {name: ejector, value: 'prune_basis'}
-                  - {name: ejector_start, value: 0}
-                  - {name: ejector_full, value: 1}
+                  - {name: ejector_start, value: 10}
+                  - {name: ejector_full, value: 11}
                   - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00_prune"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01"}
@@ -139,8 +139,10 @@ workflow:
                   - {name: search_structure, value: true}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
                   - {name: start_epoch, value: 0}
-                  - {name: epochs, value: 20}
+                  - {name: epochs, value: 25}
                   - {name: ejector, value: 'prune_basis'}
+                  - {name: ejector_start, value: 10}
+                  - {name: ejector_full, value: 11}
                   - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01_prune"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02"}
@@ -155,7 +157,6 @@ workflow:
               when: "{{workflow.parameters.start}} < 4"
               arguments:
                 parameters:
-                  - {name: batch_size, value: 40}
                   - {name: train, value: true}
                   - {name: prune, value: false}
                   - {name: test, value: true}
@@ -182,13 +183,14 @@ workflow:
             - {name: epochs, value: 2}
             - {name: start_epoch, value: 0}
             - {name: ejector, value: 'None'}
-            - {name: ejector_start, value: 15}
-            - {name: ejector_full, value: 16}
+            - {name: ejector_start, value: 10}
+            - {name: ejector_full, value: 11}
             - {name: ejector_max, value: 1.0}
-            - {name: k_prune_basis, value: 1.0}
             - {name: model_src, value: ""}
             - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}"}
-            - {name: k_structure, value: 1.0}
+            - {name: k_accuracy, value: 10.0}
+            - {name: k_structure, value: 0.1}
+            - {name: k_prune_basis, value: 1.0}
             - {name: learning_rate, value: 2e-4}
             - {name: class_weight, value: "[1.0, 1.0]"}
             - {name: description, value: '{"author":"Brad Larson","description":"Crisp LIT segmentation"}'}
@@ -234,6 +236,7 @@ workflow:
             - -onnx={{inputs.parameters.onnx}}
             - -search_structure={{inputs.parameters.search_structure}}
             - -target_structure={{inputs.parameters.target_structure}}
+            - -k_accuracy={{inputs.parameters.k_accuracy}}
             - -k_structure={{inputs.parameters.k_structure}}
             - -learning_rate={{inputs.parameters.learning_rate}}
             - -model_src={{inputs.parameters.model_src}}
@@ -260,10 +263,10 @@ workflow:
           ports:
             - name: debug
               containerPort: 3000
-              hostPort: 36008
+              #hostPort: 3000
             - name: tensorboard
               containerPort: 6006
-              hostPort: 36009
+              #hostPort: 6007
           resources:
             requests:
               ephemeral-storage: "40Gi"

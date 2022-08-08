@@ -18,12 +18,13 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
     ignore_index: int
 
     def __init__(self, isCuda, weight: Optional[torch.Tensor] = None, size_average=None, ignore_index: int = -100,
-                 prune=None, reduction: str = 'mean', k_structure=0.0, target_structure=torch.as_tensor([1.0], dtype=torch.float32), 
+                 prune=None, reduction: str = 'mean', k_accuracy=1.0, k_structure=1.0, target_structure=torch.as_tensor([1.0], dtype=torch.float32), 
                  class_weight=None, search_structure=True, k_prune_basis=1.0, k_prune_exp=3.0, sigmoid_scale=5.0, exp_scale=10, ejector=FenceSitterEjectors.none) -> None:
         super(TotalLoss, self).__init__(weight, size_average, prune, reduction)
         self.isCuda = isCuda
         self.ignore_index = ignore_index
         self.reduction = reduction
+        self.k_accuracy = k_accuracy
         self.k_structure = k_structure
         self.softsign = nn.Softsign()
         self.target_structure = target_structure  
@@ -45,7 +46,7 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
 
     def forward(self, input: torch.Tensor, target: torch.Tensor, network) -> torch.Tensor:
         assert self.weight is None or isinstance(self.weight, torch.Tensor)
-        cross_entropy_loss = self.cross_entropy_loss(input, target.long())
+        cross_entropy_loss = self.k_accuracy*self.cross_entropy_loss(input, target.long())
 
         dims = []
         depths = []

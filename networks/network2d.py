@@ -364,7 +364,7 @@ def parse_arguments():
     parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
-    parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
+    parser.add_argument('-num_workers', type=int, default=0, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
     parser.add_argument('-model_src', type=str,  default='crisplit_20220727h010_train')
@@ -379,6 +379,7 @@ def parse_arguments():
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
+    parser.add_argument('-k_accuracy', type=float, default=1.0, help='Accuracy weighting factor')
     parser.add_argument('-k_structure', type=float, default=0.01, help='Structure minimization weighting factor')
     parser.add_argument('-k_prune_basis', type=float, default=0.1, help='prune base loss scaling')
     parser.add_argument('-k_prune_exp', type=float, default=50.0, help='prune basis exponential weighting factor')
@@ -594,15 +595,16 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
             record_shapes=True, profile_memory=True, with_stack=True
     ) as prof:
 
-        loss_fcn = TotalLoss(args.cuda, 
-                                k_structure=args.k_structure, 
-                                target_structure=target_structure, 
-                                class_weight=class_weight, 
-                                search_structure=args.search_structure, 
-                                k_prune_basis=args.k_prune_basis, 
-                                k_prune_exp=args.k_prune_exp,
-                                sigmoid_scale=args.sigmoid_scale,
-                                ejector=args.ejector)
+        loss_fcn = TotalLoss(args.cuda,
+                             k_accuracy=args.k_accuracy,
+                             k_structure=args.k_structure, 
+                             target_structure=target_structure, 
+                             class_weight=class_weight, 
+                             search_structure=args.search_structure, 
+                             k_prune_basis=args.k_prune_basis, 
+                             k_prune_exp=args.k_prune_exp,
+                             sigmoid_scale=args.sigmoid_scale,
+                             ejector=args.ejector)
         #optimizer = optim.SGD(segment.parameters(), lr=args.learning_rate, momentum=0.9)
         optimizer = optim.Adam(segment.parameters(), lr= args.learning_rate)
         plotsearch = PlotSearch()

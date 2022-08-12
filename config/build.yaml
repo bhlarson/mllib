@@ -1,0 +1,25 @@
+name: crisp
+description: Continuous relaxation in structured pruning
+dockerbuild:
+- name: crisptrain
+  dockerfile: dockerfile-train
+  context: .
+- name: crispdev
+  dockerfile: dockerfile
+  context: .
+  build_arg:
+  - key: IMAGE
+    value: crisptrain
+  - key: SUDOUSER
+    value: ai
+version:
+  major: 0
+  minor: 0
+  patch: 294
+  label: ''
+gpus: all
+image_names:
+- name: crisptrain
+  image_name: localhost:32000/crisptrain:0.0.294
+- name: crispdev
+  image_name: localhost:32000/crispdev:0.0.294

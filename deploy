@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 
-import os
-import sys
+import os, sys
 import shutil
 import subprocess
 import copy
@@ -9,31 +8,43 @@ import io
 import json
 import tempfile
 from datetime import datetime
+from pymlutil.jsonutil import cmd, ReadDict, WriteDict
+from pymlutil.version import VersionString
 from zipfile import ZipFile, ZIP_DEFLATED
 
-sys.path.insert(0, os.path.abspath(''))
-from pymlutil.jsonutil import WriteDictJson, ReadDictJson
+# def cmd(command):
+#     print('$ '+command)
+#     initial = datetime.now()
+#     result = subprocess.call(command, shell=True)
+#     dt = (datetime.now()-initial).total_seconds()
+#     print('Command complete {}s'.format(dt))
+#     return result
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
 
-    parser.add_argument('-debug', action='store_true',help='Wait for debuggee attach')   
+    parser.add_argument('-debug', '-d', action='store_true',help='Wait for debugee attach')   
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
+    parser.add_argument('-debug_listen', type=str, default='0.0.0.0', help='Default, accept any client')
     
-    parser.add_argument('-out', type=str, default='mllib', help='Output path')
-    parser.add_argument('-config', type=str, default='build.json', help='Configuration file')
-    parser.add_argument('--version', '-v', type=str, default='latest', help='Version number')
+    parser.add_argument('-creds', type=str, default='creds.yaml', help='Credentials')
+    parser.add_argument('-config', type=str, default='config/build.yaml', help='Configuration file')
+    parser.add_argument('-env', type=str, default='config/config.sh', help='Output environment file')
+    parser.add_argument('--registry','-r', type=str, default='local', help='Configuration file')
 
-    parser.add_argument('-archive', type=str, default='localhost:32000', help='destination archive')
+    parser.add_argument('--message', '-m', type=str, default=None, help='Version get message')
+
     parser.add_argument('-dirs', type=json.loads, default=None, help='List of directories to create')
     parser.add_argument('-dockerbuild', type=json.loads, default=None, help='List dockerfiles to build')
     parser.add_argument('-dockerpull', type=json.loads, default=None, help='List cocker images to pull')
+    parser.add_argument('--test', '-t', action='store_true', help='Test deploy')
+    parser.add_argument('-user',  type=str, default='blarson', help='username:username')
     
 
     args = parser.parse_args()
 
     if type(args.config) ==str:
-        config = ReadDictJson(args.config)
+        config = ReadDict(args.config)
         if 'dirs' in config:
             if args.dirs is None:
                 args.dirs = []
@@ -47,74 +58,162 @@ def parse_arguments():
 
     return args
 
-def cmd(command):
-    print('$ '+command)
-    initial = datetime.now()
-    result = subprocess.call(command, shell=True)
-    dt = (datetime.now()-initial).total_seconds()
-    print('Command complete {}s'.format(dt))
-    return result
-
-def Collect(copies, path, symlinks=True, dirs_exist_ok=True):
-    if copies is not None and type(copies) is list:
-        for copy_dfn in copies:
-            ignore=None
-            if "ignore" in copy_dfn:
-                ignore=copy_dfn['ignore']
-                
-            '''shutil.copytree(
-                copy_dfn['src'],
-                '{}/{}'.format(path, copy_dfn['dest']), 
-                ignore=ignore)'''
-            copycmd = 'cp -a {} {}/{}'.format(copy_dfn['src'],path,copy_dfn['dest'])
-            cmd(copycmd)
-
-def DockerBuild(dockers, archive, version):
+def Archive(args, config):
     result = 0
-    if dockers is not None and type(dockers) is list:
-        for docker in dockers:
-            archivestr = ''
-            if archive is not None:
-                archivestr = '{}/'.format(archive)
+    config['version']['patch'] += 1
+    version_str = VersionString(config)
+    config['image_names'] = ImageNames(args, version_str)
+    WriteDict(config, args.config)
+    WriteEnvFile(args, config, version_str, config['image_names'])
 
-            docker_name = '{}{}:{}'.format(archivestr,docker['name'],version)
-            print('Docker build {}'.format(docker_name))
-            dockercmd = 'docker build --pull -f {} -t {} "{}"'.format(
-                docker['dockerfile'], docker_name, docker['context'])
-            result=cmd(dockercmd)
-            if result != 0:
-                print('Failed {}={}.  Exiting.'.format(dockercmd, result))
-                break
+    cmdstr = 'git add {}'.format(args.config)
+    cmd(cmdstr)
 
-            if archive is not None:
-                dockercmd = 'docker push {}'.format(docker_name)
-                result = cmd(dockercmd)
-                if result != 0:
-                    print('Failed {}={}.  Exiting.'.format(dockercmd, result))
-                    break
-            print('Image {} succeeded'.format(docker_name))
-    return result
+
+
+    cmdstr = 'git add {}'.format(args.env)
+    cmd(cmdstr)
+
+    cmdstr = 'git commit -m "Tag version {}"'.format(version_str)
+    cmd(cmdstr)
+
+    cmdstr = 'git diff-index --quiet HEAD --;'
+    result, _, _ = cmd(cmdstr, check=False)
+    if result != 0 and not args.test:
+        print ('Changes in working tree.  Please commit before creating a versioned repository.  Run "git status" for more information.')
+        return result, config, version_str
+    else:
+        result=0
+    
+    if args.message is None:
+        description = "{} version {}".format(config['name'], version_str)
+    else:
+        description = args.message
+    cmdstr = 'git tag -a {} -m "{}"'.format(version_str,description )
+    cmd(cmdstr)
+
+    cmdstr = 'git push origin {}'.format(version_str)
+    cmd(cmdstr)
+
+    cmdstr = 'git push'
+    cmd(cmdstr)
+    
+    return result, config, version_str
+
+def ImageNames(args, version_str):
+    image_names = []
+
+    creds = ReadDict(args.creds)
+    if args.dockerbuild is not None and type(args.dockerbuild) is list:
+        for docker in args.dockerbuild:
+
+            registry = next(filter(lambda d: d.get('name') == args.registry, creds['registry']), None)
+            assert registry is not None
+            if registry['url'] is not None and len(registry['url']) > 0:
+                archivestr = '{}/'.format(registry['url'])
+            else:
+                archivestr = ''
+
+            image_name = '{}{}:{}'.format(archivestr,docker['name'],version_str)
+
+            flags = '--pull'
+            if 'build_arg' in docker:
+                for buildarg in docker['build_arg']:
+                    if buildarg['key'] == 'IMAGE':
+                        our_image = next(filter(lambda d: d.get('name') == buildarg['value'], image_names), None)
+                        if our_image is not None:
+                            flags += ' --build-arg IMAGE={}'.format(our_image['image_name'])
+                        elif 'value' in buildarg:
+                            flags += ' --build-arg IMAGE={}'.format(buildarg['value'])
+                    elif 'key' in buildarg:
+                        flags += ' --build-arg ' + buildarg['key']
+                        if 'value' in buildarg:
+                            flags += '=' + buildarg['value']
+
+            if 'url' in registry and registry['url'] is not None and len(registry['url']) > 0:
+                image_names.append({'name':docker['name'], 'image_name':image_name})
+
+    return image_names
+
+def DockerBuild(args, image_names, version_str):
+
+    creds = ReadDict(args.creds)
+    if args.dockerbuild is not None and type(args.dockerbuild) is list:
+        for docker in args.dockerbuild:
+
+            registry = next(filter(lambda d: d.get('name') == args.registry, creds['registry']), None)
+            assert registry is not None
+            if registry['url'] is not None and len(registry['url']) > 0:
+                archivestr = '{}/'.format(registry['url'])
+            else:
+                archivestr = ''
+
+            image_name = '{}{}:{}'.format(archivestr,docker['name'],version_str)
+            print('Docker build {}'.format(image_name))
+
+            flags = '--pull'
+            if 'build_arg' in docker:
+                for buildarg in docker['build_arg']:
+                    if buildarg['key'] == 'IMAGE':
+                        our_image = next(filter(lambda d: d.get('name') == buildarg['value'], image_names['image_names']), None)
+                        if our_image is not None:
+                            flags += ' --build-arg IMAGE={}'.format(our_image['image_name'])
+                        elif 'value' in buildarg:
+                            flags += ' --build-arg IMAGE={}'.format(buildarg['value'])
+                    elif 'key' in buildarg:
+                        flags += ' --build-arg ' + buildarg['key']
+                        if 'value' in buildarg:
+                            flags += '=' + buildarg['value']
+
+
+            dockercmd = 'docker build {} -f {} -t {} "{}"'.format(
+                flags, docker['dockerfile'], image_name, docker['context'])
+            cmd(dockercmd)
+
+            if 'url' in registry and registry['url'] is not None and len(registry['url']) > 0:
+                if 'username' in registry:
+                    #loginstr = 'docker login {} -u {} -p {} ; '.format(regcreds['name'],regcreds['username'], regcreds['password'])
+                    loginstr = 'docker login {} ; '.format(registry['username'])
+                else:
+                    loginstr = ''
+
+                dockercmd = '{} docker push {}'.format(loginstr, image_name)
+                cmd(dockercmd)
+
+            print('Image {} succeeded'.format(image_name))
+    return image_names
+
+def WriteEnvFile(args, config, version_str, image_names):
+    os.makedirs(os.path.dirname(args.env), exist_ok=True)
+    with open(args.env, "w") as envfile:
+        envfile.write('export VERSION={}\n'.format(version_str))
+
+        for image_name in image_names:
+            envfile.write('export {}={}\n'.format(image_name['name'],image_name['image_name']))
 
 def main(args):
     initial = datetime.now()
-    print("Build mlworkflow archive: {} version: {}".format(args.archive, args.version))
 
-    result = DockerBuild(args.dockerbuild, args.archive, args.version)
+    config = ReadDict(args.config)
+
+    result, config, version_str = Archive(args, config)
+    if result:
+        return result
+
+    print("deploy {} version: {}".format(config['name'], version_str))
+    DockerBuild(args, config, version_str)
     dt = (datetime.now()-initial).total_seconds()
-    print("Build complete succeeded={} {}s".format(result==0, dt))
+    print("Deployed images {} {}s".format(config['image_names'], dt))
 
 if __name__ == '__main__':
     import argparse
     args = parse_arguments()
 
     if args.debug:
-        print("Wait for debugger attach")
+        print("Wait for debugger address {} port {}".format(args.debug_listen, args.debug_port))
         import debugpy
-
-        debugpy.listen(address=('0.0.0.0', args.debug_port))
-        # Pause the program until a remote debugger is attached
-
-        debugpy.wait_for_client()
+        debugpy.listen(address=(args.debug_listen, args.debug_port))
+        debugpy.wait_for_client() # Pause the program until a remote debugger is attached
         print("Debugger attached")
 
     main(args)

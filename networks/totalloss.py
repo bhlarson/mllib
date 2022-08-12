@@ -18,8 +18,9 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
     ignore_index: int
 
     def __init__(self, isCuda, weight: Optional[torch.Tensor] = None, size_average=None, ignore_index: int = -100,
-                 prune=None, reduction: str = 'mean', k_accuracy=1.0, k_structure=1.0, target_structure=torch.as_tensor([1.0], dtype=torch.float32), 
-                 class_weight=None, search_structure=True, k_prune_basis=1.0, k_prune_exp=3.0, sigmoid_scale=5.0, exp_scale=10, ejector=FenceSitterEjectors.none) -> None:
+                 prune=None, reduction: str = 'mean', k_accuracy=1.0, k_structure=1.0, target_structure=torch.as_tensor([1.0], 
+                 dtype=torch.float32), class_weight=None, search_structure=True, k_prune_basis=1.0, k_prune_exp=3.0, 
+                 sigmoid_scale=5.0, exp_scale=10, ejector=FenceSitterEjectors.none, total_weights = 0) -> None:
         super(TotalLoss, self).__init__(weight, size_average, prune, reduction)
         self.isCuda = isCuda
         self.ignore_index = ignore_index
@@ -38,6 +39,9 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
         self.sigmoid_scale = sigmoid_scale
         self.exp_scale = exp_scale
         self.ejector = ejector
+        self.total_weights = total_weights
+
+        print('TotalLoss.__init__ total_weights={}'.format(total_weights))
 
         if self.isCuda:
             if weight:
@@ -55,7 +59,10 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
         sigmoid_scale = torch.zeros(1, device=architecture_weights.device)
         prune_loss = torch.zeros(1, device=architecture_weights.device)
         if self.search_structure:
-            architecture_reduction = architecture_weights/total_trainable_weights
+            if self.total_weights and self.total_weights > 0.0:
+                architecture_reduction = architecture_weights/self.total_weights
+            else:
+                architecture_reduction = architecture_weights/total_trainable_weights
             architecture_loss = self.k_structure*self.archloss(architecture_reduction,self.target_structure)
 
             if self.ejector == FenceSitterEjectors.prune_basis or self.ejector == FenceSitterEjectors.prune_basis.value:

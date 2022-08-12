@@ -8,13 +8,14 @@ import json
 import platform
 from enum import Enum
 from copy import deepcopy
-from click import style
 import torch
 from torch._C import parse_ir
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from tensorboard import program
 import torch.profiler
+from torch.profiler import profile, ProfilerActivity
 from torch.utils.tensorboard import SummaryWriter
 from collections import namedtuple
 from collections import OrderedDict

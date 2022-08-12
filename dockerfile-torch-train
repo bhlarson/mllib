@@ -41,7 +41,7 @@ RUN pip3 install --no-cache-dir \
         mlflow \
         ptflops
 
-ADD "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
+#ADD "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
 RUN pip3 --no-cache-dir install \
         pymlutil  \
         torchdatasetutil

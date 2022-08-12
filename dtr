@@ -1,9 +1,49 @@
+source ./config/config.sh
+
+if [ "$1" != "" ]; then
+    CONTAINER_NAME="$1"
+elif [[ -z "${CONTAINER_NAME}" ]]; then
+    CONTAINER_NAME='crispdev'
+fi
+echo CONTAINER_NAME=${CONTAINER_NAME}
+
+if [ "$2" != "" ]; then
+    UTIL_PORTS=$2
+elif [[ -z "${UTIL_PORTS}" ]]; then
+    UTIL_PORTS=33200
+fi
+
+if [ "$3" != "" ]; then
+    image_name="$3"
+elif [[ -z "${image_name}" ]]; then
+    image_name=${crispdev}
+fi
+echo image_name=${image_name}
+
+if [ "$4" != "" ]; then
+    gpus="$4"
+elif [[ -z "${gpus}" ]]; then
+    #gpus='"device=2,3"'
+    gpus='all' 
+fi
+
+iPort=${UTIL_PORTS}
+PORT1=$((iPort++))
+PORT2=$((iPort++))
+PORT3=$((iPort++))
+PORT4=$((iPort++))
+PORT5=$((iPort++))
+
+set -x
 docker run --ipc=host --privileged --gpus all -it --rm --cap-add=CAP_SYS_ADMIN \
     -v "$(pwd):/app" \
     -v "/store:/store" \
     -v "/store/Datasets/flow/SceneFlow:/store/Datasets/flow/SceneFlow" \
     -v /etc/localtime:/etc/localtime:ro \
-    -p 33200:3000 \
-    -p 33206:6006 \
-    -p 33288:8888/tcp \
-    -p 33250:5000/tcp localhost:32000/torch:latest
+    -p ${PORT1}:3000 \
+    -p ${PORT2}:5000 \
+    -p ${PORT3}:6006 \
+    -p ${PORT4}:8888 \
+    --name $CONTAINER_NAME \
+    --entrypoint=/bin/bash \
+    ${image_name}

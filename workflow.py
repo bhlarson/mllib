@@ -42,16 +42,26 @@ def parse_arguments():
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
     parser.add_argument('-test', action='store_true', help='Run unit tests')
 
+    parser.add_argument('-config', type=str, default='config/build.yaml', help='Configuration file')
+    parser.add_argument('-image', type=str, default='crisptrain', help='Workflow image name')
+
+
     parser.add_argument('-credentails', type=str, default='creds.yaml', help='Credentials file.')
     parser.add_argument('-objectserver', type=str, default='store', help='Object server name.')
 
     parser.add_argument('--server', '-s', type=str, default='hiocnn', help='Argo Server.')
 
     parser.add_argument('--run', '-r', type=str, default='workflow/crisplit.yaml', help='Run workflow')
-    parser.add_argument('--params', '-p', type=json.loads, default=None, help='Parameters parsed by set_parameters  e.g.: {"output_name":"20220330h", "target_structure":0.0, "batch_size":3}')
+    parser.add_argument('--params', '-p', type=json.loads, default=None, help='Parameters parsed by set_parameters  e.g.: -p "{"description": {"author": "Brad Larson","description":"Crisp LIT segmentation"}, "target_structure": 0.0, "batch_size": 2}" ')
 
     args = parser.parse_args()
     return args
+
+def ImageName(image_names, image):
+    for image_entry in image_names:
+        if image == image_entry['name']:
+            return image_entry['image_name']
+    return None
 
 def main(args):
 
@@ -76,6 +86,13 @@ def main(args):
     if not workflow:
         print('Failed to read {}'.format(args.run))
         return -1
+
+    config = ReadDict(args.config)
+    now = datetime.now()
+    default_output_name = '{}_{}'.format(now.strftime("%Y%m%d_%H%M%S"),args.server)
+    imageName = ImageName(config['image_names'], args.image)
+    set_parameters(workflow, {'output_name': default_output_name, 'train_image': imageName})
+
     if args.params is not None and len(args.params) > 0:
         set_parameters(workflow, args.params)
     result = run(workflow, argocreds)

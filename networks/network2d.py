@@ -16,9 +16,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from tensorboard import program
 import torch.profiler
-from torch.profiler import profile, record_function, ProfilerActivity
+from torch.profiler import profile, ProfilerActivity
 from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data.sampler import SubsetRandomSampler
 from collections import namedtuple
 from collections import OrderedDict
 from typing import Callable, Optional
@@ -364,7 +363,7 @@ def parse_arguments():
     parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
-    parser.add_argument('-num_workers', type=int, default=0, help='Data loader workers')
+    parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
     parser.add_argument('-model_src', type=str,  default='crisplit_20220727h010_train')
@@ -460,6 +459,9 @@ def load(s3, s3def, args, class_dictionary, results):
         else:
             print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
             return segment
+
+    print('load initial_parameters = {}'.format(results['initial_parameters']))
+
 
     return segment, results
 
@@ -604,7 +606,9 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
                              k_prune_basis=args.k_prune_basis, 
                              k_prune_exp=args.k_prune_exp,
                              sigmoid_scale=args.sigmoid_scale,
-                             ejector=args.ejector)
+                             ejector=args.ejector,
+                             total_weights= results['initial_parameters'],
+                             )
         #optimizer = optim.SGD(segment.parameters(), lr=args.learning_rate, momentum=0.9)
         optimizer = optim.Adam(segment.parameters(), lr= args.learning_rate)
         plotsearch = PlotSearch()
@@ -909,10 +913,9 @@ def Test(args, s3, s3def, class_dictionary, segment, device, results):
 
 def Prune(args, s3, s3def, class_dictionary, segment, device, results):
     if not 'initial_parameters' in results:
-        initial_parameters = count_parameters(segment)
-        results['initial_parameters'] = initial_parameters
-    else:
-        initial_parameters = results['initial_parameters']
+        full_model = MakeNetwork2d(class_dictionary, args)
+        results['initial_parameters'] = count_parameters(full_model)
+    initial_parameters = results['initial_parameters']
     segment.ApplyStructure()
     reduced_parameters = count_parameters(segment)
     model_copy = copy.deepcopy(segment)
@@ -981,7 +984,8 @@ def main(args):
     segment, results = load(s3, s3def, args, class_dictionary, results)
 
     if not 'initial_parameters' in results:
-        results['initial_parameters'] = count_parameters(segment)
+        full_model = MakeNetwork2d(class_dictionary, args)
+        results['initial_parameters'] = count_parameters(full_model)
         
 
     # Prune with loaded parameters than apply current search_structure setting
@@ -1000,8 +1004,7 @@ def main(args):
                                         print_per_layer_stat=False, verbose=False)
     print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
     print('{:<30}  {:<8}'.format('Number of parameters: ', params))
-    results['initial_flops'] = macs
-    results['initial_parameters'] = params
+    results['initial_flops'] = 2*macs
 
     # Train
     if args.train:

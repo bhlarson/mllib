@@ -918,8 +918,8 @@ def Prune(args, s3, s3def, class_dictionary, segment, device, results):
     initial_parameters = results['initial_parameters']
     segment.ApplyStructure()
     reduced_parameters = count_parameters(segment)
-    model_copy = copy.deepcopy(segment)
-    macs, params = get_model_complexity_info(model_copy, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+    # model_copy = copy.deepcopy(segment)
+    macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
                                         print_per_layer_stat=False, verbose=False)
 
     results['flops_after_prune'] = macs
@@ -999,8 +999,8 @@ def main(args):
     #specify device for model
     segment.to(device)
 
-    model_copy = copy.deepcopy(segment)
-    macs, params = get_model_complexity_info(model_copy, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+    # model_copy = copy.deepcopy(segment)
+    macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
                                         print_per_layer_stat=False, verbose=False)
     print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
     print('{:<30}  {:<8}'.format('Number of parameters: ', params))

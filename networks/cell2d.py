@@ -24,7 +24,6 @@ from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
-#from mlflow import log_metric, log_param, log_artifacts
 
 sys.path.insert(0, os.path.abspath(''))
 sys.path.insert(0, os.path.abspath('..'))
@@ -37,6 +36,97 @@ from networks.totalloss import TotalLoss
 # Inner neural architecture cell repetition structure
 # Process: Con2d, optional batch norm, optional ReLu
 
+def relu_flops_counter_hook(module, shape, sigmoid):
+    channel_weight = torch.sum(sigmoid)
+    num_channels = len(sigmoid)
+    active_elements_count = torch.prod(shape) * channel_weight/num_channels
+    return active_elements_count
+
+def bn_flops_counter_hook(module, shape, sigmoid):
+    channel_weight = torch.sum(sigmoid)
+    num_channels = len(sigmoid)
+    batch_flops = np.prod(shape) * channel_weight/num_channels
+    if module.affine:
+        batch_flops *= 2
+    return batch_flops
+
+def conv_flops_counter_hook(conv_module, input_sigmoid, output_shape, output_sigmoid):
+    # Can have multiple inputs, getting the first one
+    output_dims = list(output_shape.shape[2:])
+
+    kernel_dims = list(conv_module.kernel_size)
+    #in_channels = conv_module.in_channels
+    in_channel_weight = torch.sum(input_sigmoid)
+    #out_channels = conv_module.out_channels
+    out_channel_weight = torch.sum(output_sigmoid)
+    groups = conv_module.groups
+
+    filters_per_channel = out_channel_weight / groups
+    conv_per_position_flops = int(np.prod(kernel_dims)) * in_channel_weight * filters_per_channel
+
+    active_elements_count = int(np.prod(output_dims))
+
+    overall_conv_flops = conv_per_position_flops * active_elements_count
+
+    bias_flops = 0
+
+    if conv_module.bias is not None:
+
+        bias_flops = out_channel_weight * active_elements_count
+
+    overall_flops = overall_conv_flops + bias_flops
+
+    return overall_flops
+
+class RelaxChannels(nn.Module):
+    def __init__(self,channels, 
+                 device=torch.device("cpu"),
+                 search_structure=True,
+                 disable_search_structure = False,
+                 sigmoid_scale = 5.0, # Channel sigmoid scale factor
+                ):
+        super(RelaxChannels, self).__init__()
+        self.channels = channels
+        self.device = device
+        self.search_structure = search_structure
+        self.disable_search_structure = disable_search_structure
+        self.sigmoid_scale = sigmoid_scale
+        self.channel_scale = nn.Parameter(torch.zeros(self.channels, dtype=torch.float, device=self.device))
+        self.sigmoid = nn.Sigmoid()
+
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        nn.init.ones_(self.channel_scale)
+
+    def ApplyParameters(self, search_structure=None, sigmoid_scale=None):
+        if search_structure is not None:
+            self.disable_search_structure = not search_structure
+        if sigmoid_scale is not None:
+            self.sigmoid_scale = sigmoid_scale
+
+    def weights(self):
+        conv_weights = self.sigmoid(self.sigmoid_scale*self.channel_scale)
+        return conv_weights
+
+    def forward(self, x):
+        if self.search_structure and not self.disable_search_structure: #scale channels based on self.channel_scale
+                x *= self.weights()[None,:,None,None]
+        return x
+
+    # Remove specific network dimensions
+    # remove dimension where inDimensions and outDimensions arrays are 0 for channels to be removed
+    def ApplyStructure(self, conv_mask, msg=None):
+        if msg is None:
+            prefix = "RelaxChannels::ApplyStructure"
+        else:
+            prefix = "RelaxChannels::ApplyStructure {}".format(msg)
+
+        self.channel_scale = self.channel_scale[conv_mask!=0]
+
+        print("{} {}={}/{} channel_scale.shape()={} out_channels={}".format(prefix, self.channel_scale.shape))
+
+        return conv_mask
 
 class ConvBR(nn.Module):
     def __init__(self, 
@@ -61,6 +151,7 @@ class ConvBR(nn.Module):
                  k_prune_sigma=0.33,
                  device=torch.device("cpu"),
                  disable_search_structure = False,
+                 search_flops = True,
                  ):
         super(ConvBR, self).__init__()
         self.in_channels = in_channels
@@ -86,6 +177,9 @@ class ConvBR(nn.Module):
         self.conv_transpose = conv_transpose
         self.k_prune_sigma=k_prune_sigma
         self.device = device
+        self.search_flops = search_flops
+        self.input_shape = None
+        self.output_shape = None
 
         self.channel_scale = nn.Parameter(torch.zeros(self.out_channels, dtype=torch.float, device=self.device))
 
@@ -109,7 +203,6 @@ class ConvBR(nn.Module):
         if self.batch_norm:
             self.batchnorm2d = nn.BatchNorm2d(out_channels)
 
-        self.sigmoid = nn.Sigmoid()
         self.total_trainable_weights = model_weights(self)
         if self.use_dropout:
             self.dropout = nn.Dropout(p=self.dropout_rate)
@@ -121,7 +214,15 @@ class ConvBR(nn.Module):
         else:
             self.activation = None
 
-            
+        if self.search_structure:
+            self.relaxation = RelaxChannels(self.out_channels, 
+                                            device=self.device, 
+                                            search_structure=self.search_structure,
+                                            disable_search_structure=self.disable_search_structure,
+                                            sigmoid_scale=self.sigmoid_scale
+                                            )
+        else:
+            self.relaxation = None
 
         self._initialize_weights()
 
@@ -152,7 +253,14 @@ class ConvBR(nn.Module):
         if k_prune_sigma is not None:
             self.k_prune_sigma = k_prune_sigma
 
+        if self.relaxation is not None:
+            self.relaxation.ApplyParameters(search_structure, sigmoid_scale)
+
     def forward(self, x):
+
+        if self.input_shape is None:
+            self.input_shape = x.shape
+
         if self.out_channels > 0:
             if self.use_dropout:
                 x = self.dropout(x)
@@ -162,39 +270,24 @@ class ConvBR(nn.Module):
             if self.batch_norm:
                 x = self.batchnorm2d(x)
 
-            if self.search_structure and not self.disable_search_structure: #scale channels based on self.channel_scale
-                    weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)[None,:,None,None]
-                    x *= weight_scale  
+            if self.relaxation:
+                x = self.relaxation(x)  
 
             if self.activation:
                 x = self.activation(x)
+
         else :
             print("Failed to prune zero size convolution")
+
+        if self.output_shape is None:
+            self.output_shape = x.shape
 
         return x
 
     def ArchitectureWeights(self):
-        if self.search_structure and not self.disable_search_structure:
+        if self.relaxation and self.search_structure and not self.disable_search_structure:
             weight_basis = GaussianBasis(self.channel_scale, sigma=self.k_prune_sigma)
-            weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)
-
-            '''if not self.batch_norm:
-                # Include convolution norm in channel pruning weight if no batch norm
-                if self.conv_transpose:
-                    den = list(self.conv.weight.shape)
-                    del den[1]
-                    den = np.sqrt(np.prod(den))
-                    norm = torch.linalg.norm(self.conv.weight , dim=(0,2,3))/den
-                else:
-                    den = list(self.conv.weight.shape)
-                    del den[0]
-                    den = np.sqrt(np.prod(den))
-                    norm = torch.linalg.norm(self.conv.weight , dim=(1,2,3))/den
-                conv_scale = torch.tanh(self.weight_gain*norm)
-                conv_weights = weight_scale*conv_scale
-            else:
-                conv_weights = weight_scale '''
-            conv_weights = weight_scale
+            conv_weights = self.channel_scale*self.relaxation.weights()
 
         else:
             weight_basis = torch.zeros_like(self.channel_scale, device=self.device)
@@ -232,26 +325,8 @@ class ConvBR(nn.Module):
         # Convolution norm gain mask
         if self.in_channels ==0: # No output if no input
             conv_mask = torch.zeros((self.out_channels), dtype=torch.bool, device=self.device)
-        elif self.search_structure and not self.disable_search_structure:
-            conv_mask = self.sigmoid(self.sigmoid_scale*self.channel_scale)
-
-            '''if self.batch_norm:
-                conv_mask = self.sigmoid(self.sigmoid_scale*self.channel_scale)
-            else:
-                if self.conv_transpose:
-                    den = list(self.conv.weight.shape)
-                    del den[1]
-                    den = np.sqrt(np.prod(den))
-                    norm = torch.linalg.norm(self.conv.weight , dim=(0,2,3))/den
-                else:
-                    den = list(self.conv.weight.shape)
-                    del den[0]
-                    den = np.sqrt(np.prod(den))
-                    norm = torch.linalg.norm(self.conv.weight , dim=(1,2,3))/den
-
-                norm = torch.linalg.norm(self.conv.weight, dim=(1,2,3))/np.sqrt(np.product(self.conv.weight.shape[1:]))
-                conv_mask *= torch.tanh(self.weight_gain*norm)'''
-
+        elif self.relaxation and self.search_structure and not self.disable_search_structure:
+            conv_mask = self.channel_scale*self.relaxation.weights()
             conv_mask = conv_mask > self.convMaskThreshold
         else:
             conv_mask = self.channel_scale > float('-inf') # Always true if self.search_structure == False
@@ -267,23 +342,25 @@ class ConvBR(nn.Module):
         prev_convolutions = len(conv_mask)
         pruned_convolutions = len(conv_mask[conv_mask==False])
 
-        if self.search_structure and not self.disable_search_structure:
-            if self.residual and prev_convolutions==pruned_convolutions: # Pruning full convolution 
-                conv_mask = ~conv_mask # Residual connection becomes a straight through connection
+        if self.residual and prev_convolutions==pruned_convolutions: # Pruning full convolution 
+            conv_mask = ~conv_mask # Residual connection becomes a straight through connection
+        else:
+            self.conv.bias.data = self.conv.bias[conv_mask!=0]
+            if self.conv_transpose:
+                self.conv.weight.data = self.conv.weight[:, conv_mask!=0]
             else:
-                self.conv.bias.data = self.conv.bias[conv_mask!=0]
-                if self.conv_transpose:
-                    self.conv.weight.data = self.conv.weight[:, conv_mask!=0]
-                else:
-                    self.conv.weight.data = self.conv.weight[conv_mask!=0]
+                self.conv.weight.data = self.conv.weight[conv_mask!=0]
 
-                self.channel_scale.data = self.channel_scale.data[conv_mask!=0]
+            self.channel_scale.data = self.channel_scale.data[conv_mask!=0]
 
-                if self.batch_norm:
-                    self.batchnorm2d.bias.data = self.batchnorm2d.bias.data[conv_mask!=0]
-                    self.batchnorm2d.weight.data = self.batchnorm2d.weight.data[conv_mask!=0]
-                    self.batchnorm2d.running_mean = self.batchnorm2d.running_mean[conv_mask!=0]
-                    self.batchnorm2d.running_var = self.batchnorm2d.running_var[conv_mask!=0]
+            if self.batch_norm:
+                self.batchnorm2d.bias.data = self.batchnorm2d.bias.data[conv_mask!=0]
+                self.batchnorm2d.weight.data = self.batchnorm2d.weight.data[conv_mask!=0]
+                self.batchnorm2d.running_mean = self.batchnorm2d.running_mean[conv_mask!=0]
+                self.batchnorm2d.running_var = self.batchnorm2d.running_var[conv_mask!=0]
+
+            if self.relaxation:
+                x = self.relaxation.ApplyStructure(conv_mask)  
 
             self.out_channels = len(conv_mask[conv_mask!=0])
 

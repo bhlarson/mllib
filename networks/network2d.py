@@ -359,16 +359,16 @@ def parse_arguments():
 
     parser.add_argument('-coco_class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=2, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=12, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
     parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220727h010_train')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220727h010_search_structure_00')
-    parser.add_argument('-tb_dest', type=str, default='crisplit_20220727h010_tb')
+    parser.add_argument('-model_src', type=str,  default=None)
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220818h00_search_structure_00')
+    parser.add_argument('-tb_dest', type=str, default='crisplit_20220818h00_tb')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
@@ -590,13 +590,13 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
     else:
         class_weight = None 
 
-    with profile(
-            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-            schedule=torch.profiler.schedule(skip_first=10, wait=3, warmup=2, active=5, repeat=1),
-            on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
-            record_shapes=True, profile_memory=True, with_stack=True
-    ) as prof:
-
+    # with profile(
+    #         activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+    #         schedule=torch.profiler.schedule(skip_first=10, wait=3, warmup=2, active=5, repeat=1),
+    #         on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
+    #         record_shapes=True, profile_memory=True, with_stack=True
+    # ) as prof:
+    if True:
         loss_fcn = TotalLoss(args.cuda,
                              k_accuracy=args.k_accuracy,
                              k_structure=args.k_structure, 
@@ -778,7 +778,7 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
 
                     save(segment, s3, s3def, args)
           
-                prof.step()
+                #prof.step()
                 results['batches'] += 1
 
                 if args.minimum and i >= test_freq:
@@ -857,12 +857,12 @@ def Test(args, s3, s3def, class_dictionary, segment, device, results):
 
     dsResults = DatasetResults(class_dictionary, args.batch_size, imStatistics=args.imStatistics, imgSave=outputdir)
 
-    with torch.profiler.profile(
-            schedule=torch.profiler.schedule(wait=20, warmup=12, active=3, repeat=2),
-            on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
-            record_shapes=True, profile_memory=True, with_stack=True
-    ) as prof:
-
+    # with torch.profiler.profile(
+    #         schedule=torch.profiler.schedule(wait=20, warmup=12, active=3, repeat=2),
+    #         on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
+    #         record_shapes=True, profile_memory=True, with_stack=True
+    # ) as prof:
+    if True:
         for i, data in tqdm(enumerate(testloader['dataloader']), 
                             total=testloader['batches'], 
                             desc="Test steps", 
@@ -887,7 +887,7 @@ def Test(args, s3, s3def, class_dictionary, segment, device, results):
 
             if args.minimum and i+1 >= 10:
                 break
-            prof.step() 
+            #prof.step() 
 
     test_summary['objects'] = dsResults.objTypes
     test_summary['object store'] =s3def

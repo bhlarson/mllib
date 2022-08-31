@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/pytorch:22.05-py3
+FROM nvcr.io/nvidia/cuda:11.7.1-devel-ubuntu20.04
 LABEL maintainer="Brad Larson"
 
 #USER root
@@ -6,60 +6,62 @@ ENV TZ=America/Los_Angeles
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 RUN apt-get update -y && apt-get upgrade -y && apt-get autoremove -y && \
-    apt-get install -y libgl1-mesa-glx wget ffmpeg
+    apt-get install -y \
+        python3-pip \
+        python3-opencv \
+        ffmpeg \
+        wget
+
 
 #RUN useradd -D user
 #USER user
 #WORKDIR /home/user
 
+RUN pip3 install --upgrade pip
 RUN pip3 install --no-cache-dir \
-        numpy \
-        opencv-python==4.5.5.64 \
-        minio \
-        tqdm \
-        natsort \
         debugpy \
-        path \
         matplotlib \
+        minio \
+        natsort \
+        path \
         torch \
         torchvision \
         tensorboard \
         tensorboardX \
         torch_tb_profiler \
-        scipy \
         scikit-image \
-        scikit-learn \
+        wget \
+        configparser \
+        pycuda \
+        pycocotools \
         apex \
         wget \
         configparser \
-        pycocotools==2.0.2 \
         prettytable \
         onnx \
         onnxruntime-gpu \
         pycuda \
-        PyYAML \
-        mlflow \
         ptflops
 
-#ADD "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
-RUN pip3 --no-cache-dir install \
+ADD "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
+RUN pip3 --no-cache-dir install --upgrade\
         pymlutil  \
         torchdatasetutil
 
-WORKDIR /app
-COPY datasets datasets
-COPY networks networks
-COPY utils utils
-COPY creds.yaml creds.yaml
-#COPY ./dataset/cifar-10-python.tar.gz ./dataset/cifar-10-python.tar.gz
 
+RUN echo 'alias py=python3' >> ~/.bashrc
+
+WORKDIR /app
 ENV LANG C.UTF-8
+
+# PYTHONUNBUFFERED=1 smooths the logfile updates in Kubernetes
 ENV PYTHONUNBUFFERED=1
-# Tensorboard
-EXPOSE 6006
-# Debugger
-EXPOSE 3000
+COPY networks networks
+COPY creds.yaml creds.yaml
+
+# port 3000: debugger
+# port 6006: tensorboard
+EXPOSE 3000 6006 
 
 # Launch training
-ENTRYPOINT ["python3","-u", "networks/cell2d.py"]
-#RUN ["/bin/bash"]
+CMD ["python3","-u", "networks/cell2d.py"]

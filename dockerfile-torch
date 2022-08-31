@@ -1,14 +1,36 @@
-FROM nvcr.io/nvidia/pytorch:22.05-py3
+ARG IMAGE
+
+FROM ${IMAGE}
 LABEL maintainer="Brad Larson"
 
-ENV TZ=America/Los_Angeles
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+#USER root
 
-# RUN apt-get install -y libsm6 libxext6 ffmpeg # required by opencv-python==4.4.0.42
-RUN apt-get update -y && apt-get upgrade -y && apt-get autoremove -y && \
-    apt-get install -y libgl1-mesa-glx wget ffmpeg
-
-# RUN apt-get install --no-install-recommends lsb-release wget less udev sudo -y
+RUN apt-get install -y \
+        systemd \
+        openssh-server \
+        autofs \
+        net-tools \
+        iproute2 \
+        pciutils \
+        sudo \
+        tzdata \
+        rsync \
+        tree \
+        htop \
+        git \
+        unzip \
+        expect \
+        apt-utils \
+        software-properties-common \
+        nano \
+        ca-certificates \
+        curl \
+        gnupg \
+        lsb-release \
+        apt-transport-https \
+        daemonize \
+        dbus-user-session \
+        fontconfig
 
 # Setup the ZED SDK https://download.stereolabs.com/zedsdk/3.4/cu111/ubuntu20
 RUN zedpackage=ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run && \
@@ -17,60 +39,21 @@ RUN zedpackage=ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run && \
     ./ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run -- silent runtime_only && \
     rm ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run
 
-
 RUN pip3 install --upgrade pip
-RUN pip3 --no-cache-dir install \
-        numpy \
-        opencv-python==4.5.5.64 \
-        minio \
-        tqdm \
-        natsort \
-        debugpy \
-        path \
-        matplotlib \
-        torch \
-        torchvision \
-        tensorboard \
-        tensorboardX \
-        torch_tb_profiler \
-        scipy \
-        scikit-image \
-        scikit-learn \
-        apex \
-        wget \
-        configparser \
-        pycocotools==2.0.2 \
-        prettytable \
-        onnx \
-        onnxruntime-gpu \
-        pycuda \
-        PyYAML \
-        mlflow \
-        nni \
-        ptflops
+RUN pip3 install --no-cache-dir \
+        jupyterlab \
+        ipywidgets \
+        plotly
 
-#ADD "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
-RUN pip3 --no-cache-dir install --upgrade\
-        pymlutil  \
-        torchdatasetutil
+RUN mkdir /var/run/sshd
+RUN echo 'root:AD-fgy65r' | chpasswd
 
-# ZED Python API https://stackoverflow.com/a/63457606/7036639
-RUN wget download.stereolabs.com/zedsdk/pyzed -O /usr/local/zed/get_python_api.py && \
-    python3 /usr/local/zed/get_python_api.py && \
-    rm *.whl ; rm -rf /var/lib/apt/lists/*
+# Enable SSH login to root
+RUN sed -i "s/.*PermitRootLogin prohibit-password/PermitRootLogin yes/g" /etc/ssh/sshd_config
 
-RUN echo 'alias py=python' >> ~/.bashrc
+EXPOSE 22 3000 5000 6006 8888
 
-#RUN git clone https://github.com/NVIDIA/apex
-#RUN pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./apex
-# RUN pip install -v --disable-pip-version-check --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./
-
-WORKDIR /app
-ENV LANG C.UTF-8
-# port 6006 exposes tensorboard
-EXPOSE 6006 
-# port 3000 exposes debugger
-EXPOSE 3000
-
-# Launch training
-RUN ["/bin/bash"]
+# Launch container
+CMD ["/bin/bash"]
+#CMD ["/usr/sbin/sshd", "-D"]
+#CMD ["./run.sh"]

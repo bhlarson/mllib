@@ -6,19 +6,11 @@ import subprocess
 import copy
 import io
 import json
-import tempfile
 from datetime import datetime
 from pymlutil.jsonutil import cmd, ReadDict, WriteDict
 from pymlutil.version import VersionString
-from zipfile import ZipFile, ZIP_DEFLATED
 
-# def cmd(command):
-#     print('$ '+command)
-#     initial = datetime.now()
-#     result = subprocess.call(command, shell=True)
-#     dt = (datetime.now()-initial).total_seconds()
-#     print('Command complete {}s'.format(dt))
-#     return result
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
@@ -68,8 +60,6 @@ def Archive(args, config):
 
     cmdstr = 'git add {}'.format(args.config)
     cmd(cmdstr)
-
-
 
     cmdstr = 'git add {}'.format(args.env)
     cmd(cmdstr)

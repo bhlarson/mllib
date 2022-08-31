@@ -50,12 +50,16 @@ def bn_flops_counter_hook(module, shape, sigmoid):
         batch_flops *= 2
     return batch_flops
 
-def conv_flops_counter_hook(conv_module, input_sigmoid, output_shape, output_sigmoid):
+def conv_flops_counter_hook(conv_module, input_sigmoids, output_shape, output_sigmoid):
     # Can have multiple inputs, getting the first one
     output_dims = list(output_shape.shape[2:])
 
     kernel_dims = list(conv_module.kernel_size)
     #in_channels = conv_module.in_channels
+    input_sigmoid = None
+    for in_sigmoid in input_sigmoids:
+        input_sigmoid = torch.concat(input_sigmoids)
+
     in_channel_weight = torch.sum(input_sigmoid)
     #out_channels = conv_module.out_channels
     out_channel_weight = torch.sum(output_sigmoid)
@@ -132,6 +136,7 @@ class ConvBR(nn.Module):
     def __init__(self, 
                  in_channels, 
                  out_channels,
+                 prev_relaxation = None,
                  batch_norm=True, 
                  relu=True,
                  kernel_size=3, 
@@ -158,6 +163,7 @@ class ConvBR(nn.Module):
         if out_channels < 1:
             raise ValueError("out_channels must be > 0")
         self.out_channels = out_channels
+        self.prev_relaxation = prev_relaxation
         self.batch_norm = batch_norm
         self.relu = relu
         self.weight_gain = abs(weight_gain)
@@ -239,7 +245,7 @@ class ConvBR(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None,
-                        sigmoid_scale=None, weight_gain=None, k_prune_sigma=None):
+                        sigmoid_scale=None, weight_gain=None, k_prune_sigma=None, search_flops=None):
         if search_structure is not None:
             self.disable_search_structure = not search_structure
         if convMaskThreshold is not None:
@@ -252,6 +258,8 @@ class ConvBR(nn.Module):
             self.weight_gain = weight_gain
         if k_prune_sigma is not None:
             self.k_prune_sigma = k_prune_sigma
+        if search_flops is not None:
+            self.search_flops = search_flops
 
         if self.relaxation is not None:
             self.relaxation.ApplyParameters(search_structure, sigmoid_scale)
@@ -285,6 +293,7 @@ class ConvBR(nn.Module):
         return x
 
     def ArchitectureWeights(self):
+
         if self.relaxation and self.search_structure and not self.disable_search_structure:
             weight_basis = GaussianBasis(self.channel_scale, sigma=self.k_prune_sigma)
             conv_weights = self.channel_scale*self.relaxation.weights()
@@ -295,11 +304,23 @@ class ConvBR(nn.Module):
 
         cell_weights = model_weights(self)
 
-        if self.out_channels > 0:
-            # Keep sum as [1] tensor so subsequent concatenation works
-            architecture_weights = (cell_weights/ self.out_channels) * conv_weights.sum_to_size((1))
+        if self.search_flops:
+            convbr_flops = 0
+            if self.activation:
+                convbr_flops += relu_flops_counter_hook(self.activation, self.output_shape, self.relaxation)
+            if self.batch_norm:
+                convbr_flops += bn_flops_counter_hook(self.batchnorm2d, self.output_shape, self.relaxation)
+            convbr_flops += conv_flops_counter_hook(self.conv, self.prev_relaxation, self.output_shape, self.relaxation)
+
+            architecture_weights = convbr_flops/ self.out_channels
+
         else:
-            architecture_weights = conv_weights.sum_to_size((1))
+
+            if self.out_channels > 0:
+                # Keep sum as [1] tensor so subsequent concatenation works
+                architecture_weights = (cell_weights/ self.out_channels) * conv_weights.sum_to_size((1))
+            else:
+                architecture_weights = conv_weights.sum_to_size((1))
 
         return architecture_weights, cell_weights, conv_weights, weight_basis
 
@@ -374,6 +395,7 @@ class Cell(nn.Module):
     def __init__(self,
                  in1_channels, 
                  in2_channels = 0,
+                 prev_relaxation = None,
                  batch_norm=False, 
                  relu=True,
                  kernel_size=3, 
@@ -393,13 +415,15 @@ class Cell(nn.Module):
                  convolutions=[{'out_channels':64, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True, 'conv_transpose':False}],
                  dropout_rate = 0.2,
                  sigmoid_scale = 5.0,
-                 k_prune_sigma=0.33
+                 k_prune_sigma=0.33,
+                 search_flops = True,
                  ):
                 
         super(Cell, self).__init__()
 
         self.in1_channels = in1_channels
         self.in2_channels = in2_channels
+        self.prev_relaxation = prev_relaxation
         self.batch_norm = batch_norm
         self.relu = relu
         self.kernel_size = kernel_size
@@ -420,6 +444,7 @@ class Cell(nn.Module):
         self.dropout_rate = dropout_rate
         self.sigmoid_scale=sigmoid_scale
         self.k_prune_sigma=k_prune_sigma
+        self.search_flops = search_flops
 
 
         self.cnn = torch.nn.ModuleList()
@@ -430,7 +455,7 @@ class Cell(nn.Module):
         src_channels = in_chanels = self.in1_channels+self.in2_channels
 
         totalStride = 1
-        totalDilation = 1
+        prev_relaxation = self.prev_relaxation
 
         for i, convdev in enumerate(convolutions):
             conv_transpose = False
@@ -438,6 +463,7 @@ class Cell(nn.Module):
                 conv_transpose = True
 
             conv = ConvBR(src_channels, convdev['out_channels'], 
+                prev_relaxation = prev_relaxation,
                 batch_norm=self.batch_norm, 
                 relu=self.relu, 
                 kernel_size=convdev['kernel_size'], 
@@ -449,13 +475,17 @@ class Cell(nn.Module):
                 weight_gain=self.weight_gain,
                 convMaskThreshold=self.convMaskThreshold, 
                 dropout_rate=self.dropout_rate,
-                search_structure=convdev['search_structure'] and self.search_structure ,
+                search_structure=convdev['search_structure'] and self.search_structure,
                 sigmoid_scale = self.sigmoid_scale,
                 residual=False, 
                 dropout=self.dropout,
                 conv_transpose=conv_transpose,
                 k_prune_sigma=self.k_prune_sigma,
-                device=self.device)
+                device=self.device,
+                search_flops = self.search_flops)
+
+            prev_relaxation = [conv.relaxation]
+            
             self.cnn.append(conv)
 
             src_channels = convdev['out_channels']
@@ -497,7 +527,7 @@ class Cell(nn.Module):
 
     def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None,
                         weight_gain=None, sigmoid_scale=None, feature_threshold=None,
-                        k_prune_sigma=None): # Apply a parameter change
+                        k_prune_sigma=None, search_flops=None): # Apply a parameter change
         if search_structure is not None:
             self.search_structure = search_structure
 
@@ -517,10 +547,13 @@ class Cell(nn.Module):
         if k_prune_sigma is not None:
             self.k_prune_sigma = k_prune_sigma
 
+        if search_flops is not None:
+            self.search_flops = search_flops
+
         if self.cnn is not None and len(self.cnn) > 0:
             for conv in self.cnn:
                 conv.ApplyParameters(search_structure=search_structure, convMaskThreshold=convMaskThreshold, dropout=dropout,
-                                     weight_gain=weight_gain, sigmoid_scale=sigmoid_scale, k_prune_sigma=k_prune_sigma)
+                                     weight_gain=weight_gain, sigmoid_scale=sigmoid_scale, k_prune_sigma=k_prune_sigma, search_flops=search_flops)
 
     def ArchitectureWeights(self):
         architecture_weights = []

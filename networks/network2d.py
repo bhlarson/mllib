@@ -61,7 +61,8 @@ class Network2d(nn.Module):
                  convMaskThreshold=0.5,
                  dropout_rate = 0.2,
                  sigmoid_scale = 5.0,
-                 k_prune_sigma = 0.33):
+                 k_prune_sigma = 0.33, 
+                 search_flops = True,):
         super(Network2d, self).__init__()
 
         self.unet_depth = unet_depth
@@ -87,10 +88,13 @@ class Network2d(nn.Module):
         self.dropout_rate = dropout_rate
         self.sigmoid_scale = sigmoid_scale
         self.k_prune_sigma = k_prune_sigma
+        self.search_flops = search_flops
 
         encoder_channels = self.initial_channels
         prev_encoder_chanels = self.source_channels
         feedforward_chanels = []
+        prev_relaxation = None
+        feedforward_relaxation = []
 
         convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
                         {'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True}]
@@ -98,7 +102,11 @@ class Network2d(nn.Module):
             for convolution in convolutions:
                 convolution['out_channels'] = encoder_channels
 
+            prev_relaxation_array = []
+            if prev_relaxation is not None:
+                prev_relaxation_array.append(prev_relaxation)
             cell = self.cell(prev_encoder_chanels, 
+                             prev_relaxation=prev_relaxation_array,
                              batch_norm=self.batch_norm, 
                              device=self.device,
                              convolutions=convolutions,
@@ -108,7 +116,11 @@ class Network2d(nn.Module):
                              dropout_rate=self.dropout_rate, 
                              sigmoid_scale=self.sigmoid_scale, 
                              feature_threshold=self.feature_threshold, 
-                             k_prune_sigma=self.k_prune_sigma)
+                             k_prune_sigma=self.k_prune_sigma,
+                             search_flops = self.search_flops)
+
+            prev_relaxation = cell.conv.relaxation
+            feedforward_relaxation.append(prev_relaxation)
             self.cells.append(cell)
 
             feedforward_chanels.append(encoder_channels)
@@ -140,12 +152,15 @@ class Network2d(nn.Module):
             else:
                  search_structure = False
 
+            prev_relaxation_array = [prev_relaxation, feedforward_relaxation[-i]]
+
             convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
                           {'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
                           {'out_channels':out_channels, 'kernel_size': final_kernel_size, 'stride': final_stride, 'dilation': 1, 'search_structure':search_structure, 'conv_transpose':conv_transpose}]
 
             cell = self.cell(prev_encoder_chanels, 
                              feedforward,
+                             prev_relaxation=prev_relaxation_array,
                              batch_norm=self.batch_norm,
                              device=self.device,
                              convolutions=convolutions,
@@ -155,9 +170,11 @@ class Network2d(nn.Module):
                              dropout_rate=self.dropout_rate, 
                              sigmoid_scale=self.sigmoid_scale, 
                              feature_threshold=self.feature_threshold,
-                             k_prune_sigma=self.k_prune_sigma)
+                             k_prune_sigma=self.k_prune_sigma,
+                             search_flops = self.search_flops)
             self.cells.append(cell)
 
+            prev_relaxation = cell.conv.relaxation
             prev_encoder_chanels = out_encoder_channels
             encoder_channels = int(encoder_channels/self.channel_multiple)
             out_encoder_channels = int(encoder_channels/self.channel_multiple)
@@ -166,7 +183,7 @@ class Network2d(nn.Module):
 
     def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None, 
                         weight_gain=None, sigmoid_scale=None, feature_threshold=None,
-                        k_prune_sigma=None): # Apply a parameter change
+                        k_prune_sigma=None, search_flops=None): # Apply a parameter change
         if search_structure is not None:
             self.search_structure = search_structure
         if dropout is not None:
@@ -181,10 +198,12 @@ class Network2d(nn.Module):
             self.feature_threshold = feature_threshold
         if k_prune_sigma is not None:
             self.k_prune_sigma = k_prune_sigma
+        if search_flops is not None:
+            self.search_flops = search_flops
         for cell in self.cells:
             cell.ApplyParameters(search_structure=search_structure, dropout=dropout, convMaskThreshold=convMaskThreshold,
                                  weight_gain=weight_gain, sigmoid_scale=sigmoid_scale, feature_threshold=feature_threshold,
-                                 k_prune_sigma=k_prune_sigma)
+                                 k_prune_sigma=k_prune_sigma, search_flops=search_flops)
 
     def forward(self, x):
         feed_forward = []
@@ -401,6 +420,7 @@ def parse_arguments():
     parser.add_argument('-test', type=str2bool, default=True)
     parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-search_structure', type=str2bool, default=True)
+    parser.add_argument('-search_flops', type=str2bool, default=True)
     parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
 

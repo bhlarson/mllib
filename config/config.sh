@@ -1,3 +1,3 @@
-export VERSION=0.0.306
-export crisptrain=localhost:32000/crisptrain:0.0.306
-export crispdev=localhost:32000/crispdev:0.0.306
+export VERSION=0.0.307
+export crisptrain=localhost:32000/crisptrain:0.0.307
+export crispdev=localhost:32000/crispdev:0.0.307

@@ -36,33 +36,36 @@ from networks.totalloss import TotalLoss
 # Inner neural architecture cell repetition structure
 # Process: Con2d, optional batch norm, optional ReLu
 
-def relu_flops_counter_hook(module, shape, sigmoid):
-    channel_weight = torch.sum(sigmoid)
-    num_channels = len(sigmoid)
-    active_elements_count = torch.prod(shape) * channel_weight/num_channels
+def relu_flops_counter_hook(module, shape, relaxation):
+    channel_weight = relaxation.weights()
+    num_channels = len(channel_weight)
+    active_elements_count = torch.prod(torch.Tensor(list(shape))) * torch.sum(channel_weight)/num_channels
     return active_elements_count
 
 def bn_flops_counter_hook(module, shape, sigmoid):
     channel_weight = torch.sum(sigmoid)
     num_channels = len(sigmoid)
-    batch_flops = np.prod(shape) * channel_weight/num_channels
+    batch_flops = torch.prod(torch.Tensor(list(shape))) * channel_weight/num_channels
     if module.affine:
         batch_flops *= 2
     return batch_flops
 
-def conv_flops_counter_hook(conv_module, input_sigmoids, output_shape, output_sigmoid):
+def conv_flops_counter_hook(conv_module, in_relaxation, output_shape, out_relaxation):
     # Can have multiple inputs, getting the first one
-    output_dims = list(output_shape.shape[2:])
+    output_dims = list(output_shape)[2:]
 
     kernel_dims = list(conv_module.kernel_size)
     #in_channels = conv_module.in_channels
-    input_sigmoid = None
-    for in_sigmoid in input_sigmoids:
-        input_sigmoid = torch.concat(input_sigmoids)
+    input_relaxation = []
+    for in_relaxation_source in in_relaxation:
+        input_relaxation.append(in_relaxation_source.weights())
 
-    in_channel_weight = torch.sum(input_sigmoid)
+    if len(input_relaxation) > 0:
+        in_channel_weight = torch.sum(torch.cat(input_relaxation, 0))
+    else:
+        in_channel_weight = conv_module.weight.shape[0]
     #out_channels = conv_module.out_channels
-    out_channel_weight = torch.sum(output_sigmoid)
+    out_channel_weight = torch.sum(out_relaxation.weights())
     groups = conv_module.groups
 
     filters_per_channel = out_channel_weight / groups
@@ -577,7 +580,7 @@ class Cell(nn.Module):
                     unallocated_weights += cnn_weight
 
             if len(architecture_weights) > 0:
-                architecture_weights = torch.cat(architecture_weights)
+                architecture_weights = torch.cat(architecture_weights,0)
                 architecture_weights = architecture_weights.sum_to_size((1))
                 num_conv_weights = len(norm_conv_weight)
                 if num_conv_weights > 0:

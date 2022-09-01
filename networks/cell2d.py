@@ -37,15 +37,21 @@ from networks.totalloss import TotalLoss
 # Process: Con2d, optional batch norm, optional ReLu
 
 def relu_flops_counter_hook(module, shape, relaxation):
-    channel_weight = relaxation.weights()
-    num_channels = len(channel_weight)
-    active_elements_count = torch.prod(torch.Tensor(list(shape))) * torch.sum(channel_weight)/num_channels
+    if relaxation is not None:
+        channel_weight = relaxation.weights()
+        num_channels = len(channel_weight)
+        active_elements_count = torch.prod(torch.Tensor(list(shape))) * torch.sum(channel_weight)/num_channels
+    else:
+        active_elements_count = torch.prod(torch.Tensor(list(shape)))
     return active_elements_count
 
-def bn_flops_counter_hook(module, shape, sigmoid):
-    channel_weight = torch.sum(sigmoid)
-    num_channels = len(sigmoid)
-    batch_flops = torch.prod(torch.Tensor(list(shape))) * channel_weight/num_channels
+def bn_flops_counter_hook(module, shape, relaxation):
+    if relaxation is not None:
+        channel_weight = torch.sum(relaxation)
+        num_channels = len(relaxation)
+        batch_flops = torch.prod(torch.Tensor(list(shape))) * channel_weight/num_channels
+    else:
+        batch_flops = torch.prod(torch.Tensor(list(shape)))
     if module.affine:
         batch_flops *= 2
     return batch_flops
@@ -64,8 +70,11 @@ def conv_flops_counter_hook(conv_module, in_relaxation, output_shape, out_relaxa
         in_channel_weight = torch.sum(torch.cat(input_relaxation, 0))
     else:
         in_channel_weight = conv_module.weight.shape[0]
-    #out_channels = conv_module.out_channels
-    out_channel_weight = torch.sum(out_relaxation.weights())
+
+    if out_relaxation is not None:
+        out_channel_weight = torch.sum(out_relaxation.weights())
+    else:
+        out_channel_weight = conv_module.out_channels
     groups = conv_module.groups
 
     filters_per_channel = out_channel_weight / groups
@@ -308,14 +317,14 @@ class ConvBR(nn.Module):
         cell_weights = model_weights(self)
 
         if self.search_flops:
-            convbr_flops = 0
+            convbr_flops = torch.zeros(1, device=self.device)
             if self.activation:
                 convbr_flops += relu_flops_counter_hook(self.activation, self.output_shape, self.relaxation)
             if self.batch_norm:
                 convbr_flops += bn_flops_counter_hook(self.batchnorm2d, self.output_shape, self.relaxation)
             convbr_flops += conv_flops_counter_hook(self.conv, self.prev_relaxation, self.output_shape, self.relaxation)
 
-            architecture_weights = convbr_flops/ self.out_channels
+            architecture_weights = torch.tensor([convbr_flops/ self.out_channels])
 
         else:
 
@@ -560,13 +569,13 @@ class Cell(nn.Module):
                                      weight_gain=weight_gain, sigmoid_scale=sigmoid_scale, k_prune_sigma=k_prune_sigma, search_flops=search_flops)
 
     def ArchitectureWeights(self):
-        architecture_weights = []
         layer_weights = []
         conv_weights = []
         weight_basises = []
         norm_conv_weight = []
         search_structure = []
         unallocated_weights  = torch.zeros((1), device=self.device)
+        architecture_weights = torch.zeros((1), device=self.device)
         if self.cnn is not None:
             for i, l in enumerate(self.cnn): 
                 layer_weight, cnn_weight, conv_weight, weight_basis = l.ArchitectureWeights()
@@ -574,14 +583,12 @@ class Cell(nn.Module):
                 weight_basises.append(weight_basis)
 
                 if self.convolutions[i]['search_structure']:
-                    architecture_weights.append(layer_weight)
+                    architecture_weights += layer_weight[0]
                     norm_conv_weight.append(layer_weight/cnn_weight)
                 else:
                     unallocated_weights += cnn_weight
 
-            if len(architecture_weights) > 0:
-                architecture_weights = torch.cat(architecture_weights,0)
-                architecture_weights = architecture_weights.sum_to_size((1))
+            if architecture_weights[0] > 0:
                 num_conv_weights = len(norm_conv_weight)
                 if num_conv_weights > 0:
                     # Allocate remaining weights if pruning full channel
@@ -1243,9 +1250,9 @@ class PlotGradients():
                     layer_norms = []
                     if convbr.conv.weight.grad is not None:
                         if convbr.conv_transpose:
-                            grads = torch.linalg.norm(convbr.conv.weight.grad , dim=(0,2,3))/np.sqrt(np.product(convbr.conv.weight.grad.shape[1:]))
+                            grads = convbr.conv.weight.grad.permute(1, 0, 2, 3).flatten(1).norm(dim=1)/np.sqrt(np.product(convbr.conv.weight.grad.shape[1:]))
                         else:
-                            grads = torch.linalg.norm(convbr.conv.weight.grad , dim=(1,2,3))/np.sqrt(np.product(convbr.conv.weight.grad.shape[0:]))
+                            grads = convbr.conv.weight.grad.flatten(1).norm(dim=1)/np.sqrt(np.product(convbr.conv.weight.grad.shape[0:]))
                         numSums = 1                    
 
                         if self.pruning:

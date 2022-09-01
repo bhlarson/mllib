@@ -449,7 +449,7 @@ def MakeNetwork2d(class_dictionary, args):
     if args.cuda:
         device = torch.device("cuda")
 
-    return Network2d(class_dictionary['classes'], source_channels=class_dictionary['input_channels'],
+    network = Network2d(class_dictionary['classes'], source_channels=class_dictionary['input_channels'],
             device=device, 
             unet_depth=args.unet_depth,
             max_cell_steps=args.max_cell_steps, 
@@ -462,7 +462,13 @@ def MakeNetwork2d(class_dictionary, args):
             convMaskThreshold = args.convMaskThreshold,
             dropout_rate = args.dropout_rate,
             sigmoid_scale = args.sigmoid_scale,
-            k_prune_sigma = args.k_prune_sigma)
+            k_prune_sigma = args.k_prune_sigma,
+            search_flops = args.search_flops)
+	
+	#specify device for model
+    network.to(device)
+
+    return network
 
 def load(s3, s3def, args, class_dictionary, results):
     segment = None
@@ -470,6 +476,10 @@ def load(s3, s3def, args, class_dictionary, results):
     if 'initial_parameters' not in results or args.model_src is None or args.model_src == '':
         segment = MakeNetwork2d(class_dictionary, args)
         results['initial_parameters'] = count_parameters(segment)
+
+        macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+                                            print_per_layer_stat=False, verbose=False)
+        results['initial_flops'] = 2*macs
 
     if(args.model_src and args.model_src != ''):
         modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
@@ -480,7 +490,7 @@ def load(s3, s3def, args, class_dictionary, results):
             print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
             return segment
 
-    print('load initial_parameters = {}'.format(results['initial_parameters']))
+    print('load initial_parameters = {} initial_flops = {}'.format(results['initial_parameters'], results['initial_flops']))
 
 
     return segment, results
@@ -617,6 +627,10 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
     #         record_shapes=True, profile_memory=True, with_stack=True
     # ) as prof:
     if True:
+        if args.search_flops:
+            total_weights= results['initial_flops'] 
+        else:
+            total_weights= results['initial_parameters'] 
         loss_fcn = TotalLoss(args.cuda,
                              k_accuracy=args.k_accuracy,
                              k_structure=args.k_structure, 
@@ -627,7 +641,7 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
                              k_prune_exp=args.k_prune_exp,
                              sigmoid_scale=args.sigmoid_scale,
                              ejector=args.ejector,
-                             total_weights= results['initial_parameters'],
+                             total_weights= total_weights,
                              )
         #optimizer = optim.SGD(segment.parameters(), lr=args.learning_rate, momentum=0.9)
         optimizer = optim.Adam(segment.parameters(), lr= args.learning_rate)
@@ -935,6 +949,10 @@ def Prune(args, s3, s3def, class_dictionary, segment, device, results):
     if not 'initial_parameters' in results:
         full_model = MakeNetwork2d(class_dictionary, args)
         results['initial_parameters'] = count_parameters(full_model)
+        macs, params = get_model_complexity_info(full_model, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+                                            print_per_layer_stat=False, verbose=False)
+        results['initial_flops'] = 2*macs
+
     initial_parameters = results['initial_parameters']
     segment.ApplyStructure()
     reduced_parameters = count_parameters(segment)
@@ -1000,13 +1018,16 @@ def main(args):
                 results['batches'] = prevresults['batches']
             if 'initial_parameters' in prevresults:
                 results['initial_parameters'] = prevresults['initial_parameters']
+                results['initial_flops'] = prevresults['initial_flops']
 
     segment, results = load(s3, s3def, args, class_dictionary, results)
 
     if not 'initial_parameters' in results:
         full_model = MakeNetwork2d(class_dictionary, args)
         results['initial_parameters'] = count_parameters(full_model)
-        
+        macs, params = get_model_complexity_info(full_model, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+                                            print_per_layer_stat=False, verbose=False)
+        results['initial_flops'] = 2*macs
 
     # Prune with loaded parameters than apply current search_structure setting
     segment.ApplyParameters(weight_gain=args.weight_gain, 
@@ -1022,9 +1043,9 @@ def main(args):
     # model_copy = copy.deepcopy(segment)
     macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
                                         print_per_layer_stat=False, verbose=False)
-    print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
-    print('{:<30}  {:<8}'.format('Number of parameters: ', params))
     results['initial_flops'] = 2*macs
+    print('{:<30}  {:<8}'.format('FLOPS: ', results['initial_flops'] ))
+    print('{:<30}  {:<8}'.format('Number of parameters: ', params))
 
     # Train
     if args.train:

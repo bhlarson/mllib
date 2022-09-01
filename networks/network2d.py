@@ -119,7 +119,7 @@ class Network2d(nn.Module):
                              k_prune_sigma=self.k_prune_sigma,
                              search_flops = self.search_flops)
 
-            prev_relaxation = cell.conv.relaxation
+            prev_relaxation = cell.cnn[-1].relaxation
             feedforward_relaxation.append(prev_relaxation)
             self.cells.append(cell)
 
@@ -174,7 +174,7 @@ class Network2d(nn.Module):
                              search_flops = self.search_flops)
             self.cells.append(cell)
 
-            prev_relaxation = cell.conv.relaxation
+            prev_relaxation = cell.cnn[-1].relaxation
             prev_encoder_chanels = out_encoder_channels
             encoder_channels = int(encoder_channels/self.channel_multiple)
             out_encoder_channels = int(encoder_channels/self.channel_multiple)

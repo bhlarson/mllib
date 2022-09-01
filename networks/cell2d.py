@@ -455,6 +455,7 @@ class Cell(nn.Module):
         src_channels = in_chanels = self.in1_channels+self.in2_channels
 
         totalStride = 1
+        totalDilation = 1
         prev_relaxation = self.prev_relaxation
 
         for i, convdev in enumerate(convolutions):

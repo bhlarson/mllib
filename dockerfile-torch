@@ -6,38 +6,15 @@ LABEL maintainer="Brad Larson"
 #USER root
 
 RUN apt-get install -y \
-        systemd \
-        openssh-server \
-        autofs \
-        net-tools \
-        iproute2 \
-        pciutils \
-        sudo \
-        tzdata \
-        rsync \
-        tree \
-        htop \
-        git \
-        unzip \
-        expect \
-        apt-utils \
-        software-properties-common \
-        nano \
         ca-certificates \
-        curl \
-        gnupg \
-        lsb-release \
-        apt-transport-https \
-        daemonize \
-        dbus-user-session \
-        fontconfig
+        curl
 
 # Setup the ZED SDK https://download.stereolabs.com/zedsdk/3.4/cu111/ubuntu20
-RUN zedpackage=ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run && \
-    wget -q -O ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run https://download.stereolabs.com/zedsdk/3.4/cu111/ubuntu20 && \
-    chmod +x ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run && \
-    ./ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run -- silent runtime_only && \
-    rm ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run
+#RUN zedpackage=ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run && \
+#    wget -q -O ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run https://download.stereolabs.com/zedsdk/3.4/cu111/ubuntu20 && \
+#    chmod +x ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run && \
+#    ./ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run -- silent runtime_only && \
+#    rm ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run
 
 RUN pip3 install --upgrade pip
 RUN pip3 install --no-cache-dir \
@@ -45,11 +22,6 @@ RUN pip3 install --no-cache-dir \
         ipywidgets \
         plotly
 
-RUN mkdir /var/run/sshd
-RUN echo 'root:AD-fgy65r' | chpasswd
-
-# Enable SSH login to root
-RUN sed -i "s/.*PermitRootLogin prohibit-password/PermitRootLogin yes/g" /etc/ssh/sshd_config
 
 EXPOSE 22 3000 5000 6006 8888
 

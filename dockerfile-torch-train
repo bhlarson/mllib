@@ -1,24 +1,28 @@
-FROM nvcr.io/nvidia/cuda:11.7.1-devel-ubuntu20.04
+#FROM nvcr.io/nvidia/cuda:11.7.1-devel-ubuntu20.04
+#FROM nvcr.io/nvidia/cuda:11.6.2-devel-ubuntu20.04
+#FROM nvcr.io/nvidia/cuda:11.5.2-devel-ubuntu20.04
+#FROM nvcr.io/nvidia/cuda:11.4.3-devel-ubuntu20.04
+#FROM nvcr.io/nvidia/cuda:11.3.1-devel-ubuntu20.04
+#FROM nvcr.io/nvidia/cuda:11.2.2-devel-ubuntu20.04
+#FROM nvcr.io/nvidia/cuda:11.0.3-devel-ubuntu20.04
+FROM nvcr.io/nvidia/pytorch:22.08-py3
+#FROM nvcr.io/nvidia/pytorch:22.05-py3
+#FROM nvcr.io/nvidia/pytorch:21.12-py3
 LABEL maintainer="Brad Larson"
 
 #USER root
 ENV TZ=America/Los_Angeles
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-RUN apt-get update -y && apt-get upgrade -y && apt-get autoremove -y && \
-    apt-get install -y \
-        python3-pip \
-        python3-opencv \
-        ffmpeg \
-        wget
-
+RUN apt-get update -y && apt-get install -y \
+    libgl1-mesa-glx wget ffmpeg
 
 #RUN useradd -D user
 #USER user
 #WORKDIR /home/user
 
-RUN pip3 install --upgrade pip
-RUN pip3 install --no-cache-dir \
+RUN pip3 install --upgrade pip && pip3 install --no-cache-dir \
+        opencv-python==4.5.5.64 \
         debugpy \
         matplotlib \
         minio \
@@ -35,7 +39,6 @@ RUN pip3 install --no-cache-dir \
         pycuda \
         pycocotools \
         apex \
-        wget \
         configparser \
         prettytable \
         onnx \

@@ -37,6 +37,7 @@ from torchdatasetutil.imstore import  CreateImageLoaders
 import torchdatasetutil.version as  torchdatasetutil_version
 
 from ptflops import get_model_complexity_info
+from fvcore.nn import FlopCountAnalysis
 
 sys.path.insert(0, os.path.abspath(''))
 from networks.cell2d import Cell, PlotSearch, PlotGradients
@@ -309,11 +310,14 @@ class Network2d(nn.Module):
         layer_weights = []
         conv_weights = []
         search_structure = []
+        model_weights_sum = 0
 
         for l in self.cells:
             layer_weight, cnn_weight, conv_weight  = l.ArchitectureWeights()
-            conv_weights.append(conv_weight)
             architecture_weights.append(layer_weight)
+            model_weights_sum += cnn_weight
+            conv_weights.append(conv_weight)
+
 
         # Reduce cell weight if it may become inactive as a lower cell approaches 0
         depth = math.floor(len(self.cells)/2.0)
@@ -342,7 +346,7 @@ class Network2d(nn.Module):
         architecture_weights = torch.cat(architecture_weights)
         architecture_weights = architecture_weights.sum_to_size((1))
             
-        return architecture_weights, model_weights(self), conv_weights
+        return architecture_weights, model_weights_sum, conv_weights
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -478,20 +482,15 @@ def load(s3, s3def, args, class_dictionary, results):
         results['initial_parameters'] = count_parameters(segment)
 
         macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
-                                            print_per_layer_stat=False, verbose=False)
-        results['initial_flops'] = 2*macs
+                                            print_per_layer_stat=True, verbose=False)
+        results['initial_flops'] = macs
 
-    if(args.model_src and args.model_src != ''):
-        modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
-
-        if modelObj is not None:
-            segment = torch.load(io.BytesIO(modelObj))
-        else:
-            print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
-            return segment
-
-    print('load initial_parameters = {} initial_flops = {}'.format(results['initial_parameters'], results['initial_flops']))
-
+        device = torch.device("cpu")
+        if args.cuda:
+            device = torch.device("cuda")
+        input = torch.zeros((1, class_dictionary['input_channels'], args.height, args.width), device=device)
+        flops = FlopCountAnalysis(segment, input)
+        print('FlopCountAnalysis {} get_model_complexity_info flops {}'.format(flops, results['initial_flops']))
 
     return segment, results
 
@@ -951,7 +950,7 @@ def Prune(args, s3, s3def, class_dictionary, segment, device, results):
         results['initial_parameters'] = count_parameters(full_model)
         macs, params = get_model_complexity_info(full_model, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
                                             print_per_layer_stat=False, verbose=False)
-        results['initial_flops'] = 2*macs
+        results['initial_flops'] = macs
 
     initial_parameters = results['initial_parameters']
     segment.ApplyStructure()
@@ -1027,7 +1026,7 @@ def main(args):
         results['initial_parameters'] = count_parameters(full_model)
         macs, params = get_model_complexity_info(full_model, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
                                             print_per_layer_stat=False, verbose=False)
-        results['initial_flops'] = 2*macs
+        results['initial_flops'] = macs
 
     # Prune with loaded parameters than apply current search_structure setting
     segment.ApplyParameters(weight_gain=args.weight_gain, 
@@ -1043,7 +1042,7 @@ def main(args):
     # model_copy = copy.deepcopy(segment)
     macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
                                         print_per_layer_stat=False, verbose=False)
-    results['initial_flops'] = 2*macs
+    results['initial_flops'] = macs
     print('{:<30}  {:<8}'.format('FLOPS: ', results['initial_flops'] ))
     print('{:<30}  {:<8}'.format('Number of parameters: ', params))
 

@@ -37,24 +37,29 @@ from networks.totalloss import TotalLoss
 # Process: Con2d, optional batch norm, optional ReLu
 
 def relu_flops_counter_hook(module, shape, relaxation):
+    flops_total = np.prod(shape)
+    flops_relaxed = flops_total
+
     if relaxation is not None:
         channel_weight = relaxation.weights()
         num_channels = len(channel_weight)
-        active_elements_count = torch.prod(torch.Tensor(list(shape))) * torch.sum(channel_weight)/num_channels
-    else:
-        active_elements_count = torch.prod(torch.Tensor(list(shape)))
-    return active_elements_count
+        flops_relaxed *= torch.sum(channel_weight)/num_channels
+
+    return flops_relaxed, flops_total
 
 def bn_flops_counter_hook(module, shape, relaxation):
-    if relaxation is not None:
-        channel_weight = torch.sum(relaxation)
-        num_channels = len(relaxation)
-        batch_flops = torch.prod(torch.Tensor(list(shape))) * channel_weight/num_channels
-    else:
-        batch_flops = torch.prod(torch.Tensor(list(shape)))
+    flops_total = np.prod(shape)
     if module.affine:
-        batch_flops *= 2
-    return batch_flops
+        flops_total *= 2
+
+    flops_relaxed = flops_total
+
+    if relaxation is not None:
+        channel_weight = relaxation.weights()
+        num_channels = len(channel_weight)
+        flops_relaxed *= torch.sum(channel_weight)/num_channels
+
+    return flops_relaxed, flops_total
 
 def conv_flops_counter_hook(conv_module, in_relaxation, output_shape, out_relaxation):
     # Can have multiple inputs, getting the first one
@@ -66,33 +71,32 @@ def conv_flops_counter_hook(conv_module, in_relaxation, output_shape, out_relaxa
     for in_relaxation_source in in_relaxation:
         input_relaxation.append(in_relaxation_source.weights())
 
+    in_channels = conv_module.in_channels
+    out_channels = conv_module.out_channels
+    groups = conv_module.groups
+
     if len(input_relaxation) > 0:
         in_channel_weight = torch.sum(torch.cat(input_relaxation, 0))
     else:
-        in_channel_weight = conv_module.weight.shape[0]
+        in_channel_weight = in_channels
 
     if out_relaxation is not None:
         out_channel_weight = torch.sum(out_relaxation.weights())
     else:
-        out_channel_weight = conv_module.out_channels
-    groups = conv_module.groups
-
-    filters_per_channel = out_channel_weight / groups
-    conv_per_position_flops = int(np.prod(kernel_dims)) * in_channel_weight * filters_per_channel
+        out_channel_weight = out_channels
 
     active_elements_count = int(np.prod(output_dims))
 
-    overall_conv_flops = conv_per_position_flops * active_elements_count
-
-    bias_flops = 0
-
     if conv_module.bias is not None:
-
         bias_flops = out_channel_weight * active_elements_count
+    else:
+        bias_flops = 0
 
-    overall_flops = overall_conv_flops + bias_flops
+    conv_base = active_elements_count * int(np.prod(kernel_dims)) / groups
+    conv_flops_relaxed = conv_base * in_channel_weight * out_channel_weight + bias_flops
+    conv_flops_total = conv_base * in_channels * out_channels + bias_flops
 
-    return overall_flops
+    return conv_flops_relaxed, conv_flops_total
 
 class RelaxChannels(nn.Module):
     def __init__(self,channels, 
@@ -314,20 +318,21 @@ class ConvBR(nn.Module):
             weight_basis = torch.zeros_like(self.channel_scale, device=self.device)
             conv_weights = torch.ones_like(self.channel_scale, device=self.device)
 
-        cell_weights = model_weights(self)
-
         if self.search_flops:
-            convbr_flops = torch.zeros(1, device=self.device)
-            if self.activation:
-                convbr_flops += relu_flops_counter_hook(self.activation, self.output_shape, self.relaxation)
-            if self.batch_norm:
-                convbr_flops += bn_flops_counter_hook(self.batchnorm2d, self.output_shape, self.relaxation)
-            convbr_flops += conv_flops_counter_hook(self.conv, self.prev_relaxation, self.output_shape, self.relaxation)
+            architecture_weights, cell_weights = conv_flops_counter_hook(self.conv, self.prev_relaxation, self.output_shape, self.relaxation)
 
-            architecture_weights = torch.tensor([convbr_flops/ self.out_channels])
+            if self.activation:
+                flops_relaxed, flops_total = relu_flops_counter_hook(self.activation, self.output_shape, self.relaxation)
+                architecture_weights += flops_relaxed
+                cell_weights += flops_total
+            if self.batch_norm:
+                flops_relaxed, flops_total = bn_flops_counter_hook(self.batchnorm2d, self.output_shape, self.relaxation)
+                architecture_weights += bn_flops_counter_hook(self.batchnorm2d, self.output_shape, self.relaxation)
+                cell_weights += flops_total
+            architecture_weights = torch.reshape(architecture_weights,[-1]) # reshape to single element array to be the same format as not flops architecture_weights
 
         else:
-
+            cell_weights = model_weights(self)
             if self.out_channels > 0:
                 # Keep sum as [1] tensor so subsequent concatenation works
                 architecture_weights = (cell_weights/ self.out_channels) * conv_weights.sum_to_size((1))
@@ -574,11 +579,13 @@ class Cell(nn.Module):
         weight_basises = []
         norm_conv_weight = []
         search_structure = []
+        model_weight_total = 0
         unallocated_weights  = torch.zeros((1), device=self.device)
         architecture_weights = torch.zeros((1), device=self.device)
         if self.cnn is not None:
             for i, l in enumerate(self.cnn): 
                 layer_weight, cnn_weight, conv_weight, weight_basis = l.ArchitectureWeights()
+                model_weight_total += int(cnn_weight)
                 conv_weights.append(conv_weight)
                 weight_basises.append(weight_basis)
 
@@ -606,7 +613,7 @@ class Cell(nn.Module):
 
         cell_weights = {'prune_weight':prune_weight, 'cell_weight':conv_weights, 'weight_basis': weight_basises}
 
-        return architecture_weights, model_weights(self), cell_weights
+        return architecture_weights, model_weight_total, cell_weights
 
     def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None, msg=None, prune=None):
 

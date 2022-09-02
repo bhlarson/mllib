@@ -37,7 +37,6 @@ from torchdatasetutil.imstore import  CreateImageLoaders
 import torchdatasetutil.version as  torchdatasetutil_version
 
 from ptflops import get_model_complexity_info
-from fvcore.nn import FlopCountAnalysis
 
 sys.path.insert(0, os.path.abspath(''))
 from networks.cell2d import Cell, PlotSearch, PlotGradients
@@ -484,13 +483,6 @@ def load(s3, s3def, args, class_dictionary, results):
         macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
                                             print_per_layer_stat=True, verbose=False)
         results['initial_flops'] = macs
-
-        device = torch.device("cpu")
-        if args.cuda:
-            device = torch.device("cuda")
-        input = torch.zeros((1, class_dictionary['input_channels'], args.height, args.width), device=device)
-        flops = FlopCountAnalysis(segment, input)
-        print('FlopCountAnalysis {} get_model_complexity_info flops {}'.format(flops, results['initial_flops']))
 
     return segment, results
 

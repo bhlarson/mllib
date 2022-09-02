@@ -474,15 +474,13 @@ def MakeNetwork2d(class_dictionary, args):
     return network
 
 def load(s3, s3def, args, class_dictionary, results):
-    segment = None
+    segment =  MakeNetwork2d(class_dictionary, args)
 
     if 'initial_parameters' not in results or args.model_src is None or args.model_src == '':
-        segment = MakeNetwork2d(class_dictionary, args)
         results['initial_parameters'] = count_parameters(segment)
 
-        macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+        results['initial_flops'], params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
                                             print_per_layer_stat=True, verbose=False)
-        results['initial_flops'] = macs
 
     return segment, results
 

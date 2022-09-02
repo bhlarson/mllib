@@ -52,7 +52,7 @@ def parse_arguments():
     parser.add_argument('--server', '-s', type=str, default='hiocnn', help='Argo Server.')
 
     parser.add_argument('--run', '-r', type=str, default='workflow/crisplit.yaml', help='Run workflow')
-    parser.add_argument('--params', '-p', type=json.loads, default=None, help='Parameters parsed by set_parameters  e.g.: -p "{"description": {"author": "Brad Larson","description":"Crisp LIT segmentation"}, "target_structure": 0.0, "batch_size": 2}" ')
+    parser.add_argument('--params', '-p', type=json.loads, default=None, help='Parameters parsed by set_parameters  e.g.: -p "{"description": {"author": "Brad Larson","description":"Crisp LIT segmentation"}, "target_structure": 0.0, "batch_size": 2, "debug": "true"}" ')
 
     args = parser.parse_args()
     return args

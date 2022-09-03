@@ -474,13 +474,24 @@ def MakeNetwork2d(class_dictionary, args):
     return network
 
 def load(s3, s3def, args, class_dictionary, results):
-    segment =  MakeNetwork2d(class_dictionary, args)
+    segment = None
 
     if 'initial_parameters' not in results or args.model_src is None or args.model_src == '':
+        segment = MakeNetwork2d(class_dictionary, args)
         results['initial_parameters'] = count_parameters(segment)
-
         results['initial_flops'], params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
                                             print_per_layer_stat=True, verbose=False)
+
+    if(args.model_src and args.model_src != ''):
+        modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
+
+        if modelObj is not None:
+            segment = torch.load(io.BytesIO(modelObj))
+        else:
+            print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
+            return segment
+
+    print('load initial_parameters = {} initial_flops = {}'.format(results['initial_parameters'], results['initial_flops']))
 
     return segment, results
 

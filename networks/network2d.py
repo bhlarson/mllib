@@ -388,9 +388,9 @@ def parse_arguments():
     parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220902_125153_hiocnn0_train')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220902_125153_hiocnn0_search_structure_00')
-    parser.add_argument('-tb_dest', type=str, default='crisplit_20220902_125153_tb')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220902_192914_hiocnn0_normalized-train')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220902_192914_hiocnn0_train')
+    parser.add_argument('-tb_dest', type=str, default='crisplit_20220902_192914_tb')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
@@ -479,7 +479,7 @@ def load(s3, s3def, args, class_dictionary, results):
     if 'initial_parameters' not in results or args.model_src is None or args.model_src == '':
         segment = MakeNetwork2d(class_dictionary, args)
         results['initial_parameters'] = count_parameters(segment)
-        results['initial_flops'], params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+        results['initial_flops'], params = get_model_complexity_info(copy.deepcopy(segment), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
                                             print_per_layer_stat=True, verbose=False)
 
     if(args.model_src and args.model_src != ''):
@@ -957,7 +957,7 @@ def Prune(args, s3, s3def, class_dictionary, segment, device, results):
     segment.ApplyStructure()
     reduced_parameters = count_parameters(segment)
     # model_copy = copy.deepcopy(segment)
-    macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+    macs, params = get_model_complexity_info(copy.deepcopy(segment), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
                                         print_per_layer_stat=False, verbose=False)
 
     results['flops_after_prune'] = macs

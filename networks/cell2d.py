@@ -398,7 +398,8 @@ class ConvBR(nn.Module):
                 self.batchnorm2d.running_mean = self.batchnorm2d.running_mean[conv_mask!=0]
                 self.batchnorm2d.running_var = self.batchnorm2d.running_var[conv_mask!=0]
 
-            self.relaxation.ApplyStructure(conv_mask)  
+            if self.relaxation and self.search_structure and not self.disable_search_structure:
+                self.relaxation.ApplyStructure(conv_mask)
 
             self.out_channels = len(conv_mask[conv_mask!=0])
 

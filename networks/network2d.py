@@ -1041,7 +1041,7 @@ def main(args):
     segment.to(device)
 
     # model_copy = copy.deepcopy(segment)
-    macs, params = get_model_complexity_info(segment, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+    macs, params = get_model_complexity_info(copy.deepcopy(segment), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
                                         print_per_layer_stat=False, verbose=False)
     results['initial_flops'] = macs
     print('{:<30}  {:<8}'.format('FLOPS: ', results['initial_flops'] ))

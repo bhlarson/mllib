@@ -112,6 +112,7 @@ class RelaxChannels(nn.Module):
         self.disable_search_structure = disable_search_structure
         self.sigmoid_scale = sigmoid_scale
         self.channel_scale = nn.Parameter(torch.zeros(self.channels, dtype=torch.float, device=self.device))
+
         self.sigmoid = nn.Sigmoid()
 
         self._initialize_weights()
@@ -142,7 +143,7 @@ class RelaxChannels(nn.Module):
         else:
             prefix = "RelaxChannels::ApplyStructure {}".format(msg)
 
-        self.channel_scale = self.channel_scale[conv_mask!=0]
+        self.channel_scale.data = self.channel_scale.data[conv_mask!=0]
 
         print("{} {}={}/{} channel_scale.shape()={} out_channels={}".format(prefix, self.channel_scale.shape))
 
@@ -397,8 +398,7 @@ class ConvBR(nn.Module):
                 self.batchnorm2d.running_mean = self.batchnorm2d.running_mean[conv_mask!=0]
                 self.batchnorm2d.running_var = self.batchnorm2d.running_var[conv_mask!=0]
 
-            if self.relaxation:
-                x = self.relaxation.ApplyStructure(conv_mask)  
+            self.relaxation.ApplyStructure(conv_mask)  
 
             self.out_channels = len(conv_mask[conv_mask!=0])
 

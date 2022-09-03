@@ -145,7 +145,7 @@ class RelaxChannels(nn.Module):
 
         self.channel_scale.data = self.channel_scale.data[conv_mask!=0]
 
-        print("{} {}={}/{} channel_scale.shape()={} out_channels={}".format(prefix, self.channel_scale.shape))
+        print("{} channel_scale.shape()={}".format(prefix, self.channel_scale.shape))
 
         return conv_mask
 

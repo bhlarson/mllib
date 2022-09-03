@@ -12,7 +12,7 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: batch_size
-          value: 10
+          value: 8
         - name: output_name
           value: 20220520i
         - name: description
@@ -53,7 +53,7 @@ workflow:
                   - {name: test, value: false}
                   - {name: search_structure, value: true}
                   - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-                  - {name: epochs, value: 2}
+                  - {name: epochs, value: 3}
                   - {name: model_src, value: ""}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
                   - {name: class_weight, value: "[0.01, 1.0]"}
@@ -250,10 +250,10 @@ workflow:
           ports:
             - name: debug
               containerPort: 3000
-              hostPort: 3001
+              hostPort: 3000
             - name: tensorboard
               containerPort: 6006
-              hostPort: 6007
+              hostPort: 6006
           resources:
             requests:
               ephemeral-storage: "40Gi"

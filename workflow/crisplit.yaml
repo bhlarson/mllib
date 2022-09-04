@@ -160,7 +160,7 @@ workflow:
                   - {name: convMaskThreshold, value: 0.1}
                 artifacts:
                   - name: prev_results
-                    from: "{{tasks.search-structure-01.outputs.artifacts.results}}"
+                    from: "{{tasks.search-structure-02.outputs.artifacts.results}}"
             - name: search-structure-04
               dependencies: [search-structure-03]
               template: train
@@ -180,7 +180,7 @@ workflow:
                   - {name: convMaskThreshold, value: 0.1}
                 artifacts:
                   - name: prev_results
-                    from: "{{tasks.search-structure-01.outputs.artifacts.results}}"
+                    from: "{{tasks.search-structure-03.outputs.artifacts.results}}"
             - name: search-structure-05
               dependencies: [search-structure-04]
               template: train
@@ -200,9 +200,9 @@ workflow:
                   - {name: convMaskThreshold, value: 0.1}
                 artifacts:
                   - name: prev_results
-                    from: "{{tasks.search-structure-01.outputs.artifacts.results}}"
+                    from: "{{tasks.search-structure-04.outputs.artifacts.results}}"
             - name: train-fine
-              dependencies: [search-structure-02]
+              dependencies: [search-structure-05]
               template: train
               when: "{{workflow.parameters.start}} < 7"
               arguments:
@@ -217,7 +217,7 @@ workflow:
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}"}
                 artifacts:
                   - name: prev_results
-                    from: "{{tasks.search-structure-02.outputs.artifacts.results}}"
+                    from: "{{tasks.search-structure-05.outputs.artifacts.results}}"
 
       - name: train
         inputs:
@@ -246,7 +246,7 @@ workflow:
             - {name: resultspath, value: "/app/results.yaml"}
             - {name: prevresultspath, value: "/app/prevresults.yaml"}
             - {name: k_prune_sigma, value: 1.0}
-            - {name: convMaskThreshold, value: 0.01}
+            - {name: convMaskThreshold, value: 0.1}
 
           artifacts:
             - name: prev_results
@@ -312,10 +312,10 @@ workflow:
           ports:
             - name: debug
               containerPort: 3000
-              hostPort: 3001
+              hostPort: 3000
             - name: tensorboard
               containerPort: 6006
-              hostPort: 6007
+              hostPort: 6006
           resources:
             requests:
               ephemeral-storage: "40Gi"

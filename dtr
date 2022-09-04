@@ -24,6 +24,7 @@ if [ "$4" != "" ]; then
     gpus="$4"
 elif [[ -z "${gpus}" ]]; then
     #gpus='"device=2,3"'
+    #gpus='"device=1"'
     gpus='all' 
 fi
 

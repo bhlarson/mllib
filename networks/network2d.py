@@ -37,6 +37,7 @@ from torchdatasetutil.imstore import  CreateImageLoaders
 import torchdatasetutil.version as  torchdatasetutil_version
 
 from ptflops import get_model_complexity_info
+from fvcore.nn import FlopCountAnalysis
 
 sys.path.insert(0, os.path.abspath(''))
 from networks.cell2d import Cell, PlotSearch, PlotGradients
@@ -388,9 +389,9 @@ def parse_arguments():
     parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220902_192914_hiocnn0_normalized-train')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220902_192914_hiocnn0_train')
-    parser.add_argument('-tb_dest', type=str, default='crisplit_20220902_192914_tb')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220903_073716_hiocnn0_search_structure_01')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220903_073716_hiocnn0_search_structure_01_test')
+    parser.add_argument('-tb_dest', type=str, default='crisplit_20220903_073716_tb')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
@@ -412,15 +413,15 @@ def parse_arguments():
     parser.add_argument('-weight_gain', type=float, default=5.0, help='Channel convolution norm tanh weight gain')
     parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convolution channels weights')
     parser.add_argument('-feature_threshold', type=float, default=0.0, help='cell tanh pruning threshold')
-    parser.add_argument('-convMaskThreshold', type=float, default=0.01, help='convolution channel sigmoid level to prune convolution channels')
+    parser.add_argument('-convMaskThreshold', type=float, default=0.1, help='convolution channel sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
     parser.add_argument('-ejector', type=FenceSitterEjectors, default=FenceSitterEjectors.prune_basis, choices=list(FenceSitterEjectors))
     parser.add_argument('-ejector_start', type=float, default=4, help='Ejector start epoch')
     parser.add_argument('-ejector_full', type=float, default=5, help='Ejector full epoch')
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector max value')
     parser.add_argument('-ejector_exp', type=float, default=3.0, help='Ejector exponent')
-    parser.add_argument('-train', type=str2bool, default=True)
-    parser.add_argument('-test', type=str2bool, default=True)
+    parser.add_argument('-train', type=str2bool, default=False)
+    parser.add_argument('-test', type=str2bool, default=False)
     parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-search_flops', type=str2bool, default=True)
@@ -479,8 +480,15 @@ def load(s3, s3def, args, class_dictionary, results):
     if 'initial_parameters' not in results or args.model_src is None or args.model_src == '':
         segment = MakeNetwork2d(class_dictionary, args)
         results['initial_parameters'] = count_parameters(segment)
-        results['initial_flops'], params = get_model_complexity_info(copy.deepcopy(segment), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
-                                            print_per_layer_stat=True, verbose=False)
+        # results['initial_flops'], params = get_model_complexity_info(copy.deepcopy(segment), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+        #                                     print_per_layer_stat=True, verbose=False)
+
+        device = torch.device("cpu")
+        if args.cuda:
+            device = torch.device("cuda")
+        input = torch.zeros((1, class_dictionary['input_channels'], args.height, args.width), device=device)
+        flops = FlopCountAnalysis(segment, input)
+        results['initial_flops'] = flops.total()
 
     if(args.model_src and args.model_src != ''):
         modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
@@ -930,6 +938,7 @@ def Test(args, s3, s3def, class_dictionary, segment, device, results):
     if args.ejector is not None and type(args.ejector) != str:
         test_summary['config']['ejector'] = args.ejector.value
     test_summary['system'] = results['system']
+    test_summary['training_results'] = results
 
     # If there is a way to lock this object between read and write, it would prevent the possability of loosing data
     test_path = '{}/{}/{}'.format(s3def['sets']['test']['prefix'], args.model_type, args.test_results)
@@ -946,25 +955,41 @@ def Test(args, s3, s3def, class_dictionary, segment, device, results):
     return results
 
 def Prune(args, s3, s3def, class_dictionary, segment, device, results):
+    device = torch.device("cpu")
+    if args.cuda:
+        device = torch.device("cuda")
+    input = torch.zeros((1, class_dictionary['input_channels'], args.height, args.width), device=device)
+
     if not 'initial_parameters' in results:
         full_model = MakeNetwork2d(class_dictionary, args)
         results['initial_parameters'] = count_parameters(full_model)
-        macs, params = get_model_complexity_info(full_model, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
-                                            print_per_layer_stat=False, verbose=False)
-        results['initial_flops'] = macs
+        # macs, params = get_model_complexity_info(full_model, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+        #                                     print_per_layer_stat=False, verbose=False)
+
+        flops = FlopCountAnalysis(full_model, input)
+        results['initial_flops'] = flops.total()
 
     initial_parameters = results['initial_parameters']
     segment.ApplyStructure()
     reduced_parameters = count_parameters(segment)
     # model_copy = copy.deepcopy(segment)
-    macs, params = get_model_complexity_info(copy.deepcopy(segment), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
-                                        print_per_layer_stat=False, verbose=False)
+    # macs, params = get_model_complexity_info(copy.deepcopy(segment), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+    #                                     print_per_layer_stat=True, verbose=False)
 
-    results['flops_after_prune'] = macs
-    results['parameters_after_prune'] = params
+    flops = FlopCountAnalysis(segment, input)
+    print('FlopCountAnalysis {} get_model_complexity_info flops {}'.format(flops.total(), results['initial_flops']))
+
+    results['flops_after_prune'] = flops.total()
+    results['parameters_after_prune'] = count_parameters(segment)
+
     save(segment, s3, s3def, args, '_prune')
-    results['prune'] = {'final parameters':reduced_parameters, 'initial parameters' : initial_parameters, 'remaining ratio':reduced_parameters/initial_parameters }
-    print('{} remaining parameters {}/{} = {}'.format(args.model_dest, reduced_parameters, initial_parameters, reduced_parameters/initial_parameters))
+    results['prune'] = {'final parameters':reduced_parameters, 
+                        'initial parameters' : initial_parameters, 
+                        'remaining ratio':reduced_parameters/initial_parameters, 
+                        'final flops': results['flops_after_prune'], 
+                        'initial flops': results['initial_flops'], 
+                        'remaining flops':results['flops_after_prune']/results['initial_flops'] }
+    print('{} prune results {}'.format(args.model_dest, results['prune']))
     return results
 
 def main(args): 
@@ -1025,9 +1050,17 @@ def main(args):
     if not 'initial_parameters' in results:
         full_model = MakeNetwork2d(class_dictionary, args)
         results['initial_parameters'] = count_parameters(full_model)
-        macs, params = get_model_complexity_info(full_model, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
-                                            print_per_layer_stat=False, verbose=False)
-        results['initial_flops'] = macs
+        # macs, params = get_model_complexity_info(full_model, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+        #                                     print_per_layer_stat=False, verbose=False)
+
+        device = torch.device("cpu")
+        if args.cuda:
+            device = torch.device("cuda")
+        input = torch.zeros((1, class_dictionary['input_channels'], args.height, args.width), device=device)
+        flops = FlopCountAnalysis(full_model, input)
+        print('FlopCountAnalysis {} get_model_complexity_info flops {}'.format(flops.total(), results['initial_flops']))
+
+        results['initial_flops'] = flops.total()
 
     # Prune with loaded parameters than apply current search_structure setting
     segment.ApplyParameters(weight_gain=args.weight_gain, 
@@ -1041,11 +1074,11 @@ def main(args):
     segment.to(device)
 
     # model_copy = copy.deepcopy(segment)
-    macs, params = get_model_complexity_info(copy.deepcopy(segment), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
-                                        print_per_layer_stat=False, verbose=False)
-    results['initial_flops'] = macs
-    print('{:<30}  {:<8}'.format('FLOPS: ', results['initial_flops'] ))
-    print('{:<30}  {:<8}'.format('Number of parameters: ', params))
+    # macs, params = get_model_complexity_info(copy.deepcopy(segment), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+    #                                     print_per_layer_stat=False, verbose=False)
+    # results['initial_flops'] = macs
+    # print('{:<30}  {:<8}'.format('FLOPS: ', results['initial_flops'] ))
+    # print('{:<30}  {:<8}'.format('Number of parameters: ', params))
 
     # Train
     if args.train:

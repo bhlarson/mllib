@@ -44,7 +44,8 @@ RUN pip3 install --upgrade pip && pip3 install --no-cache-dir \
         onnx \
         onnxruntime-gpu \
         pycuda \
-        ptflops
+        ptflops \
+        fvcore
 
 ADD "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
 RUN pip3 --no-cache-dir install --upgrade\

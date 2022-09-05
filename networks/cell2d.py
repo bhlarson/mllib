@@ -131,8 +131,9 @@ class RelaxChannels(nn.Module):
         return conv_weights
 
     def forward(self, x):
-        if self.search_structure and not self.disable_search_structure: #scale channels based on self.channel_scale
-                x *= self.weights()[None,:,None,None]
+        # if self.search_structure and not self.disable_search_structure: #scale channels based on self.channel_scale
+        #         x *= self.weights()[None,:,None,None]
+        x *= self.weights()[None,:,None,None]
         return x
 
     # Remove specific network dimensions

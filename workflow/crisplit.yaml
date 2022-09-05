@@ -237,8 +237,8 @@ workflow:
             - {name: ejector_max, value: 1.0}
             - {name: model_src, value: ""}
             - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}"}
-            - {name: k_accuracy, value: 10.0}
-            - {name: k_structure, value: 0.5}
+            - {name: k_accuracy, value: 1.0}
+            - {name: k_structure, value: 0.1}
             - {name: k_prune_basis, value: 1.0}
             - {name: learning_rate, value: 2e-4}
             - {name: class_weight, value: "[1.0, 1.0]"}
@@ -324,5 +324,5 @@ workflow:
               ephemeral-storage: "40Gi"
               "nvidia.com/gpu": '1'
           retryStrategy:
-            limit: "3"
+            limit: "3"n
             retryPolicy: "Always"

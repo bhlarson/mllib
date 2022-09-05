@@ -157,7 +157,7 @@ workflow:
                   - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02_prune"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_03"}
-                  - {name: convMaskThreshold, value: 0.1}
+                  - {name: convMaskThreshold, value: 0.2}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-02.outputs.artifacts.results}}"
@@ -177,7 +177,7 @@ workflow:
                   - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_03_prune"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_04"}
-                  - {name: convMaskThreshold, value: 0.1}
+                  - {name: convMaskThreshold, value: 0.3}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-03.outputs.artifacts.results}}"
@@ -197,7 +197,7 @@ workflow:
                   - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_04_prune"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_05"}
-                  - {name: convMaskThreshold, value: 0.1}
+                  - {name: convMaskThreshold, value: 0.5}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-04.outputs.artifacts.results}}"
@@ -312,10 +312,10 @@ workflow:
           ports:
             - name: debug
               containerPort: 3000
-              hostPort: 3000
+              hostPort: 3001
             - name: tensorboard
               containerPort: 6006
-              hostPort: 6006
+              hostPort: 6007
           resources:
             requests:
               ephemeral-storage: "40Gi"

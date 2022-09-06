@@ -205,7 +205,7 @@ class ConvBR(nn.Module):
         self.input_shape = None
         self.output_shape = None
 
-        self.channel_scale = nn.Parameter(torch.zeros(self.out_channels, dtype=torch.float, device=self.device))
+        #self.channel_scale = nn.Parameter(torch.zeros(self.out_channels, dtype=torch.float, device=self.device))
 
         if type(kernel_size) == int:
             padding = kernel_size // 2 # dynamic add padding based on the kernel_size
@@ -252,7 +252,7 @@ class ConvBR(nn.Module):
 
     def _initialize_weights(self):
         #nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
-        nn.init.ones_(self.channel_scale)
+        #nn.init.ones_(self.channel_scale)
         #nn.init.zeros_(self.channel_scale)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -313,33 +313,37 @@ class ConvBR(nn.Module):
     def ArchitectureWeights(self):
 
         if self.relaxation and self.search_structure and not self.disable_search_structure:
-            weight_basis = GaussianBasis(self.channel_scale, sigma=self.k_prune_sigma)
-            conv_weights = self.channel_scale*self.relaxation.weights()
+            weight_basis = GaussianBasis(self.relaxation.weights(), sigma=self.k_prune_sigma)
+            conv_weights = self.relaxation.weights()
 
         else:
-            weight_basis = torch.zeros_like(self.channel_scale, device=self.device)
-            conv_weights = torch.ones_like(self.channel_scale, device=self.device)
+            weight_basis = torch.zeros_like(self.relaxation.weights(), device=self.device)
+            conv_weights = torch.ones_like(self.relaxation.weights(), device=self.device)
 
-        if self.search_flops:
-            architecture_weights, cell_weights = conv_flops_counter_hook(self.conv, self.prev_relaxation, self.output_shape, self.relaxation)
 
-            if self.activation:
-                flops_relaxed, flops_total = relu_flops_counter_hook(self.activation, self.output_shape, self.relaxation)
-                architecture_weights += flops_relaxed
-                cell_weights += flops_total
-            if self.batch_norm:
-                flops_relaxed, flops_total = bn_flops_counter_hook(self.batchnorm2d, self.output_shape, self.relaxation)
-                architecture_weights += bn_flops_counter_hook(self.batchnorm2d, self.output_shape, self.relaxation)
-                cell_weights += flops_total
-            architecture_weights = torch.reshape(architecture_weights,[-1]) # reshape to single element array to be the same format as not flops architecture_weights
-
+        if self.out_channels == 0:
+            architecture_weights = conv_weights.sum_to_size((1))
         else:
-            cell_weights = model_weights(self)
-            if self.out_channels > 0:
+
+            if self.search_flops:
+                architecture_weights, cell_weights = conv_flops_counter_hook(self.conv, self.prev_relaxation, self.output_shape, self.relaxation)
+
+                if self.activation:
+                    flops_relaxed, flops_total = relu_flops_counter_hook(self.activation, self.output_shape, self.relaxation)
+                    architecture_weights += flops_relaxed
+                    cell_weights += flops_total
+                if self.batch_norm:
+                    flops_relaxed, flops_total = bn_flops_counter_hook(self.batchnorm2d, self.output_shape, self.relaxation)
+                    architecture_weights += bn_flops_counter_hook(self.batchnorm2d, self.output_shape, self.relaxation)
+                    cell_weights += flops_total
+                architecture_weights = torch.reshape(architecture_weights,[-1]) # reshape to single element array to be the same format as not flops architecture_weights
+
+            else:
+                cell_weights = model_weights(self)
+
                 # Keep sum as [1] tensor so subsequent concatenation works
                 architecture_weights = (cell_weights/ self.out_channels) * conv_weights.sum_to_size((1))
-            else:
-                architecture_weights = conv_weights.sum_to_size((1))
+
 
         return architecture_weights, cell_weights, conv_weights, weight_basis
 
@@ -366,10 +370,9 @@ class ConvBR(nn.Module):
         if self.in_channels ==0: # No output if no input
             conv_mask = torch.zeros((self.out_channels), dtype=torch.bool, device=self.device)
         elif self.relaxation and self.search_structure and not self.disable_search_structure:
-            conv_mask = self.channel_scale*self.relaxation.weights()
-            conv_mask = conv_mask > self.convMaskThreshold
+            conv_mask = self.relaxation.weights() > self.convMaskThreshold
         else:
-            conv_mask = self.channel_scale > float('-inf') # Always true if self.search_structure == False
+            conv_mask = self.relaxation.weights() > float('-inf') # Always true if self.search_structure == False
 
         if out_channel_mask is not None:
             if len(out_channel_mask) == self.out_channels:
@@ -391,7 +394,7 @@ class ConvBR(nn.Module):
             else:
                 self.conv.weight.data = self.conv.weight[conv_mask!=0]
 
-            self.channel_scale.data = self.channel_scale.data[conv_mask!=0]
+            #self.channel_scale.data = self.channel_scale.data[conv_mask!=0]
 
             if self.batch_norm:
                 self.batchnorm2d.bias.data = self.batchnorm2d.bias.data[conv_mask!=0]

@@ -213,7 +213,7 @@ workflow:
                   - {name: search_structure, value: false}
                   - {name: epochs, value: 20}
                   - {name: target_structure, value: '{{workflow.parameters.target_structure}}'}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02_prune"}
+                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_05"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}"}
                 artifacts:
                   - name: prev_results
@@ -324,5 +324,5 @@ workflow:
               ephemeral-storage: "40Gi"
               "nvidia.com/gpu": '1'
           retryStrategy:
-            limit: "3"n
+            limit: "3"
             retryPolicy: "Always"

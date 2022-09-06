@@ -389,9 +389,9 @@ def parse_arguments():
     parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220903_073716_hiocnn0_search_structure_01')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220903_073716_hiocnn0_search_structure_01_test')
-    parser.add_argument('-tb_dest', type=str, default='crisplit_20220903_073716_tb')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220905_092852_hiocnn0_search_structure_05')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220905_092852_hiocnn0_search_structure_05_test')
+    parser.add_argument('-tb_dest', type=str, default='crisplit_20220905_092852_tb')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
@@ -420,8 +420,8 @@ def parse_arguments():
     parser.add_argument('-ejector_full', type=float, default=5, help='Ejector full epoch')
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector max value')
     parser.add_argument('-ejector_exp', type=float, default=3.0, help='Ejector exponent')
-    parser.add_argument('-train', type=str2bool, default=False)
-    parser.add_argument('-test', type=str2bool, default=False)
+    parser.add_argument('-train', type=str2bool, default=True)
+    parser.add_argument('-test', type=str2bool, default=True)
     parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-search_flops', type=str2bool, default=True)
@@ -668,7 +668,7 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
                 ejector_exp =  Exponential(vx=args.ejector_start, vy=args.sigmoid_scale, px=args.ejector_full, py=args.ejector_max, power=args.ejector_exp)
 
         elif args.ejector == FenceSitterEjectors.prune_basis or args.ejector == FenceSitterEjectors.prune_basis.value:
-            writer.add_scalar('CRISP/k_prune_basis', args.k_prune_basis, results['batches'])
+            #writer.add_scalar('CRISP/k_prune_basis', args.k_prune_basis, results['batches'])
             if args.epochs > args.ejector_start and args.ejector_max > 0:
                 ejector_exp =  Exponential(vx=args.ejector_start, vy=0, px=args.ejector_full, py=args.ejector_max, power=args.ejector_exp)
 
@@ -685,7 +685,7 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
                     writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
                 elif args.ejector == FenceSitterEjectors.prune_basis or args.ejector == FenceSitterEjectors.prune_basis.value:
                     loss_fcn.k_prune_basis = args.k_prune_basis*ejector_exp.f(float(epoch)).item()
-                writer.add_scalar('CRISP/k_prune_basis', loss_fcn.k_prune_basis, results['batches'])
+                #writer.add_scalar('CRISP/k_prune_basis', loss_fcn.k_prune_basis, results['batches'])
 
             running_loss = 0.0
             for i, data in tqdm(enumerate(trainloader['dataloader']), 

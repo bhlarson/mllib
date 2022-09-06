@@ -317,8 +317,8 @@ class ConvBR(nn.Module):
             conv_weights = self.relaxation.weights()
 
         else:
-            weight_basis = torch.zeros_like(self.relaxation.weights(), device=self.device)
-            conv_weights = torch.ones_like(self.relaxation.weights(), device=self.device)
+            weight_basis = torch.zeros((self.out_channels), device=self.device)
+            conv_weights = torch.ones((self.out_channels), device=self.device)
 
 
         if self.out_channels == 0:

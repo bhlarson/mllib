@@ -372,7 +372,7 @@ class ConvBR(nn.Module):
         elif self.relaxation and self.search_structure and not self.disable_search_structure:
             conv_mask = self.relaxation.weights() > self.convMaskThreshold
         else:
-            conv_mask = self.relaxation.weights() > float('-inf') # Always true if self.search_structure == False
+            conv_mask = torch.ones((self.out_channels), dtype=torch.bool, device=self.device) # Always true if self.search_structure == False
 
         if out_channel_mask is not None:
             if len(out_channel_mask) == self.out_channels:
@@ -1181,8 +1181,8 @@ class PlotWeights():
                         numSums = 1                    
 
                         if self.pruning:
-                            if convbr.channel_scale.grad is not None:
-                                weights += torch.abs(convbr.channel_scale.grad)
+                            if convbr.relaxation.channel_scale.grad is not None:
+                                weights += torch.abs(convbr.relaxation.channel_scale.grad)
                                 numSums += 1
 
                         weights /= (numSums)
@@ -1268,8 +1268,8 @@ class PlotGradients():
                         numSums = 1                    
 
                         if self.pruning:
-                            if convbr.channel_scale.grad is not None:
-                                grads += torch.abs(convbr.channel_scale.grad)
+                            if convbr.relaxation is not None and convbr.relaxation.channel_scale is not None and convbr.relaxation.channel_scale.grad is not None:
+                                grads += torch.abs(convbr.relaxation.channel_scale.grad)
                                 numSums += 1
 
                         grads /= (numSums)

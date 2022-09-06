@@ -239,7 +239,7 @@ workflow:
             - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}"}
             - {name: k_accuracy, value: 1.0}
             - {name: k_structure, value: 0.1}
-            - {name: k_prune_basis, value: 1.0}
+            - {name: k_prune_basis, value: 0.2}
             - {name: learning_rate, value: 2e-4}
             - {name: class_weight, value: "[1.0, 1.0]"}
             - {name: description, value: "{{workflow.parameters.description}}"}
@@ -312,10 +312,10 @@ workflow:
           ports:
             - name: debug
               containerPort: 3000
-              hostPort: 3001
+              hostPort: 3000
             - name: tensorboard
               containerPort: 6006
-              hostPort: 6007
+              hostPort: 6006
           resources:
             requests:
               ephemeral-storage: "40Gi"

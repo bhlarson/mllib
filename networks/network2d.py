@@ -609,6 +609,8 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
 
         tb = program.TensorBoard()
         tb.configure(('tensorboard', '--logdir', args.tensorboard_dir))
+        tb.flags.bind_all = True
+        tb.flags.port = 6006
         url = tb.launch()
         print(f"Tensorboard on {url}")
         writer_path = '{}/{}'.format(args.tensorboard_dir, args.model_dest)
@@ -628,13 +630,13 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
     else:
         class_weight = None 
 
-    # with profile(
-    #         activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-    #         schedule=torch.profiler.schedule(skip_first=10, wait=3, warmup=2, active=5, repeat=1),
-    #         on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
-    #         record_shapes=True, profile_memory=True, with_stack=True
-    # ) as prof:
-    if True:
+    with profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            schedule=torch.profiler.schedule(skip_first=10, wait=3, warmup=2, active=5, repeat=1),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
+            record_shapes=True, profile_memory=True, with_stack=True
+    ) as prof:
+    #if True:
         if args.search_flops:
             total_weights= results['initial_flops'] 
         else:
@@ -778,7 +780,6 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
                         writer.add_scalar('loss/test', loss, results['batches'])
                         writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, results['batches'])
 
-                        
 
                     running_loss /=test_freq
                     msg = '[{:3}/{}, {:6d}/{}]  loss: {:0.5e}|{:0.5e} cross-entropy loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test) step time: {:0.3f}'.format(
@@ -820,7 +821,7 @@ def Train(args, s3, s3def, class_dictionary, segment, device, results):
 
                     save(segment, s3, s3def, args)
           
-                #prof.step()
+                prof.step()
                 results['batches'] += 1
 
                 if args.minimum and i >= test_freq:

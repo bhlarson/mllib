@@ -5,11 +5,16 @@ import sys
 import math
 import io
 import json
+import yaml
+import random
 import platform
 from enum import Enum
+import time
+from datetime import datetime
+import numpy as np
+import torch
 from copy import deepcopy
 import torch
-from torch._C import parse_ir
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -21,17 +26,24 @@ from collections import namedtuple
 from collections import OrderedDict
 from typing import Callable, Optional
 from tqdm import tqdm
-import numpy as np
 import matplotlib.pyplot as plt
 import cv2
 
-sys.path.insert(0, os.path.abspath(''))
-sys.path.insert(0, os.path.abspath('..'))
 from pymlutil.torch_util import count_parameters, model_stats, model_weights
-from pymlutil.jsonutil import ReadDictJson, WriteDictJson, str2bool
+from pymlutil.jsonutil import ReadDict, WriteDict, str2bool
 from pymlutil.s3 import s3store, Connect
-from pymlutil.functions import GaussianBasis
-from networks.totalloss import TotalLoss
+from pymlutil.functions import Exponential, GaussianBasis
+from pymlutil.metrics import DatasetResults
+import pymlutil.version as pymlutil_version
+import torchvision
+import torchvision.transforms as transforms
+from torch.utils.data.sampler import SubsetRandomSampler
+
+from ptflops import get_model_complexity_info
+from fvcore.nn import FlopCountAnalysis
+
+sys.path.insert(0, os.path.abspath(''))
+from networks.totalloss import TotalLoss, FenceSitterEjectors
 
 # Inner neural architecture cell repetition structure
 # Process: Con2d, optional batch norm, optional ReLu
@@ -68,8 +80,9 @@ def conv_flops_counter_hook(conv_module, in_relaxation, output_shape, out_relaxa
     kernel_dims = list(conv_module.kernel_size)
     #in_channels = conv_module.in_channels
     input_relaxation = []
-    for in_relaxation_source in in_relaxation:
-        input_relaxation.append(in_relaxation_source.weights())
+    if in_relaxation is not None and len(in_relaxation) > 0:
+        for in_relaxation_source in in_relaxation:
+            input_relaxation.append(in_relaxation_source.weights())
 
     in_channels = conv_module.in_channels
     out_channels = conv_module.out_channels
@@ -174,7 +187,7 @@ class ConvBR(nn.Module):
                  k_prune_sigma=0.33,
                  device=torch.device("cpu"),
                  disable_search_structure = False,
-                 search_flops = True,
+                 search_flops = False,
                  ):
         super(ConvBR, self).__init__()
         self.in_channels = in_channels
@@ -438,7 +451,7 @@ class Cell(nn.Module):
                  dropout_rate = 0.2,
                  sigmoid_scale = 5.0,
                  k_prune_sigma=0.33,
-                 search_flops = True,
+                 search_flops = False,
                  ):
                 
         super(Cell, self).__init__()
@@ -1011,18 +1024,6 @@ class Classify(nn.Module):
 
             
         return current_weights, self.total_trainable_weights, remnent
-
-def str2bool(v):
-    if isinstance(v, bool):
-        return v
-    if isinstance(v, int):
-        return not(v==0)
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
-        return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
-        return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def parse_arguments():
     import argparse

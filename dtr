@@ -14,19 +14,19 @@ elif [[ -z "${UTIL_PORTS}" ]]; then
 fi
 
 if [ "$3" != "" ]; then
-    image_name="$3"
+    GPUS="$3"
+elif [[ -z "${gpus}" ]]; then
+    #GPUS='"device=1,2"'
+    GPUS='"device=1"'
+    #GPUS='all' 
+fi
+
+if [ "$4" != "" ]; then
+    image_name="$4"
 elif [[ -z "${image_name}" ]]; then
     image_name=${crispdev}
 fi
 echo image_name=${image_name}
-
-if [ "$4" != "" ]; then
-    gpus="$4"
-elif [[ -z "${gpus}" ]]; then
-    #gpus='"device=2,3"'
-    #gpus='"device=1"'
-    gpus='all' 
-fi
 
 iPort=${UTIL_PORTS}
 PORT1=$((iPort++))
@@ -36,7 +36,7 @@ PORT4=$((iPort++))
 PORT5=$((iPort++))
 
 set -x
-docker run --ipc=host --privileged --gpus all -it --rm --cap-add=CAP_SYS_ADMIN \
+docker run --ipc=host --gpus $GPUS -it --rm --cap-add=CAP_SYS_ADMIN \
     -v "$(pwd):/app" \
     -v "/store:/store" \
     -v "/store/Datasets/flow/SceneFlow:/store/Datasets/flow/SceneFlow" \
@@ -45,6 +45,5 @@ docker run --ipc=host --privileged --gpus all -it --rm --cap-add=CAP_SYS_ADMIN \
     -p ${PORT2}:5000 \
     -p ${PORT3}:6006 \
     -p ${PORT4}:8888 \
-    --name $CONTAINER_NAME \
     --entrypoint=/bin/bash \
     ${image_name}

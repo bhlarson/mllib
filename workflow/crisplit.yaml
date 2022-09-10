@@ -36,6 +36,8 @@ workflow:
           value: false
         - name: tbport
           value: 6006
+        - name: search_flops
+          value: true
 
     entrypoint: train-crisp
     priority: 1
@@ -97,7 +99,7 @@ workflow:
                   - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00"}
-                  - {name: convMaskThreshold, value: 0.1}
+                  - {name: convMaskThreshold, value: 0.025}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.train.outputs.artifacts.results}}"
@@ -117,7 +119,7 @@ workflow:
                   - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00_prune"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01"}
-                  - {name: convMaskThreshold, value: 0.1}
+                  - {name: convMaskThreshold, value: 0.05}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-00.outputs.artifacts.results}}"
@@ -232,8 +234,8 @@ workflow:
             - {name: epochs, value: 20}
             - {name: start_epoch, value: 0}
             - {name: ejector, value: 'None'}
-            - {name: ejector_start, value: 9}
-            - {name: ejector_full, value: 10}
+            - {name: ejector_start, value: 7}
+            - {name: ejector_full, value: 13}
             - {name: ejector_max, value: 1.0}
             - {name: model_src, value: ""}
             - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}"}
@@ -309,13 +311,14 @@ workflow:
             - -lit_class_dict=model/crisplit/lit.json
             - -k_prune_sigma={{inputs.parameters.k_prune_sigma}}
             - -convMaskThreshold={{inputs.parameters.convMaskThreshold}}
+            - -search_flops={{workflow.parameters.search_flops}}
           ports:
             - name: debug
               containerPort: 3000
-              hostPort: 3000
+              #hostPort: 3000
             - name: tensorboard
               containerPort: 6006
-              hostPort: 6006
+              hostPort: 6007
           resources:
             requests:
               ephemeral-storage: "40Gi"

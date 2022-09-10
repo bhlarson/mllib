@@ -369,16 +369,16 @@ def parse_arguments():
 
     parser.add_argument('-coco_class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=10, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=8, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
     parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220905_092852_hiocnn0_search_structure_05')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220906_135553_hiocnn0_search_structure_02_perf')
-    parser.add_argument('-tb_dest', type=str, default='crisplit_20220905_092852_tb')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220909_061234_hiocnn0_search_structure_05;')
+    parser.add_argument('-model_dest', type=str, default='crisplit_20220909_061234_hiocnn0_search_structure_05')
+    parser.add_argument('-tb_dest', type=str, default='crisplit_20220909_061234_tb')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
@@ -407,9 +407,9 @@ def parse_arguments():
     parser.add_argument('-ejector_full', type=float, default=5, help='Ejector full epoch')
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector max value')
     parser.add_argument('-ejector_exp', type=float, default=3.0, help='Ejector exponent')
+    parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-test', type=str2bool, default=True)
-    parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-search_flops', type=str2bool, default=True)
     parser.add_argument('-profile', type=str2bool, default=False)
@@ -826,7 +826,7 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, pr
 
     return results
 
-def Test(args, s3, s3def, class_dictionary, segment, loaders, device, results, profile):
+def Test(args, s3, s3def, class_dictionary, segment, loaders, device, results, profile=None):
     now = datetime.now()
     date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
     test_summary = {'date':date_time}
@@ -945,7 +945,7 @@ def Prune(args, s3, s3def, class_dictionary, segment, device, results):
     results['flops_after_prune'] = flops.total()
     results['parameters_after_prune'] = count_parameters(segment)
 
-    save(segment, s3, s3def, args, '_prune')
+    save(segment, s3, s3def, args)
     results['prune'] = {'final parameters':reduced_parameters, 
                         'initial parameters' : initial_parameters, 
                         'remaining ratio':reduced_parameters/initial_parameters, 
@@ -1068,6 +1068,9 @@ def main(args):
         )
 
     # Train
+    if args.prune:
+        results = Prune(args, s3, s3def, class_dictionary, segment, device, results)
+
     if args.train:
         if args.profile:
             with profile(
@@ -1079,9 +1082,6 @@ def main(args):
                 results = Train(args, s3, s3def, class_dictionary, segment, loaders, device, results, prof)
         else:
             results = Train(args, s3, s3def, class_dictionary, segment, loaders, device, results)
-
-    if args.prune:
-        results = Prune(args, s3, s3def, class_dictionary, segment, device, results)
 
     if args.test:
         if args.profile:

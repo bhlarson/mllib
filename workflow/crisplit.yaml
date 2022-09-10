@@ -55,7 +55,6 @@ workflow:
                   - {name: test, value: false}
                   - {name: search_structure, value: true}
                   - {name: learning_rate, value: 1e-4}
-                  - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
                   - {name: epochs, value: 3}
                   - {name: model_src, value: ""}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
@@ -71,12 +70,10 @@ workflow:
               when: "{{workflow.parameters.start}} < 2"
               arguments:
                 parameters:
-                  - {name: train, value: true}
                   - {name: prune, value: false}
+                  - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-                  - {name: epochs, value: 1}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
                   - {name: class_weight, value: "[1.0, 1.0]"}
@@ -89,12 +86,10 @@ workflow:
               when: "{{workflow.parameters.start}} < 3"
               arguments:
                 parameters:
-                  - {name: train, value: true}
                   - {name: prune, value: true}
+                  - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-                  - {name: start_epoch, value: 0}
                   - {name: ejector, value: 'prune_basis'}
                   - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
@@ -109,15 +104,13 @@ workflow:
               when: "{{workflow.parameters.start}} < 3"
               arguments:
                 parameters:
-                  - {name: train, value: true}
                   - {name: prune, value: true}
+                  - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-                  - {name: start_epoch, value: 0}
                   - {name: ejector, value: 'prune_basis'}
                   - {name: ejector_max, value: 1.0}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00_prune"}
+                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01"}
                   - {name: convMaskThreshold, value: 0.05}
                 artifacts:
@@ -129,15 +122,13 @@ workflow:
               when: "{{workflow.parameters.start}} < 3"
               arguments:
                 parameters:
-                  - {name: train, value: true}
                   - {name: prune, value: true}
+                  - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-                  - {name: start_epoch, value: 0}
                   - {name: ejector, value: 'prune_basis'}
                   - {name: ejector_max, value: 1.0}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01_prune"}
+                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02"}
                   - {name: convMaskThreshold, value: 0.1}
                 artifacts:
@@ -149,15 +140,11 @@ workflow:
               when: "{{workflow.parameters.start}} < 4"
               arguments:
                 parameters:
-                  - {name: train, value: true}
                   - {name: prune, value: true}
+                  - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-                  - {name: start_epoch, value: 0}
-                  - {name: ejector, value: 'prune_basis'}
-                  - {name: ejector_max, value: 1.0}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02_prune"}
+                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_03"}
                   - {name: convMaskThreshold, value: 0.2}
                 artifacts:
@@ -169,15 +156,11 @@ workflow:
               when: "{{workflow.parameters.start}} < 5"
               arguments:
                 parameters:
-                  - {name: train, value: true}
                   - {name: prune, value: true}
+                  - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-                  - {name: start_epoch, value: 0}
-                  - {name: ejector, value: 'prune_basis'}
-                  - {name: ejector_max, value: 1.0}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_03_prune"}
+                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_03"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_04"}
                   - {name: convMaskThreshold, value: 0.3}
                 artifacts:
@@ -189,32 +172,27 @@ workflow:
               when: "{{workflow.parameters.start}} < 6"
               arguments:
                 parameters:
-                  - {name: train, value: true}
                   - {name: prune, value: true}
+                  - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-                  - {name: start_epoch, value: 0}
-                  - {name: ejector, value: 'prune_basis'}
-                  - {name: ejector_max, value: 1.0}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_04_prune"}
+                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_04"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_05"}
                   - {name: convMaskThreshold, value: 0.5}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-04.outputs.artifacts.results}}"
-            - name: train-fine
+            - name: search-structure-06
               dependencies: [search-structure-05]
               template: train
               when: "{{workflow.parameters.start}} < 7"
               arguments:
                 parameters:
+                  - {name: prune, value: true}
                   - {name: train, value: true}
-                  - {name: prune, value: false}
                   - {name: test, value: true}
                   - {name: search_structure, value: false}
                   - {name: epochs, value: 20}
-                  - {name: target_structure, value: '{{workflow.parameters.target_structure}}'}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_05"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}"}
                 artifacts:
@@ -231,11 +209,11 @@ workflow:
             - {name: onnx, value: false}
             - {name: search_structure, value: true}
             - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-            - {name: epochs, value: 20}
+            - {name: epochs, value: 10}
             - {name: start_epoch, value: 0}
-            - {name: ejector, value: 'None'}
-            - {name: ejector_start, value: 7}
-            - {name: ejector_full, value: 13}
+            - {name: ejector, value: 'prune_basis'}
+            - {name: ejector_start, value: 3}
+            - {name: ejector_full, value: 7}
             - {name: ejector_max, value: 1.0}
             - {name: model_src, value: ""}
             - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}"}
@@ -318,7 +296,7 @@ workflow:
               #hostPort: 3000
             - name: tensorboard
               containerPort: 6006
-              hostPort: 6007
+              hostPort: 6006
           resources:
             requests:
               ephemeral-storage: "40Gi"

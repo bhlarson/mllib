@@ -355,6 +355,7 @@ def parse_arguments():
     parser.add_argument('-debug', type=str2bool, default=False, help='Wait for debuggee attach')  
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
+    parser.add_argument('-tensorboard_port', type=int, default=6006, help='Debug port')
     parser.add_argument('-min', action='store_true', help='Minimum run with a few iterations to test execution')
     parser.add_argument('-minimum', type=str2bool, default=False, help='Minimum run with a few iterations to test execution')
 
@@ -369,21 +370,22 @@ def parse_arguments():
 
     parser.add_argument('-coco_class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=8, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
-    parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
+    parser.add_argument('-num_workers', type=int, default=8, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220909_061234_hiocnn0_search_structure_05;')
-    parser.add_argument('-model_dest', type=str, default='crisplit_20220909_061234_hiocnn0_search_structure_05')
-    parser.add_argument('-tb_dest', type=str, default='crisplit_20220909_061234_tb')
+    #parser.add_argument('-model_src', type=str,  default='crisplit_20220910_161625_hiocnn0_search_structure_00')
+    parser.add_argument('-model_src', type=str,  default='crisplit_20220909_061234_hiocnn0_search_structure_05')
+    parser.add_argument('-model_dest', type=str, default=None)
+    parser.add_argument('-tb_dest', type=str, default='crisplit_20220909_061234_hiocnn_tb_01')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
-    parser.add_argument('-height', type=int, default=640, help='Batch image height')
-    parser.add_argument('-width', type=int, default=640, help='Batch image width')
+    parser.add_argument('-height', type=int, default=1536, help='Batch image height')
+    parser.add_argument('-width', type=int, default=3072, help='Batch image width')
     parser.add_argument('-learning_rate', type=float, default=2.0e-4, help='Adam learning rate')
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
@@ -407,13 +409,14 @@ def parse_arguments():
     parser.add_argument('-ejector_full', type=float, default=5, help='Ejector full epoch')
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector max value')
     parser.add_argument('-ejector_exp', type=float, default=3.0, help='Ejector exponent')
-    parser.add_argument('-prune', type=str2bool, default=True)
-    parser.add_argument('-train', type=str2bool, default=True)
+    parser.add_argument('-prune', type=str2bool, default=False)
+    parser.add_argument('-train', type=str2bool, default=False)
     parser.add_argument('-test', type=str2bool, default=True)
-    parser.add_argument('-search_structure', type=str2bool, default=True)
+    parser.add_argument('-search_structure', type=str2bool, default=False)
     parser.add_argument('-search_flops', type=str2bool, default=True)
-    parser.add_argument('-profile', type=str2bool, default=False)
-    parser.add_argument('-onnx', type=str2bool, default=False)
+    parser.add_argument('-profile', type=str2bool, default=True)
+    parser.add_argument('-time_trial', type=str2bool, default=True)
+    parser.add_argument('-onnx', type=str2bool, default=True)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
     parser.add_argument('-resultspath', type=str, default='results.yaml')
@@ -549,31 +552,7 @@ def DisplayImgAn(image, label, segmentation, trainingset, mean, stdev):
 
     return imanseg
 
-def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, profile=None):
-
-    tb = None
-    writer = None
-    write_graph = False
-
-    # Load previous tensorboard for multi-step training
-    if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
-        tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
-        s3.GetDir(s3def['sets']['test']['bucket'], tb_path, args.tensorboard_dir )
-    # Create tensorboard server and tensorboard writer
-    if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0):
-        os.makedirs(args.tensorboard_dir, exist_ok=True)
-
-        tb = program.TensorBoard()
-        tb.configure(('tensorboard', '--logdir', args.tensorboard_dir))
-        tb.flags.bind_all = True
-        tb.flags.port = 6006
-        url = tb.launch()
-        print(f"Tensorboard on {url}")
-        writer_path = '{}/{}'.format(args.tensorboard_dir, args.model_dest)
-        writer = SummaryWriter(writer_path)
-
-    if 'batches' not in results:
-        results['batches'] = 0
+def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, writer, profile=None):
 
     trainloader = next(filter(lambda d: d.get('set') == 'train', loaders), None)
     testloader = next(filter(lambda d: d.get('set') == 'test', loaders), None)
@@ -826,32 +805,12 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, pr
 
     return results
 
-def Test(args, s3, s3def, class_dictionary, segment, loaders, device, results, profile=None):
+def Test(args, s3, s3def, class_dictionary, segment, loaders, device, results, writer, profile=None):
     now = datetime.now()
     date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
     test_summary = {'date':date_time}
 
     dataset_bucket = s3def['sets']['dataset']['bucket']
-
-    if args.dataset=='coco':
-        loaders = CreateCocoLoaders(s3, dataset_bucket, 
-            class_dict=args.coco_class_dict, 
-            batch_size=args.batch_size,
-            num_workers=args.num_workers,
-            cuda = args.cuda,
-            height = args.height,
-            width = args.width,
-        )
-    elif args.dataset=='lit':
-        loaders = CreateImageLoaders(s3, dataset_bucket, 
-            dataset_dfn=args.lit_dataset,
-            class_dict=args.lit_class_dict, 
-            batch_size=args.batch_size,
-            num_workers=args.num_workers,
-            cuda = args.cuda,
-            height = args.height,
-            width = args.width,
-        )
 
     testloader = next(filter(lambda d: d.get('set') == 'test', loaders), None)
 
@@ -865,6 +824,7 @@ def Test(args, s3, s3def, class_dictionary, segment, loaders, device, results, p
         outputdir = None
 
     dsResults = DatasetResults(class_dictionary, args.batch_size, imStatistics=args.imStatistics, imgSave=outputdir)
+    dtSum = 0.0
 
     for i, data in tqdm(enumerate(testloader['dataloader']), 
                         total=testloader['batches'], 
@@ -881,22 +841,35 @@ def Test(args, s3, s3def, class_dictionary, segment, loaders, device, results, p
         segmentations = torch.argmax(outputs, 1)
         dt = (datetime.now()-initial).total_seconds()
         inferTime = dt/args.batch_size
+        tqdm.write('inferTime = {}'.format(inferTime))
+        writer.add_scalar('time/infer', dtInfer, results['batches'])
 
-        images = images.cpu().permute(0, 2, 3, 1).numpy()
-        labels = np.around(labels.cpu().numpy()).astype('uint8')
-        segmentations = segmentations.cpu().numpy().astype('uint8')
+        if args.time_trial:
+            dtSum += dt
+        else:
+            images = images.cpu().permute(0, 2, 3, 1).numpy()
+            labels = np.around(labels.cpu().numpy()).astype('uint8')
+            segmentations = segmentations.cpu().numpy().astype('uint8')
 
-        dsResults.infer_results(i, images, labels, segmentations, mean.numpy(), stdev.numpy(), dt)
+            dsResults.infer_results(i, images, labels, segmentations, mean.numpy(), stdev.numpy(), dt)
 
         if args.minimum and i+1 >= 10:
             break
 
         if profile is not None:
-            profile.step() 
+            profile.step()
+
+    if args.time_trial:
+        test_results = {
+                    'average time': dtSum/testloader['length'],
+                    'num images': testloader['length'],
+                    }
+    else:
+        test_results = dsResults.Results()
 
     test_summary['objects'] = dsResults.objTypes
     test_summary['object store'] =s3def
-    test_summary['results'] = dsResults.Results()
+    test_summary['results'] = test_results
     test_summary['config'] = args.__dict__
     if args.ejector is not None and type(args.ejector) != str:
         test_summary['config']['ejector'] = args.ejector.value
@@ -1067,6 +1040,30 @@ def main(args):
             width = args.width,
         )
 
+    tb = None
+    writer = None
+    write_graph = False
+
+    # Load previous tensorboard for multi-step training
+    if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
+        tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
+        s3.GetDir(s3def['sets']['test']['bucket'], tb_path, args.tensorboard_dir )
+    # Create tensorboard server and tensorboard writer
+    if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0):
+        os.makedirs(args.tensorboard_dir, exist_ok=True)
+
+        tb = program.TensorBoard()
+        tb.configure(('tensorboard', '--logdir', args.tensorboard_dir))
+        tb.flags.bind_all = True
+        tb.flags.port = args.tensorboard_port
+        url = tb.launch()
+        print(f"Tensorboard on {url}")
+        writer_path = '{}/{}'.format(args.tensorboard_dir, args.model_dest)
+        writer = SummaryWriter(writer_path)
+
+    if 'batches' not in results:
+        results['batches'] = 0
+
     # Train
     if args.prune:
         results = Prune(args, s3, s3def, class_dictionary, segment, device, results)
@@ -1075,25 +1072,25 @@ def main(args):
         if args.profile:
             with profile(
                     activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                    schedule=torch.profiler.schedule(skip_first=10, wait=3, warmup=2, active=5, repeat=1),
+                    schedule=torch.profiler.schedule(skip_first=3, wait=1, warmup=1, active=3, repeat=1),
                     on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
-                    record_shapes=True, profile_memory=True, with_stack=True
+                    record_shapes=True, profile_memory=True, with_stack=True, with_flops=False, with_modules=False
             ) as prof:
-                results = Train(args, s3, s3def, class_dictionary, segment, loaders, device, results, prof)
+                results = Train(args, s3, s3def, class_dictionary, segment, loaders, device, results, writer, prof)
         else:
-            results = Train(args, s3, s3def, class_dictionary, segment, loaders, device, results)
+            results = Train(args, s3, s3def, class_dictionary, segment, loaders, device, results, writer)
 
     if args.test:
         if args.profile:
             with profile(
                     activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                    schedule=torch.profiler.schedule(skip_first=10, wait=3, warmup=2, active=5, repeat=1),
+                    schedule=torch.profiler.schedule(skip_first=3, wait=1, warmup=1, active=3, repeat=0),
                     on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
-                    record_shapes=True, profile_memory=True, with_stack=True
+                    record_shapes=False, profile_memory=False, with_stack=True, with_flops=False, with_modules=True
             ) as prof:
-                results = Test(args, s3, s3def, class_dictionary, segment, loaders, device, results, prof)
+                results = Test(args, s3, s3def, class_dictionary, segment, loaders, device, results, writer, prof)
         else:
-            results = Test(args, s3, s3def, class_dictionary, segment, loaders, device, results)
+            results = Test(args, s3, s3def, class_dictionary, segment, loaders, device, results, writer)
 
     if args.onnx:
         onnx(segment, s3, s3def, args, class_dictionary)

@@ -294,7 +294,7 @@ workflow:
           ports:
             - name: debug
               containerPort: 3000
-              #hostPort: 3000
+              hostPort: 3000
             - name: tensorboard
               containerPort: 6006
               hostPort: 6006

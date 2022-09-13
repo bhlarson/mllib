@@ -1754,8 +1754,8 @@ def Test(args, s3, s3def, model, loaders, device, results, profile):
 
     test_summary['results'] = {
             'accuracy': args.batch_size*testloader['batches'],
-            'minimum time': np.min(inferTime),
-            'average time': dtSum/testloader['length'],
+            'minimum time': float(np.min(inferTime)),
+            'average time': float(dtSum/testloader['length']),
             'num images': testloader['length'],
         }
     test_summary['object store'] =s3def

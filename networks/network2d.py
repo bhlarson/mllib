@@ -844,8 +844,8 @@ def Test(args, s3, s3def, class_dictionary, model, loaders, device, results, wri
 
     if args.time_trial:
         test_results = {
-            'minimum time': np.min(inferTime),
-            'average time': dtSum/testloader['length'],
+            'minimum time': float(np.min(inferTime)),
+            'average time': float(dtSum/testloader['length']),
             'num images': testloader['length'],
         }
     else:

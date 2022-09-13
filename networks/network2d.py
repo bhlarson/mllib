@@ -363,29 +363,30 @@ def parse_arguments():
 
     parser.add_argument('-imStatistics', type=str2bool, default=False, help='Record individual image statistics')
 
-    parser.add_argument('-dataset', type=str, default='lit', choices=['coco', 'lit'], help='Dataset')
+    parser.add_argument('-dataset', type=str, default='coco', choices=['coco', 'lit'], help='Dataset')
 
     parser.add_argument('-lit_dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
     parser.add_argument('-lit_class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
     parser.add_argument('-coco_class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=20, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
-    parser.add_argument('-num_workers', type=int, default=8, help='Data loader workers')
+    parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='crisplit')
+    parser.add_argument('-model_src', type=str,  default=None)
     #parser.add_argument('-model_src', type=str,  default='crisplit_20220910_161625_hiocnn0_search_structure_00')
-    parser.add_argument('-model_src', type=str,  default='crisplit_20220909_061234_hiocnn0_search_structure_05')
+    #parser.add_argument('-model_src', type=str,  default='crisplit_20220909_061234_hiocnn0_search_structure_05')
     parser.add_argument('-model_dest', type=str, default=None)
     parser.add_argument('-tb_dest', type=str, default='crisplit_20220909_061234_hiocnn_tb_01')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
-    parser.add_argument('-height', type=int, default=1536, help='Batch image height')
-    parser.add_argument('-width', type=int, default=3072, help='Batch image width')
+    parser.add_argument('-height', type=int, default=512, help='Batch image height')
+    parser.add_argument('-width', type=int, default=480, help='Batch image width')
     parser.add_argument('-learning_rate', type=float, default=2.0e-4, help='Adam learning rate')
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
@@ -409,10 +410,10 @@ def parse_arguments():
     parser.add_argument('-ejector_full', type=float, default=5, help='Ejector full epoch')
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector max value')
     parser.add_argument('-ejector_exp', type=float, default=3.0, help='Ejector exponent')
-    parser.add_argument('-prune', type=str2bool, default=False)
-    parser.add_argument('-train', type=str2bool, default=False)
+    parser.add_argument('-prune', type=str2bool, default=True)
+    parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-test', type=str2bool, default=True)
-    parser.add_argument('-search_structure', type=str2bool, default=False)
+    parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-search_flops', type=str2bool, default=True)
     parser.add_argument('-profile', type=str2bool, default=True)
     parser.add_argument('-time_trial', type=str2bool, default=True)
@@ -437,6 +438,55 @@ def parse_arguments():
         args.minimum = args.min
 
     return args
+
+def ModelSize(model, results, class_dictionary):
+    device = torch.device("cpu")
+    if args.cuda:
+        device = torch.device("cuda")
+    input = torch.zeros((1, class_dictionary['input_channels'], args.height, args.width), device=device)
+
+    # flops, params = get_model_complexity_info(deepcopy(model), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+    #                                     print_per_layer_stat=True, verbose=False)
+    flops = FlopCountAnalysis(model, input)
+
+    parameters = count_parameters(model)
+    image_flops = flops.total()
+
+    print('parameters {} flops {}'.format(parameters, image_flops))
+
+    return parameters, image_flops
+
+def load(s3, s3def, args, class_dictionary, loaders, results):
+    model = None
+
+    if 'initial_parameters' not in results or args.model_src is None or args.model_src == '':
+        model = MakeNetwork(class_dictionary, args)
+        results['initial_parameters'] , results['initial_flops'] = ModelSize(model, results, class_dictionary)
+
+    print('load initial_parameters = {} initial_flops = {}'.format(results['initial_parameters'], results['initial_flops']))
+
+    if(args.model_src and args.model_src != ''):
+        modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
+
+        if modelObj is not None:
+            model = torch.load(io.BytesIO(modelObj))
+
+            results['model_parameters'] , results['model_flops'] = ModelSize(model, results, class_dictionary)
+
+            print('load model_parameters = {} model_flops = {}'.format(results['model_parameters'], results['model_flops']))
+        else:
+            print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
+            return model
+
+    return model, results
+
+def save(model, s3, s3def, args, loc=''):
+    out_buffer = io.BytesIO()
+    model.zero_grad(set_to_none=True)
+    #torch.save(model.state_dict(), out_buffer) # To save just state dictionary, need to determine pruned network from state dict
+    torch.save(model, out_buffer)
+    outname = '{}/{}/{}{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest,loc)
+    s3.PutObject(s3def['sets']['model']['bucket'], outname, out_buffer)
 
 def MakeNetwork(class_dictionary, args):
 
@@ -465,78 +515,9 @@ def MakeNetwork(class_dictionary, args):
 
     return network
 
-def load(s3, s3def, args, class_dictionary, results):
-    model = None
 
-    if 'initial_parameters' not in results or args.model_src is None or args.model_src == '':
-        model = MakeNetwork(class_dictionary, args)
-        results['initial_parameters'] = count_parameters(model)
-        # results['initial_flops'], params = get_model_complexity_info(deepcopy(model), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
-        #                                     print_per_layer_stat=True, verbose=False)
 
-        device = torch.device("cpu")
-        if args.cuda:
-            device = torch.device("cuda")
-        input = torch.zeros((1, class_dictionary['input_channels'], args.height, args.width), device=device)
-        flops = FlopCountAnalysis(model, input)
-        results['initial_flops'] = flops.total()
 
-    print('load initial_parameters = {} initial_flops = {}'.format(results['initial_parameters'], results['initial_flops']))
-
-    if(args.model_src and args.model_src != ''):
-        modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
-
-        if modelObj is not None:
-            model = torch.load(io.BytesIO(modelObj))
-            results['model_parameters'] = count_parameters(model)
-
-            device = torch.device("cpu")
-            if args.cuda:
-                device = torch.device("cuda")
-            input = torch.zeros((1, class_dictionary['input_channels'], args.height, args.width), device=device)
-            flops = FlopCountAnalysis(model, input)
-            results['model_flops'] = flops.total()
-
-            print('load model_parameters = {} model_flops = {}'.format(results['model_parameters'], results['model_flops']))
-        else:
-            print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
-            return model
-
-    return model, results
-
-def save(model, s3, s3def, args, loc=''):
-    out_buffer = io.BytesIO()
-    model.zero_grad(set_to_none=True)
-    #torch.save(model.state_dict(), out_buffer)
-    torch.save(model, out_buffer)
-    outname = '{}/{}/{}{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest,loc)
-    s3.PutObject(s3def['sets']['model']['bucket'], outname, out_buffer)
-
-def onnx(model, s3, s3def, args, class_dictionary):
-    import torch.onnx as torch_onnx
-
-    dummy_input = torch.randn(args.batch_size, class_dictionary['input_channels'], args.height, args.width, device='cuda')
-    input_names = ["image"]
-    output_names = ["segmentation"]
-    oudput_dir = '{}/{}'.format(args.test_dir,args.model_class)
-    output_filename = '{}/{}.onnx'.format(oudput_dir, args.model_dest)
-    dynamic_axes = {input_names[0] : {0 : 'batch_size'},    # variable length axes
-                            output_names[0] : {0 : 'batch_size'}}
-
-    os.makedirs(oudput_dir, exist_ok=True)
-    torch.onnx.export(model,               # model being run
-                dummy_input,                         # model input (or a tuple for multiple inputs)
-                output_filename,   # where to save the model (can be a file or file-like object)
-                export_params=True,        # store the trained parameter weights inside the model file
-                do_constant_folding=True,  # whether to execute constant folding for optimization
-                input_names = input_names,   # the model's input names
-                output_names = output_names, # the model's output names
-                dynamic_axes=dynamic_axes,
-                opset_version=11)
-
-    succeeded = s3.PutFile(s3def['sets']['model']['bucket'], output_filename, '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class) )
-    if succeeded:
-        os.remove(output_filename)
 
 def DisplayImgAn(image, label, segmentation, trainingset, mean, stdev):
     image = np.squeeze(image)
@@ -561,8 +542,6 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
         raise ValueError('{} {} failed to load trainloader {}'.format(__file__, __name__, args.dataset)) 
     if testloader is None:
         raise ValueError('{} {} failed to load testloader {}'.format(__file__, __name__, args.dataset))
-
-    dataset_bucket = s3def['sets']['dataset']['bucket']
 
     # Weight classes for training with heavy class inbalance
     if args.class_weight is not None:
@@ -618,7 +597,7 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
         if args.epochs > args.ejector_start and args.ejector_max > 0:
             ejector_exp =  Exponential(vx=args.ejector_start, vy=0, px=args.ejector_full, py=args.ejector_max, power=args.ejector_exp)
 
-
+    write_graph = False
     for epoch in tqdm(range(args.start_epoch, args.epochs), 
                         bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}', 
                         desc="Train epochs", disable=args.job):  # loop over the dataset multiple times
@@ -724,13 +703,18 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
                     writer.add_scalar('loss/test', loss, results['batches'])
                     writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, results['batches'])
 
-
                 running_loss /=test_freq
                 msg = '[{:3}/{}, {:6d}/{}]  loss: {:0.5e}|{:0.5e} cross-entropy loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test) step time: {:0.3f}'.format(
-                    epoch + 1, args.epochs, i + 1, trainloader['batches'], 
+                    epoch + 1, 
+                    args.epochs, 
+                    i + 1, 
+                    trainloader['batches'], 
                     running_loss, loss.item(),
-                    training_cross_entropy_loss.item(), cross_entropy_loss.item(), 
-                    architecture_reduction.item(), dtCycle)
+                    training_cross_entropy_loss.item(), 
+                    cross_entropy_loss.item(), 
+                    architecture_reduction.item(), 
+                    dtCycle
+                )
                 if args.job is True:
                     print(msg)
                 else:
@@ -805,15 +789,13 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
 
     return results
 
-def Test(args, s3, s3def, class_dictionary, segment, loaders, device, results, writer, profile=None):
+def Test(args, s3, s3def, class_dictionary, model, loaders, device, results, writer, profile=None):
+    torch.cuda.empty_cache()
     now = datetime.now()
     date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
     test_summary = {'date':date_time}
 
-    dataset_bucket = s3def['sets']['dataset']['bucket']
-
     testloader = next(filter(lambda d: d.get('set') == 'test', loaders), None)
-
     if testloader is None:
         raise ValueError('{} {} failed to load testloader {}'.format(__file__, __name__, args.dataset)) 
 
@@ -825,7 +807,7 @@ def Test(args, s3, s3def, class_dictionary, segment, loaders, device, results, w
 
     dsResults = DatasetResults(class_dictionary, args.batch_size, imStatistics=args.imStatistics, imgSave=outputdir)
     dtSum = 0.0
-
+    inferTime = []
     for i, data in tqdm(enumerate(testloader['dataloader']), 
                         total=testloader['batches'], 
                         desc="Test steps", 
@@ -836,13 +818,14 @@ def Test(args, s3, s3def, class_dictionary, segment, loaders, device, results, w
             images = images.cuda()
 
         initial = datetime.now()
-
-        outputs = segment(images)
-        segmentations = torch.argmax(outputs, 1)
+        with torch.no_grad():
+            outputs = model(images)
+            segmentations = torch.argmax(outputs, 1)
         dt = (datetime.now()-initial).total_seconds()
-        inferTime = dt/args.batch_size
-        tqdm.write('inferTime = {}'.format(inferTime))
-        writer.add_scalar('time/infer', dtInfer, results['batches'])
+        dtSum += dt
+        inferTime.append(dt/args.batch_size)
+        tqdm.write('inferTime = {}'.format(inferTime[-1]))
+        writer.add_scalar('test/infer', inferTime[-1], results['batches'])
 
         if args.time_trial:
             dtSum += dt
@@ -861,9 +844,10 @@ def Test(args, s3, s3def, class_dictionary, segment, loaders, device, results, w
 
     if args.time_trial:
         test_results = {
-                    'average time': dtSum/testloader['length'],
-                    'num images': testloader['length'],
-                    }
+            'minimum time': np.min(inferTime),
+            'average time': dtSum/testloader['length'],
+            'num images': testloader['length'],
+        }
     else:
         test_results = dsResults.Results()
 
@@ -890,46 +874,53 @@ def Test(args, s3, s3def, class_dictionary, segment, loaders, device, results, w
     results['test'] = test_summary['results']
     return results
 
-def Prune(args, s3, s3def, class_dictionary, segment, device, results):
-    device = torch.device("cpu")
-    if args.cuda:
-        device = torch.device("cuda")
-    input = torch.zeros((1, class_dictionary['input_channels'], args.height, args.width), device=device)
 
-    if not 'initial_parameters' in results:
-        full_model = MakeNetwork(class_dictionary, args)
-        results['initial_parameters'] = count_parameters(full_model)
-        # macs, params = get_model_complexity_info(full_model, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
-        #                                     print_per_layer_stat=False, verbose=False)
-
-        flops = FlopCountAnalysis(full_model, input)
-        results['initial_flops'] = flops.total()
-
+def Prune(args, s3, s3def, model, class_dictionary, results):
     initial_parameters = results['initial_parameters']
-    segment.ApplyStructure()
-    reduced_parameters = count_parameters(segment)
-    # model_copy = deepcopy(segment)
-    # macs, params = get_model_complexity_info(deepcopy(segment), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
-    #                                     print_per_layer_stat=True, verbose=False)
+    model.ApplyStructure()
+    reduced_parameters = count_parameters(model)
 
-    flops = FlopCountAnalysis(segment, input)
-    print('FlopCountAnalysis {} get_model_complexity_info flops {}'.format(flops.total(), results['initial_flops']))
+    results['parameters_after_prune'], results['flops_after_prune'] = ModelSize(model, results, class_dictionary)
 
-    results['flops_after_prune'] = flops.total()
-    results['parameters_after_prune'] = count_parameters(segment)
-
-    save(segment, s3, s3def, args)
+    save(model, s3, s3def, args)
     results['prune'] = {'final parameters':reduced_parameters, 
                         'initial parameters' : initial_parameters, 
                         'remaining ratio':reduced_parameters/initial_parameters, 
                         'final flops': results['flops_after_prune'], 
                         'initial flops': results['initial_flops'], 
                         'remaining flops':results['flops_after_prune']/results['initial_flops'] }
-    print('{} prune results {}'.format(args.model_dest, results['prune']))
+    print('{} prune results {}'.format(args.model_dest, yaml.dump(results['prune'], default_flow_style=False)))
+    
     return results
 
+def onnx(model, s3, s3def, args, input_channels):
+    import torch.onnx as torch_onnx
+
+    dummy_input = torch.randn(args.batch_size, input_channels, args.height, args.width, device='cuda')
+    input_names = ["image"]
+    output_names = ["segmentation"]
+    oudput_dir = '{}/{}'.format(args.test_dir,args.model_class)
+    output_filename = '{}/{}.onnx'.format(oudput_dir, args.model_dest)
+    dynamic_axes = {input_names[0] : {0 : 'batch_size'},    # variable length axes
+                            output_names[0] : {0 : 'batch_size'}}
+
+    os.makedirs(oudput_dir, exist_ok=True)
+    torch.onnx.export(model,               # model being run
+                dummy_input,                         # model input (or a tuple for multiple inputs)
+                output_filename,   # where to save the model (can be a file or file-like object)
+                export_params=True,        # store the trained parameter weights inside the model file
+                do_constant_folding=True,  # whether to execute constant folding for optimization
+                input_names = input_names,   # the model's input names
+                output_names = output_names, # the model's output names
+                dynamic_axes=dynamic_axes,
+                opset_version=11)
+
+    succeeded = s3.PutFile(s3def['sets']['model']['bucket'], output_filename, '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class) )
+    if succeeded:
+        os.remove(output_filename)
+
 def main(args): 
-    print('Network2D Test')
+    print('network2d test')
 
     results={}
     results['config'] = args.__dict__
@@ -943,8 +934,8 @@ def main(args):
         'pymlutil': str(pymlutil_version.__version__),
         'torchdatasetutil':str(torchdatasetutil_version.__version__),
     }
-    print('cell2d system={}'.format(yaml.dump(results['system'], default_flow_style=False) ))
-    print('cell2d config={}'.format(yaml.dump(results['config'], default_flow_style=False) ))
+    print('network2d system={}'.format(yaml.dump(results['system'], default_flow_style=False) ))
+    print('network2d config={}'.format(yaml.dump(results['config'], default_flow_style=False) ))
 
     #torch.autograd.set_detect_anomaly(True)
 
@@ -965,59 +956,6 @@ def main(args):
 
     if not class_dictionary:
         raise ValueError('{} {} unsupported dataset {}'.format(__file__, __name__, args.dataset))
-
-    # Load number of previous batches to continue tensorboard from previous training
-    prevresultspath = None
-    print('prevresultspath={}'.format(args.prevresultspath))
-    if args.prevresultspath and len(args.prevresultspath) > 0:
-        prevresults = ReadDict(args.prevresultspath)
-        if prevresults is not None:
-            if 'batches' in prevresults:
-                print('found prevresultspath={}'.format(prevresults))
-                results['batches'] = prevresults['batches']
-            if 'initial_parameters' in prevresults:
-                results['initial_parameters'] = prevresults['initial_parameters']
-                results['initial_flops'] = prevresults['initial_flops']
-
-    segment, results = load(s3, s3def, args, class_dictionary, results)
-
-    if not 'initial_parameters' in results:
-        full_model = MakeNetwork(class_dictionary, args)
-        results['initial_parameters'] = count_parameters(full_model)
-        # macs, params = get_model_complexity_info(full_model, (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
-        #                                     print_per_layer_stat=False, verbose=False)
-
-        input = torch.zeros((1, class_dictionary['input_channels'], args.height, args.width), device=device)
-        flops = FlopCountAnalysis(full_model, input)
-        print('FlopCountAnalysis {} get_model_complexity_info flops {}'.format(flops.total(), results['initial_flops']))
-
-        results['initial_flops'] = flops.total()
-
-    # Prune with loaded parameters than apply current search_structure setting
-    segment.ApplyParameters(weight_gain=args.weight_gain, 
-                            sigmoid_scale=args.sigmoid_scale,
-                            feature_threshold=args.feature_threshold,
-                            search_structure=args.search_structure, 
-                            convMaskThreshold=args.convMaskThreshold, 
-                            k_prune_sigma=args.k_prune_sigma,)
-
-    #specify device for model
-    segment.to(device)
-
-    # Enable multi-gpu processing
-    # if torch.cuda.device_count() > 1:
-    #     print("Let's use", torch.cuda.device_count(), "GPUs!")
-    #     # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-    #     model = nn.DataParallel(segment)
-    # else:
-    #     model = segment
-
-    # model_copy = deepcopy(segment)
-    # macs, params = get_model_complexity_info(deepcopy(segment), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
-    #                                     print_per_layer_stat=False, verbose=False)
-    # results['initial_flops'] = macs
-    # print('{:<30}  {:<8}'.format('FLOPS: ', results['initial_flops'] ))
-    # print('{:<30}  {:<8}'.format('Number of parameters: ', params))
 
     dataset_bucket = s3def['sets']['dataset']['bucket']
     if args.dataset=='coco':
@@ -1040,9 +978,48 @@ def main(args):
             width = args.width,
         )
 
+    # Load number of previous batches to continue tensorboard from previous training
+    prevresultspath = None
+    print('prevresultspath={}'.format(args.prevresultspath))
+    if args.prevresultspath and len(args.prevresultspath) > 0:
+        prevresults = ReadDict(args.prevresultspath)
+        if prevresults is not None:
+            if 'batches' in prevresults:
+                print('found prevresultspath={}'.format(prevresults))
+                results['batches'] = prevresults['batches']
+            if 'initial_parameters' in prevresults:
+                results['initial_parameters'] = prevresults['initial_parameters']
+                results['initial_flops'] = prevresults['initial_flops']
+
+    segment, results = load(s3, s3def, args, class_dictionary, loaders, results)
+
+    # Prune with loaded parameters than apply current search_structure setting
+    segment.ApplyParameters(weight_gain=args.weight_gain, 
+                            sigmoid_scale=args.sigmoid_scale,
+                            feature_threshold=args.feature_threshold,
+                            search_structure=args.search_structure, 
+                            convMaskThreshold=args.convMaskThreshold, 
+                            k_prune_sigma=args.k_prune_sigma,)
+
+
+    # Enable multi-gpu processing
+    # if torch.cuda.device_count() > 1:
+    #     print("Let's use", torch.cuda.device_count(), "GPUs!")
+    #     # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+    #     model = nn.DataParallel(segment)
+    # else:
+    #     model = segment
+
+    # model_copy = deepcopy(segment)
+    # macs, params = get_model_complexity_info(deepcopy(segment), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+    #                                     print_per_layer_stat=False, verbose=False)
+    # results['initial_flops'] = macs
+    # print('{:<30}  {:<8}'.format('FLOPS: ', results['initial_flops'] ))
+    # print('{:<30}  {:<8}'.format('Number of parameters: ', params))
+
+
     tb = None
     writer = None
-    write_graph = False
 
     # Load previous tensorboard for multi-step training
     if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
@@ -1066,7 +1043,7 @@ def main(args):
 
     # Train
     if args.prune:
-        results = Prune(args, s3, s3def, class_dictionary, segment, device, results)
+        results = Prune(args, s3, s3def, segment, class_dictionary, results)
 
     if args.train:
         if args.profile:
@@ -1093,12 +1070,12 @@ def main(args):
             results = Test(args, s3, s3def, class_dictionary, segment, loaders, device, results, writer)
 
     if args.onnx:
-        onnx(segment, s3, s3def, args, class_dictionary)
+        onnx(segment, s3, s3def, args, class_dictionary['input_channels'])
 
     if args.resultspath is not None and len(args.resultspath) > 0:
         WriteDict(results, args.resultspath)
 
-    print('Finished {}'.format(args.model_dest, json.dumps(results, indent=2)))
+    print('Finished {}'.format(args.model_dest, yaml.dump(results, default_flow_style=False) ))
     print(json.dumps(results, indent=2))
     return 0
 

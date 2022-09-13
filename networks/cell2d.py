@@ -1029,11 +1029,13 @@ def parse_arguments():
     import argparse
     parser = argparse.ArgumentParser(description='Process arguments')
 
-    parser.add_argument('-d', '--debug', action='store_true',help='Wait for debuggee attach')   
+    parser.add_argument('-d', action='store_true',help='Wait for debuggee attach')   
+    parser.add_argument('-debug', type=str2bool, default=False, help='Wait for debuggee attach')   
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
-    parser.add_argument('-fast', action='store_true', help='Fast run with a few iterations')
-    parser.add_argument('-description', type=str, default="", help='Training description to record with resuts')
+    parser.add_argument('-min', action='store_true', help='Minimum run with a few iterations to test execution')
+    parser.add_argument('-minimum', type=str2bool, default=False, help='Minimum run with a few iterations to test execution')
+
     parser.add_argument('-credentails', type=str, default='creds.yaml', help='Credentials file.')
 
     parser.add_argument('-prune', type=str2bool, default=False)
@@ -1046,6 +1048,7 @@ def parse_arguments():
     parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152, 20, 32, 44, 56, 110], default=56, help='Run description')
 
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
+    parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model', type=str, default='model')
 
     parser.add_argument('-epochs', type=int, default=500, help='Training epochs')
@@ -1082,21 +1085,94 @@ def parse_arguments():
     parser.add_argument('-augment_translate_y', type=float, default=0.125, help='Input augmentation translation')
     parser.add_argument('-augment_noise', type=float, default=0.1, help='Augment image noise')
 
-    parser.add_argument('-resultspath', type=str, default=None)
+    parser.add_argument('-resultspath', type=str, default='results.yaml')
+    parser.add_argument('-prevresultspath', type=str, default=None)
     parser.add_argument('-test_dir', type=str, default=None)
     parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
 
-
+    parser.add_argument('-description', type=json.loads, default='{"description":"CRISP classificaiton"}', help='Test description')
 
     args = parser.parse_args()
+
+    if args.d:
+        args.debug = args.d
+    if args.min:
+        args.minimum = args.min
+
     return args
 
-def save(model, s3, s3def, args):
+def ModelSize(model, results, loaders):
+
+    testloader = next(filter(lambda d: d.get('set') == 'test', loaders), None)
+    if testloader is None:
+        raise ValueError('{} {} failed to load testloader {}'.format(__file__, __name__, args.dataset))
+
+    iTest = iter(testloader['dataloader'])
+    data = next(iTest)
+    inputs, labels = data
+
+    # flops, params = get_model_complexity_info(deepcopy(model), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+    #                                     print_per_layer_stat=True, verbose=False)
+    flops = FlopCountAnalysis(model, input)
+    print('FlopCountAnalysis {} get_model_complexity_info flops {}'.format(flops.total(), results['initial_flops']))
+
+    parameters = count_parameters(model)
+    image_flops = flops.total()/inputs.shape(0)
+ 
+    return parameters, image_flops
+
+def load(s3, s3def, args, loaders, results):
+    model = None
+
+    if 'initial_parameters' not in results or args.model_src is None or args.model_src == '':
+        model = MakeNetwork(args)
+        results['initial_parameters'] , results['initial_flops'] = ModelSize(model, results, loaders)
+
+    print('load initial_parameters = {} initial_flops = {}'.format(results['initial_parameters'], results['initial_flops']))
+
+    if(args.model_src and args.model_src != ''):
+        modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
+
+        if modelObj is not None:
+            model = torch.load(io.BytesIO(modelObj))
+
+            results['model_parameters'] , results['model_flops'] = ModelSize(model, results, loaders)
+
+            print('load model_parameters = {} model_flops = {}'.format(results['model_parameters'], results['model_flops']))
+        else:
+            print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
+            return model
+
+    return model, results
+
+def save(model, s3, s3def, args, loc=''):
     out_buffer = io.BytesIO()
     model.zero_grad(set_to_none=True)
+    #torch.save(model.state_dict(), out_buffer) # To save just state dictionary, need to determine pruned network from state dict
     torch.save(model, out_buffer)
-    s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), out_buffer)
+    outname = '{}/{}/{}{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest,loc)
+    s3.PutObject(s3def['sets']['model']['bucket'], outname, out_buffer)
+
+def MakeNetwork(args):
+    resnetCells = ResnetCells(Resnet(args.resnet_len))
+
+    device = torch.device("cpu")
+    if args.cuda:
+        device = torch.device("cuda")
+    network = Classify(convolutions=resnetCells, 
+                        device=device, 
+                        weight_gain=args.weight_gain, 
+                        dropout_rate=args.dropout_rate, 
+                        search_structure=args.search_structure, 
+                        sigmoid_scale=args.sigmoid_scale,
+                        batch_norm = args.batch_norm,
+                        feature_threshold = args.feature_threshold
+                        )
+
+    network.to(device)
+    return network
+
 
 class PlotSearch():
     def __init__(self, title = 'Architecture Weights', colormapname = 'jet', lenght = 5, dpi=1200, thickness=1 ):
@@ -1323,7 +1399,6 @@ class PlotGradients():
 
 
 
-
 class AddGaussianNoise(object):
     def __init__(self, mean=0., std=1.):
         self.std = std
@@ -1335,176 +1410,194 @@ class AddGaussianNoise(object):
     def __repr__(self):
         return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
 
-# Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
-def Test(args):
-    import torchvision
-    import torchvision.transforms as transforms
+default_loaders = [{'set':'train', 'enable_transform':True},
+                   {'set':'test', 'enable_transform':False}]
 
-    test_results={}
-    test_results['system'] = {
-        'platform':platform.platform(),
-        'python':platform.python_version(),
-        'numpy': np.__version__,
-        'torch': torch.__version__,
-        'OpenCV': cv2.__version__,
-    }
-    print('Cell Test system={}'.format(test_results['system'] ))
+def CreateCifar10Loaders(dataset_path, batch_size = 2,  
+                      num_workers=0, cuda = True, loaders = default_loaders, 
+                      rotate=3, scale_min=0.75, scale_max=1.25, offset=0.1):
 
-    test_results['args'] = {}
-    for arg in vars(args):
-        #log_param(arg, getattr(args, arg))
-        test_results['args'][arg]=getattr(args, arg)
+    Cifar10Classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
-    print('arguments={}'.format(test_results['args']))
-
-    torch.autograd.set_detect_anomaly(True)
-
-    s3, creds, s3def = Connect(args.credentails)
-
-    test_results['classes'] = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
-
-    if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0):
-        os.makedirs(args.tensorboard_dir, exist_ok=True)
-    writer = SummaryWriter(args.tensorboard_dir)
-
-    device = "cpu"
     pin_memory = False
-    if args.cuda:
-        device = torch.device('cuda')
+    if cuda:
         pin_memory = True
 
-    # Load dataset
-    train_transform = transforms.Compose([transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomAffine(degrees=args.augment_rotation, 
-            translate=(args.augment_translate_x, args.augment_translate_y), 
-            scale=(args.augment_scale_min, args.augment_scale_max), 
-            interpolation=transforms.InterpolationMode.BILINEAR),
-        transforms.ToTensor(), 
-        transforms.Normalize((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), # Imagenet mean and standard deviation
-        AddGaussianNoise(0., args.augment_noise)
-    ])
-
-    test_transform = transforms.Compose([transforms.ToTensor(), 
-        transforms.Normalize((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)) # Imagenet mean and standard deviation
-    ])
-
-    trainingset = torchvision.datasets.CIFAR10(root=args.dataset_path, train=True, download=True, transform=train_transform)
-    train_batches=int(trainingset.__len__()/args.batch_size)
-    trainloader = torch.utils.data.DataLoader(trainingset, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=pin_memory)
-
-    testset = torchvision.datasets.CIFAR10(root=args.dataset_path, train=False, download=True, transform=test_transform)
-    test_batches=int(testset.__len__()/args.batch_size)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
-    test_freq = int(math.ceil(train_batches/test_batches))
-
-    # Load dataset
-    device = torch.device("cpu")
-    pin_memory = False
-    if args.cuda:
-        device = torch.device("cuda")
-        pin_memory = True
-        
-    # Create classifiers
-    # Create Default classifier
-    resnetCells = ResnetCells(Resnet(args.resnet_len))
-    classify = Classify(convolutions=resnetCells, 
-                        device=device, 
-                        weight_gain=args.weight_gain, 
-                        dropout_rate=args.dropout_rate, 
-                        search_structure=args.search_structure, 
-                        sigmoid_scale=args.sigmoid_scale,
-                        batch_norm = args.batch_norm,
-                        feature_threshold = args.feature_threshold
-                        )
-
-    total_parameters = count_parameters(classify)
-
-    if(args.model_src and args.model_src != ''):
-        #modeldict = s3.GetDict(s3def['sets']['model']['bucket'], '{}/{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
-        modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
-
-        if modelObj is not None:
-            classify = torch.load(io.BytesIO(modelObj))
-            #classify.load_state_dict(saved_model.model.state_dict())
+    for i, loader in enumerate(loaders):
+        if loader['enable_transform']:
+            transform = transforms.Compose([transforms.RandomHorizontalFlip(p=0.5),
+                transforms.RandomAffine(degrees=rotate,
+                    translate=(offset, offset), 
+                    scale=(scale_min, scale_max), 
+                    interpolation=transforms.InterpolationMode.BILINEAR),
+                transforms.ToTensor(),
+                transforms.Normalize((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), # Imagenet mean and standard deviation
+                AddGaussianNoise(0., args.augment_noise)
+            ])
         else:
-            print('Failed to load model {}. Exiting.'.format(args.model_src))
-            return -1
+            transform = transforms.Compose([transforms.ToTensor(), 
+                    transforms.Normalize((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)) # Imagenet mean and standard deviation
+                ])
 
-    if args.prune:
-        classify.ApplyStructure()
-        reduced_parameters = count_parameters(classify)
-        print('Reduced parameters {}/{} = {}'.format(reduced_parameters, total_parameters, reduced_parameters/total_parameters))
-        save(classify, s3, s3def, args)
+        dataset = torchvision.datasets.CIFAR10(root=dataset_path, train=loader['set']=='train', download=True, transform=transform)
+        # Creating PT data samplers and loaders:
+        loader['width']=32
+        loader['height']=32
+        loader['in_channels']=3
+        loader['num_classes']=len(Cifar10Classes)
+        loader['classes']=Cifar10Classes
+        loader['batches'] =int(len(dataset)/batch_size)
+        loader['length'] = loader['batches']*batch_size
+        loader['dataloader'] = torch.utils.data.DataLoader(dataset=dataset, 
+                                                    batch_size=batch_size,
+                                                    num_workers=num_workers, 
+                                                    pin_memory=pin_memory)
+    return loaders
 
-    # Enable multi-gpu processing
-    if torch.cuda.device_count() > 1:
-        print("Let's use", torch.cuda.device_count(), "GPUs!")
-        # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-        model = nn.DataParallel(classify)
-        classify = model.module
-    else:
-        model = classify
+def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None):
 
-    #specificy device for model
-    classify.to(device)
+    trainloader = next(filter(lambda d: d.get('set') == 'train', loaders), None)
+    testloader = next(filter(lambda d: d.get('set') == 'test', loaders), None)
 
+    if trainloader is None:
+        raise ValueError('{} {} failed to load trainloader {}'.format(__file__, __name__, args.dataset)) 
+    if testloader is None:
+        raise ValueError('{} {} failed to load testloader {}'.format(__file__, __name__, args.dataset))
 
 
     # Define a Loss function and optimizer
-    target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32)
-    criterion = TotalLoss(args.cuda, k_structure=args.k_structure, target_structure=target_structure, search_structure=args.search_structure)
-    optimizer = optim.SGD(classify.parameters(), lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay )
-    #optimizer = optim.Adam(classify.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay )
+    target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32, device=device)
+
+    if args.search_flops:
+        total_weights= results['initial_flops'] 
+    else:
+        total_weights= results['initial_parameters'] 
+    loss_fcn = TotalLoss(args.cuda,
+                            k_accuracy=args.k_accuracy,
+                            k_structure=args.k_structure, 
+                            target_structure=target_structure, 
+                            search_structure=args.search_structure, 
+                            k_prune_basis=args.k_prune_basis, 
+                            k_prune_exp=args.k_prune_exp,
+                            sigmoid_scale=args.sigmoid_scale,
+                            ejector=args.ejector,
+                            total_weights= total_weights,
+                            )
+
+    optimizer = optim.SGD(model.parameters(), lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay )
+    #optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay )
     plotsearch = PlotSearch()
     plotgrads = PlotGradients()
     #scheduler1 = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.999)
     scheduler2 = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.rate_schedule, gamma=args.learning_rate_decay)
-    iSample = 0
+
+    test_freq = args.test_sparsity*int(math.ceil(trainloader['batches']/testloader['batches']))
+    tstart = None
 
     # Train
-    test_results['train'] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'architecture_reduction':[]}
-    test_results['test'] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'architecture_reduction':[], 'accuracy':[]}
-    if args.train:
-        for epoch in tqdm(range(args.epochs), desc="Train epochs", disable=args.job):  # loop over the dataset multiple times
-            iTest = iter(testloader)
+    results['train'] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'architecture_reduction':[]}
+    results['test'] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'architecture_reduction':[], 'accuracy':[]}
+    # Set up fence sitter ejectors
+    ejector_exp = None
+    if args.ejector == FenceSitterEjectors.dais or args.ejector == FenceSitterEjectors.dais.value:
+        writer.add_scalar('CRISP/sigmoid_scale', args.sigmoid_scale, results['batches'])
+        if args.epochs > args.ejector_start and args.ejector_max > args.sigmoid_scale:
+            ejector_exp =  Exponential(vx=args.ejector_start, vy=args.sigmoid_scale, px=args.ejector_full, py=args.ejector_max, power=args.ejector_exp)
 
-            running_loss = 0.0
-            for i, data in tqdm(enumerate(trainloader), total=trainingset.__len__()/args.batch_size, desc="Train steps", disable=args.job):
-                # get the inputs; data is a list of [inputs, labels]
-                inputs, labels = data
+    elif args.ejector == FenceSitterEjectors.prune_basis or args.ejector == FenceSitterEjectors.prune_basis.value:
+        #writer.add_scalar('CRISP/k_prune_basis', args.k_prune_basis, results['batches'])
+        if args.epochs > args.ejector_start and args.ejector_max > 0:
+            ejector_exp =  Exponential(vx=args.ejector_start, vy=0, px=args.ejector_full, py=args.ejector_max, power=args.ejector_exp)
 
-                if args.cuda:
-                    inputs = inputs.cuda()
-                    labels = labels.cuda()
+    write_graph = False
+    for epoch in tqdm(range(args.start_epoch, args.epochs), 
+                        bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}', 
+                        desc="Train epochs", disable=args.job):  # loop over the dataset multiple times
+        iTest = iter(testloader['dataloader'])
 
-                # zero the parameter gradients
-                optimizer.zero_grad()
-                outputs = model(inputs, isTraining=True)
-                loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale  = criterion(outputs, labels, classify)
+        if ejector_exp is not None:
+            if (args.ejector == FenceSitterEjectors.dais or args.ejector == FenceSitterEjectors.dais.value):
+                sigmoid_scale = ejector_exp.f(float(epoch)).item()
+                model.ApplyParameters(sigmoid_scale=sigmoid_scale, k_prune_sigma=args.k_prune_sigma)
+                writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
+            elif args.ejector == FenceSitterEjectors.prune_basis or args.ejector == FenceSitterEjectors.prune_basis.value:
+                loss_fcn.k_prune_basis = args.k_prune_basis*ejector_exp.f(float(epoch)).item()
+            #writer.add_scalar('CRISP/k_prune_basis', loss_fcn.k_prune_basis, results['batches'])
 
-                loss.backward()
-                optimizer.step()
+        running_loss = 0.0
+        for i, data in tqdm(enumerate(trainloader['dataloader']), 
+                            bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}', 
+                            total=trainloader['batches'], desc="Train batches", disable=args.job):
 
-                # print statistics
-                running_loss += loss.item()
+            # get the inputs; data is a list of [inputs, labels]
+            prevtstart = tstart
+            tstart = time.perf_counter()
 
+            inputs, labels = data
+
+            if args.cuda:
+                inputs = inputs.cuda()
+                labels = labels.cuda()
+
+            if not write_graph:
+                writer.add_graph(model, inputs)
+                write_graph = True
+
+            # zero the parameter gradients
+            optimizer.zero_grad(set_to_none=True)
+            outputs = model(inputs, isTraining=True)
+            tinfer = time.perf_counter()
+            loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale  = criterion(outputs, labels, model)
+            tloss = time.perf_counter()
+            loss.backward()
+            optimizer.step()
+            tend = time.perf_counter()
+
+            dtInfer = tinfer - tstart
+            dtLoss = tloss - tinfer
+            dtBackprop = tend - tloss
+            dtCompute = tend - tstart
+
+            dtCycle = 0
+            if prevtstart is not None:
+                dtCycle = tstart - prevtstart
+
+            # print statistics
+            running_loss += loss.item()
+            training_cross_entropy_loss = cross_entropy_loss
+
+            if writer is not None:
+                writer.add_scalar('loss/train', loss, results['batches'])
+                writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, results['batches'])
+                writer.add_scalar('accuracy/train', training_accuracy, results['batches'])
+                writer.add_scalar('accuracy/test', test_accuracy, results['batches'])
+                writer.add_scalar('time/infer', dtInfer, results['batches'])
+                writer.add_scalar('time/loss', dtLoss, results['batches'])
+                writer.add_scalar('time/backpropegation', dtBackprop, results['batches'])
+                writer.add_scalar('time/compute', dtCompute, results['batches'])
+                writer.add_scalar('time/cycle', dtCycle, results['batches'])
+                writer.add_scalar('CRISP/architecture_loss', architecture_loss, results['batches'])
+                writer.add_scalar('CRISP/prune_loss', prune_loss, results['batches'])
+                writer.add_scalar('CRISP/architecture_reduction', architecture_reduction, results['batches'])
+                #writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
+
+            if i % test_freq == test_freq-1:    # Save image and run test
                 if writer is not None:
-                    writer.add_scalar('loss/train', loss, iSample)
-                    writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, iSample)
-                    writer.add_scalar('CRISP/architecture_loss', architecture_loss, iSample)
-                    writer.add_scalar('CRISP/prune_loss', prune_loss, iSample)
-                    writer.add_scalar('CRISP/architecture_reduction', architecture_reduction, iSample)
-                #test_results['train']['loss'].append(loss.item())
-                #test_results['train']['cross_entropy_loss'].append(cross_entropy_loss.item())
-                #test_results['train']['architecture_loss'].append(architecture_loss.item())
-                #test_results['train']['architecture_reduction'].append(architecture_reduction.item())
+                    imprune_weights = plotsearch.plot(cell_weights)
+                    if imprune_weights.size > 0:
+                        im_class_weights = cv2.cvtColor(imprune_weights, cv2.COLOR_BGR2RGB)
+                        writer.add_image('network/prune_weights', im_class_weights, 0,dataformats='HWC')
 
-                if i % test_freq == test_freq-1:    # Save image and run test
+                    imgrad = plotgrads.plot(model)
+                    if imgrad.size > 0:
+                        im_grad_norm = cv2.cvtColor(imgrad, cv2.COLOR_BGR2RGB)
+                        writer.add_image('network/gradient_norm', im_grad_norm, 0,dataformats='HWC')
 
-                    classifications = torch.argmax(outputs, 1)
-                    results = (classifications == labels).float()
-                    training_accuracy = torch.sum(results)/len(results)
 
+                classifications = torch.argmax(outputs, 1)
+                top1_correct = (classifications == labels).float()
+                training_accuracy = torch.sum(top1_correct)/len(top1_correct)
+                with torch.no_grad():
                     data = next(iTest)
                     inputs, labels = data
 
@@ -1512,117 +1605,359 @@ def Test(args):
                         inputs = inputs.cuda()
                         labels = labels.cuda()
 
-                    #optimizer.zero_grad()
-                    outputs = model(inputs)
-                    classifications = torch.argmax(outputs, 1)
-                    results = (classifications == labels).float()
-                    test_accuracy = torch.sum(results)/len(results)
+                #with torch.cuda.amp.autocast():
+                outputs = model(inputs)
+                loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale = loss_fcn(outputs, labels, model)
+                classifications = torch.argmax(outputs, 1)
+                top1_correct = (classifications == labels).float()
+                test_accuracy = torch.sum(top1_correct)/len(top1_correct)
 
-                    loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale  = criterion(outputs, labels, classify)
+                if writer is not None:
+                    writer.add_scalar('loss/test', loss, results['batches'])
+                    writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, results['batches'])
+                    writer.add_scalar('accuracy/test', test_accuracy, results['batches'])
 
-                    running_loss /=test_freq
-                    msg = '[{:3}/{}, {:6d}/{}]  accuracy: {:05f}|{:05f} loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test)'.format(
-                        epoch + 1,
-                        args.epochs, 
-                        i + 1, 
-                        trainingset.__len__()/args.batch_size, 
-                        training_accuracy.item(), 
-                        test_accuracy.item(), 
-                        running_loss, 
-                        loss.item(), 
-                        architecture_reduction.item()
-                    )
-                    if args.job is True:
-                        print(msg)
-                    else:
-                        tqdm.write(msg)
-                    running_loss = 0.0
+                running_loss /=test_freq
+                msg = '[{:3}/{}, {:6d}/{}]  loss: {:0.5e}|{:0.5e} cross-entropy loss: {:0.5e}|{:0.5e} accuracy: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test) step time: {:0.3f}'.format(
+                    epoch + 1,
+                    args.epochs, 
+                    i + 1, 
+                    trainloader['batches'],
+                    running_loss, loss.item(),
+                    training_cross_entropy_loss.item(), 
+                    cross_entropy_loss.item(), 
+                    training_accuracy.item(), 
+                    test_accuracy.item(), 
+                    architecture_reduction.item(), 
+                    dtCycle
+                )
+                if args.job is True:
+                    print(msg)
+                else:
+                    tqdm.write(msg)
+                running_loss = 0.0
 
-                    if writer is not None:
-                        writer.add_scalar('accuracy/train', training_accuracy, iSample)
-                        writer.add_scalar('accuracy/test', test_accuracy, iSample)
-                        writer.add_scalar('loss/test', loss, iSample)
-                        writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, iSample)
-                        writer.add_scalar('CRISP/architecture_loss', architecture_loss, iSample)
-                        writer.add_scalar('CRISP/prune_loss', prune_loss, iSample)
-                        writer.add_scalar('CRISP/architecture_reduction', architecture_reduction, iSample)
+            iSave = 1000
+            if i % iSave == iSave-1:    # print every iSave mini-batches
+                img = plotsearch.plot(cell_weights)
+                if img.size > 0:
+                    is_success, buffer = cv2.imencode(".png", img, compression_params)
+                    img_enc = io.BytesIO(buffer).read()
+                    filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                    s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+                imgrad = plotgrads.plot(model)
+                if imgrad.size > 0:
+                    is_success, buffer = cv2.imencode(".png", imgrad)  
+                    img_enc = io.BytesIO(buffer).read()
+                    filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                    s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+                    # Save calls zero_grads so call it after plotgrads.plot
 
-                    #test_results['train']['loss'].append(running_loss)
-                    #test_results['test']['loss'].append(loss)
-                    #test_results['test']['cross_entropy_loss'].append(cross_entropy_loss.item())
-                    #test_results['test']['architecture_loss'].append(architecture_loss.item())
-                    #test_results['test']['architecture_reduction'].append(architecture_reduction.item())
-                    #test_results['test']['accuracy'].append(test_accuracy.item())
+                save(model, s3, s3def, args)
 
-                    #log_metric("accuracy", test_accuracy.item())
+            if args.minimum and i+1 >= test_freq:
+                break
 
-                #iSave = 2000
-                #if i % iSave == iSave-1:    # print every iSave mini-batches
-                #    save(classify, s3, s3def, args)
+            if profile is not None:
+                profile.step()
+            results['batches'] += 1
 
-                if args.fast and i+1 >= test_freq:
-                    break
+            if args.minimum and i >= test_freq:
+                break
 
-                iSample += 1
 
-            cv2.imwrite('class_weights.png', plotsearch.plot(cell_weights))
-            cv2.imwrite('gradient_norm.png', plotgrads.plot(classify))
+        #scheduler1.step()
+        scheduler2.step()
 
-            #scheduler1.step()
-            scheduler2.step()
-            compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
-            img = plotsearch.plot(cell_weights)
+        img = plotsearch.plot(cell_weights)
+        if img.size > 0:
             is_success, buffer = cv2.imencode(".png", img, compression_params)
             img_enc = io.BytesIO(buffer).read()
             filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
             s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
 
-            # Plot gradients before saving which clears the gradients
-            img = plotgrads.plot(classify)
-            is_success, buffer = cv2.imencode(".png", img)  
+        # Plot gradients before saving which clears the gradients
+        imgrad = plotgrads.plot(model)
+        if imgrad.size > 0:
+            is_success, buffer = cv2.imencode(".png", imgrad)  
             img_enc = io.BytesIO(buffer).read()
             filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
             s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
 
-            save(classify, s3, s3def, args)
+        save(model, s3, s3def, args)
 
-        torch.cuda.empty_cache()
-        accuracy = 0.0
-        iTest = iter(testloader)
-        for i, data in tqdm(enumerate(testloader), total=testset.__len__()/args.batch_size, desc="Test steps"):
-            inputs, labels = data
+        if args.minimum:
+            break
 
-            if args.cuda:
-                inputs = inputs.cuda()
-                labels = labels.cuda()
+        print('{} training complete'.format(args.model_dest))
+        results['training'] = {}
+        if cross_entropy_loss: results['training']['cross_entropy_loss']=cross_entropy_loss.item()
+        if architecture_loss: results['training']['architecture_loss']=architecture_loss.item()
+        if prune_loss: results['training']['prune_loss']=prune_loss.item()
+        if architecture_reduction: results['training']['architecture_reduction']=architecture_reduction.item()
+        if training_accuracy: results['training']['accuracy'] =  training_accuracy.item()
 
-            # zero the parameter gradients
-            with torch.no_grad():
-                outputs = classify(inputs)
+        if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
+            tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
+            s3.PutDir(s3def['sets']['test']['bucket'], args.tensorboard_dir, tb_path )
+
+    return results
+
+def Test(args, s3, s3def, model, loaders, device, results, profile):
+    torch.cuda.empty_cache()
+    now = datetime.now()
+    date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
+    test_summary = {'date':date_time}
+
+    testloader = next(filter(lambda d: d.get('set') == 'test', loaders), None)
+    if testloader is None:
+        raise ValueError('{} {} failed to load testloader {}'.format(__file__, __name__, args.dataset)) 
+
+    if args.test_dir is not None:
+        outputdir = '{}/{}'.format(args.test_dir,args.model_class)
+        os.makedirs(outputdir, exist_ok=True)
+    else:
+        outputdir = None
+
+    accuracy = 0.0
+    dtSum = 0.0
+    inferTime = []
+    for i, data in tqdm(enumerate(testloader['dataloader']), 
+                        total=testloader['batches'], 
+                        desc="Test steps", 
+                        disable=args.job, 
+                        bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}'):
+        inputs, labels = data
+
+        if args.cuda:
+            inputs = inputs.cuda()
+            labels = labels.cuda()
+
+        initial = datetime.now()
+        with torch.no_grad():
+            outputs = model(inputs)
 
             classifications = torch.argmax(outputs, 1)
-            results = (classifications == labels).float()
-            accuracy += torch.sum(results).item()
+        dt = (datetime.now()-initial).total_seconds()
+        dtSum += dt
+        inferTime.append(dt/args.batch_size)
+        tqdm.write('inferTime = {}'.format(inferTime[-1]))
+        writer.add_scalar('test/infer', inferTime[-1], results['batches'])
+        top1_correct = (classifications == labels).float()
+        accuracy += torch.sum(top1_correct).item()
 
-        accuracy /= args.batch_size*int(testset.__len__()/args.batch_size)
-        #log_metric("test_accuracy", accuracy)
-        print("test_accuracy={}".format(accuracy))
-        test_results['test_accuracy'] = accuracy
-        test_results['current_weights'], test_results['original_weights'], test_results['remnent'] = classify.Parameters()
+        if args.minimum and i+1 >= 10:
+            break
 
-        s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}/{}_results.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), test_results)
+        if profile is not None:
+            profile.step()
+
+    test_summary['results'] = {
+            'accuracy': args.batch_size*testloader['batches'],
+            'minimum time': np.min(inferTime),
+            'average time': dtSum/testloader['length'],
+            'num images': testloader['length'],
+        }
+    test_summary['object store'] =s3def
+    test_summary['config'] = args.__dict__
+    if args.ejector is not None and type(args.ejector) != str:
+        test_summary['config']['ejector'] = args.ejector.value
+    test_summary['system'] = results['system']
+    test_summary['training_results'] = results
+
+    # If there is a way to lock this object between read and write, it would prevent the possability of loosing data
+    test_path = '{}/{}/{}'.format(s3def['sets']['test']['prefix'], args.model_type, args.test_results)
+    training_data = s3.GetDict(s3def['sets']['test']['bucket'], test_path)
+    if training_data is None or type(training_data) is not list:
+        training_data = []
+    training_data.append(test_summary)
+    s3.PutDict(s3def['sets']['test']['bucket'], test_path, training_data)
+
+    test_url = s3.GetUrl(s3def['sets']['test']['bucket'], test_path)
+    print("Test results {}".format(test_url))
+
+    results['test'] = test_summary['results']
+    return results
+
+
+def Prune(args, s3, s3def, model, loaders, results):
+    initial_parameters = results['initial_parameters']
+    model.ApplyStructure()
+    reduced_parameters = count_parameters(model)
+
+    results['parameters_after_prune'], results['flops_after_prune'] = ModelSize(model, results, loaders)
+
+    save(model, s3, s3def, args)
+    results['prune'] = {'final parameters':reduced_parameters, 
+                        'initial parameters' : initial_parameters, 
+                        'remaining ratio':reduced_parameters/initial_parameters, 
+                        'final flops': results['flops_after_prune'], 
+                        'initial flops': results['initial_flops'], 
+                        'remaining flops':results['flops_after_prune']/results['initial_flops'] }
+    print('{} prune results {}'.format(args.model_dest, yaml.dump(results['prune'], default_flow_style=False)))
+
+    return results
+
+def onnx(model, s3, s3def, args, input_channels):
+    import torch.onnx as torch_onnx
+
+    dummy_input = torch.randn(args.batch_size, input_channels, args.height, args.width, device='cuda')
+    input_names = ["image"]
+    output_names = ["segmentation"]
+    oudput_dir = '{}/{}'.format(args.test_dir,args.model_class)
+    output_filename = '{}/{}.onnx'.format(oudput_dir, args.model_dest)
+    dynamic_axes = {input_names[0] : {0 : 'batch_size'},    # variable length axes
+                            output_names[0] : {0 : 'batch_size'}}
+
+    os.makedirs(oudput_dir, exist_ok=True)
+    torch.onnx.export(model,               # model being run
+                dummy_input,                         # model input (or a tuple for multiple inputs)
+                output_filename,   # where to save the model (can be a file or file-like object)
+                export_params=True,        # store the trained parameter weights inside the model file
+                do_constant_folding=True,  # whether to execute constant folding for optimization
+                input_names = input_names,   # the model's input names
+                output_names = output_names, # the model's output names
+                dynamic_axes=dynamic_axes,
+                opset_version=11)
+
+    succeeded = s3.PutFile(s3def['sets']['model']['bucket'], output_filename, '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class) )
+    if succeeded:
+        os.remove(output_filename)
+
+# Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
+def main(args):
+    print('cell2d test')
+
+    results={}
+    results['config'] = args.__dict__
+    results['config']['ejector'] = args.ejector.value
+    results['system'] = {
+        'platform':str(platform.platform()),
+        'python':str(platform.python_version()),
+        'numpy': str(np.__version__),
+        'torch': str(torch.__version__),
+        'OpenCV': str(cv2.__version__),
+        'pymlutil': str(pymlutil_version.__version__),
+        #'torchdatasetutil':str(torchdatasetutil_version.__version__),
+    }
+    print('cell2d system={}'.format(yaml.dump(results['system'], default_flow_style=False) ))
+    print('cell2d config={}'.format(yaml.dump(results['config'], default_flow_style=False) ))
+
+    #torch.autograd.set_detect_anomaly(True)
+
+    s3, _, s3def = Connect(args.credentails)
+
+    results['store'] = s3def
+
+    device = torch.device("cpu")
+    if args.cuda:
+        device = torch.device("cuda")
+
+    # Load dataset
+    loaders = CreateCifar10Loaders(args.dataset_path, batch_size = args.batch_size,  
+                        num_workers=args.num_workers, cuda = args.cuda, 
+                        rotate=args.augment_rotation, scale_min=args.augment_scale_min, scale_max=args.augment_scale_max, offset=args.augment_translate_x)
+    results['classes'] = loaders[0]['classes']
+
+    # Load number of previous batches to continue tensorboard from previous training
+    prevresultspath = None
+    print('prevresultspath={}'.format(args.prevresultspath))
+    if args.prevresultspath and len(args.prevresultspath) > 0:
+        prevresults = ReadDict(args.prevresultspath)
+        if prevresults is not None:
+            if 'batches' in prevresults:
+                print('found prevresultspath={}'.format(prevresults))
+                results['batches'] = prevresults['batches']
+            if 'initial_parameters' in prevresults:
+                results['initial_parameters'] = prevresults['initial_parameters']
+                results['initial_flops'] = prevresults['initial_flops']
+
+    classify, results = load(s3, s3def, args, loaders, results)
+
+    # Prune with loaded parameters than apply current search_structure setting
+    segment.ApplyParameters(weight_gain=args.weight_gain, 
+                            sigmoid_scale=args.sigmoid_scale,
+                            feature_threshold=args.feature_threshold,
+                            search_structure=args.search_structure, 
+                            convMaskThreshold=args.convMaskThreshold, 
+                            k_prune_sigma=args.k_prune_sigma,)
+
+
+    # # Enable multi-gpu processing
+    # if torch.cuda.device_count() > 1:
+    #     print("Let's use", torch.cuda.device_count(), "GPUs!")
+    #     # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+    #     model = nn.DataParallel(classify)
+    #     classify = model.module
+    # else:
+    #     model = classify
+
+    tb = None
+    writer = None
+
+    # Load previous tensorboard for multi-step training
+    if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
+        tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
+        s3.GetDir(s3def['sets']['test']['bucket'], tb_path, args.tensorboard_dir )
+    # Create tensorboard server and tensorboard writer
+    if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0):
+        os.makedirs(args.tensorboard_dir, exist_ok=True)
+
+        tb = program.TensorBoard()
+        tb.configure(('tensorboard', '--logdir', args.tensorboard_dir))
+        tb.flags.bind_all = True
+        tb.flags.port = args.tensorboard_port
+        url = tb.launch()
+        print(f"Tensorboard on {url}")
+        writer_path = '{}/{}'.format(args.tensorboard_dir, args.model_dest)
+        writer = SummaryWriter(writer_path)
+
+    if 'batches' not in results:
+        results['batches'] = 0
+
+    # Train
+    if args.prune:
+        results = Prune(args, s3, s3def, classify, device, results)
+
+    if args.train:
+        if args.profile:
+            with profile(
+                    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                    schedule=torch.profiler.schedule(skip_first=3, wait=1, warmup=1, active=3, repeat=1),
+                    on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
+                    record_shapes=True, profile_memory=True, with_stack=True, with_flops=False, with_modules=False
+            ) as prof:
+                results = Train(args, s3, s3def, classify, loaders, device, results, writer, prof)
+        else:
+            results = Train(args, s3, s3def, classify, loaders, device, results, writer)
+
+    if args.test:
+        if args.profile:
+            with profile(
+                    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                    schedule=torch.profiler.schedule(skip_first=3, wait=1, warmup=1, active=3, repeat=0),
+                    on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
+                    record_shapes=False, profile_memory=False, with_stack=True, with_flops=False, with_modules=True
+            ) as prof:
+                results = Test(args, s3, s3def, classify, loaders, device, results, writer, prof)
+        else:
+            results = Test(args, s3, s3def, classify, loaders, device, results, writer)
+
+    if args.onnx:
+        onnx(classify, s3, s3def, args, loaders[0]['in_channels'])
 
     if args.resultspath is not None and len(args.resultspath) > 0:
-        WriteDictJson(test_results, args.resultspath)
+        WriteDict(results, args.resultspath)
 
-    print('Finished {}  {}'.format(args.model_dest, test_results))
+    print('Finished {}'.format(args.model_dest, yaml.dump(results, default_flow_style=False) ))
+    print(json.dumps(results, indent=2))
     return 0
 
 if __name__ == '__main__':
     args = parse_arguments()
 
     if args.debug:
-        print("Wait for debugger attach")
+        print("Wait for debugger attach on {}:{}".format(args.debug_address, args.debug_port))
         import debugpy
         ''' 
         https://code.visualstudio.com/docs/python/debugging#_remote-debugging
@@ -1654,6 +1989,6 @@ if __name__ == '__main__':
         debugpy.wait_for_client() # Pause the program until a remote debugger is attached
         print("Debugger attached")
 
-    result = Test(args)
+    result = main(args)
     sys.exit(result)
 

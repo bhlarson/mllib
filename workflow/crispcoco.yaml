@@ -12,9 +12,11 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: batch_size
-          value: 4
+          value: 20
         - name: output_name
           value: 20220520i
+        - name: description
+          value: '{"author":"Brad Larson","description":"Crisp COCO segmentation"}'
         - name: target_structure
           value: 0.0
         - name: dataset
@@ -32,6 +34,10 @@ workflow:
           # Perform minimum run to test code execution
         - name: min
           value: false
+        - name: tbport
+          value: 6006
+        - name: search_flops
+          value: true
 
     entrypoint: train-crisp
     priority: 1
@@ -47,9 +53,8 @@ workflow:
                   - {name: prune, value: false}
                   - {name: train, value: true}
                   - {name: test, value: false}
-                  - {name: search_structure, value: false}
-                  - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-                  - {name: learning_rate, value: 2e-4}
+                  - {name: search_structure, value: true}
+                  - {name: learning_rate, value: 1e-4}
                   - {name: epochs, value: 2}
                   - {name: model_src, value: ""}
                   - {name: model_dest, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
@@ -69,10 +74,8 @@ workflow:
                   - {name: prune, value: false}
                   - {name: train, value: true}
                   - {name: test, value: true}
-                  - {name: search_structure, value: false}
-                  - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-                  - {name: learning_rate, value: 2e-4}
-                  - {name: epochs, value: 50}
+                  - {name: search_structure, value: true}
+                  - {name: epochs, value: 2}
                   - {name: model_src, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
                   - {name: model_dest, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
                   - {name: class_weight, value: "[0.1, 0.7, 1.0, 1.0]"}
@@ -80,33 +83,62 @@ workflow:
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.normalized-train.outputs.artifacts.results}}"
-            - name: train-fine
+            - name: search-structure-00
               dependencies: [train]
               template: train
               when: "{{workflow.parameters.start}} < 3"
               arguments:
                 parameters:
-                  - {name: prune, value: false}
+                  - {name: prune, value: true}
                   - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: k_structure, value: 0.1}
-                  - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-                  - {name: learning_rate, value: 1e-4}
-                  - {name: start_epoch, value: 0}
-                  - {name: epochs, value: 50}
                   - {name: ejector, value: 'prune_basis'}
-                  - {name: ejector_start, value: 10}
-                  - {name: ejector_full, value: 15}
                   - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
-                  - {name: model_dest, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train-fine"}
-                  - {name: description, value: '{"author":"Brad Larson","description":"CRISP segment minimize cross entropy loss and size target size {{workflow.parameters.target_structure}}"}'}
+                  - {name: model_dest, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00"}
+                  - {name: convMaskThreshold, value: 0.02}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.train.outputs.artifacts.results}}"
-            - name: prune
-              dependencies: [train-fine]
+            - name: search-structure-01
+              dependencies: [search-structure-00]
+              template: train
+              when: "{{workflow.parameters.start}} < 3"
+              arguments:
+                parameters:
+                  - {name: prune, value: true}
+                  - {name: train, value: true}
+                  - {name: test, value: true}
+                  - {name: search_structure, value: true}
+                  - {name: ejector, value: 'prune_basis'}
+                  - {name: ejector_max, value: 1.0}
+                  - {name: model_src, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00"}
+                  - {name: model_dest, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01"}
+                  - {name: convMaskThreshold, value: 0.02}
+                artifacts:
+                  - name: prev_results
+                    from: "{{tasks.search-structure-00.outputs.artifacts.results}}"
+            - name: search-structure-02
+              dependencies: [search-structure-01]
+              template: train
+              when: "{{workflow.parameters.start}} < 3"
+              arguments:
+                parameters:
+                  - {name: prune, value: true}
+                  - {name: train, value: true}
+                  - {name: test, value: true}
+                  - {name: search_structure, value: true}
+                  - {name: ejector, value: 'prune_basis'}
+                  - {name: ejector_max, value: 1.0}
+                  - {name: model_src, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01"}
+                  - {name: model_dest, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02"}
+                  - {name: convMaskThreshold, value: 0.02}
+                artifacts:
+                  - name: prev_results
+                    from: "{{tasks.search-structure-01.outputs.artifacts.results}}"
+            - name: search-structure-03
+              dependencies: [search-structure-02]
               template: train
               when: "{{workflow.parameters.start}} < 4"
               arguments:
@@ -114,41 +146,91 @@ workflow:
                   - {name: prune, value: true}
                   - {name: train, value: true}
                   - {name: test, value: true}
-                  - {name: search_structure, value: false}
-                  - {name: learning_rate, value: 1e-4}
-                  - {name: epochs, value: 30}
-                  - {name: target_structure, value: '{{workflow.parameters.target_structure}}'}
-                  - {name: model_src, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train-fine"}
-                  - {name: model_dest, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_prune"}
-                  - {name: description, value: '{"author":"Brad Larson","description":"Crisp prune and minimize cross entropy loss size {{workflow.parameters.target_structure}}"}'}
+                  - {name: search_structure, value: true}
+                  - {name: model_src, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02"}
+                  - {name: model_dest, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_03"}
+                  - {name: convMaskThreshold, value: 0.02}
                 artifacts:
                   - name: prev_results
-                    from: "{{tasks.train-fine.outputs.artifacts.results}}"
+                    from: "{{tasks.search-structure-02.outputs.artifacts.results}}"
+            - name: search-structure-04
+              dependencies: [search-structure-03]
+              template: train
+              when: "{{workflow.parameters.start}} < 5"
+              arguments:
+                parameters:
+                  - {name: prune, value: true}
+                  - {name: train, value: true}
+                  - {name: test, value: true}
+                  - {name: search_structure, value: true}
+                  - {name: model_src, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_03"}
+                  - {name: model_dest, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_04"}
+                  - {name: convMaskThreshold, value: 0.02}
+                artifacts:
+                  - name: prev_results
+                    from: "{{tasks.search-structure-03.outputs.artifacts.results}}"
+            - name: search-structure-05
+              dependencies: [search-structure-04]
+              template: train
+              when: "{{workflow.parameters.start}} < 6"
+              arguments:
+                parameters:
+                  - {name: prune, value: true}
+                  - {name: train, value: true}
+                  - {name: test, value: true}
+                  - {name: search_structure, value: true}
+                  - {name: model_src, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_04"}
+                  - {name: model_dest, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_05"}
+                  - {name: convMaskThreshold, value: 0.02}
+                artifacts:
+                  - name: prev_results
+                    from: "{{tasks.search-structure-04.outputs.artifacts.results}}"
+            - name: search-structure-06
+              dependencies: [search-structure-05]
+              template: train
+              when: "{{workflow.parameters.start}} < 7"
+              arguments:
+                parameters:
+                  - {name: prune, value: true}
+                  - {name: train, value: true}
+                  - {name: test, value: true}
+                  - {name: search_structure, value: false}
+                  - {name: epochs, value: 20}
+                  - {name: model_src, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_05"}
+                  - {name: model_dest, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}"}
+                  - {name: convMaskThreshold, value: 0.5}
+                artifacts:
+                  - name: prev_results
+                    from: "{{tasks.search-structure-05.outputs.artifacts.results}}"
 
       - name: train
         inputs:
           parameters:
+            - {name: batch_size, value: "{{workflow.parameters.batch_size}}"}
             - {name: prune, value: false}
             - {name: train, value: true}
             - {name: test, value: true}
             - {name: onnx, value: false}
             - {name: search_structure, value: true}
             - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-            - {name: epochs, value: 2}
+            - {name: epochs, value: 10}
             - {name: start_epoch, value: 0}
-            - {name: ejector, value: 'None'}
-            - {name: ejector_start, value: 0}
-            - {name: ejector_full, value: 2}
+            - {name: ejector, value: 'prune_basis'}
+            - {name: ejector_start, value: 4}
+            - {name: ejector_full, value: 5}
             - {name: ejector_max, value: 1.0}
-            - {name: k_prune_basis, value: 1.0}
             - {name: model_src, value: ""}
             - {name: model_dest, value: "crispcoco_{{workflow.parameters.output_name}}"}
+            - {name: k_accuracy, value: 5.0}
             - {name: k_structure, value: 0.1}
-            - {name: learning_rate, value: 1e-4}
+            - {name: k_prune_basis, value: 0.2}
+            - {name: learning_rate, value: 2e-4}
             - {name: class_weight, value: "[1.0, 1.0, 1.0, 1.0]"}
-            - {name: description, value: '{"author":"Brad Larson","description":"Crisp LIT segmentation"}'}
+            - {name: description, value: '{"author":"Brad Larson","description":"Crisp COCO segmentation"}'}
             - {name: resultspath, value: "/app/results.yaml"}
             - {name: prevresultspath, value: "/app/prevresults.yaml"}
+            - {name: k_prune_sigma, value: 1.0}
+            - {name: convMaskThreshold, value: 0.1}
 
           artifacts:
             - name: prev_results
@@ -187,6 +269,7 @@ workflow:
             - -onnx={{inputs.parameters.onnx}}
             - -search_structure={{inputs.parameters.search_structure}}
             - -target_structure={{inputs.parameters.target_structure}}
+            - -k_accuracy={{inputs.parameters.k_accuracy}}
             - -k_structure={{inputs.parameters.k_structure}}
             - -learning_rate={{inputs.parameters.learning_rate}}
             - -model_src={{inputs.parameters.model_src}}
@@ -195,26 +278,28 @@ workflow:
             - -description={{inputs.parameters.description}}
             - -resultspath={{inputs.parameters.resultspath}}
             - -prevresultspath={{inputs.parameters.prevresultspath}}
-            - -batch_size={{workflow.parameters.batch_size}}
+            - -batch_size={{inputs.parameters.batch_size}}
             - -class_weight={{inputs.parameters.class_weight}}
             - -batch_norm=false
             - -job
             - -k_prune_basis={{inputs.parameters.k_prune_basis}}
-            - -ejector=prune_basis
             - -ejector={{inputs.parameters.ejector}}
             - -ejector_start={{inputs.parameters.ejector_start}}
             - -ejector_full={{inputs.parameters.ejector_full}}
             - -ejector_max={{inputs.parameters.ejector_max}}
             - -debug={{workflow.parameters.debug}}
             - -minimum={{workflow.parameters.min}}
-            - -k_prune_sigma=1.0
+
+            - -k_prune_sigma={{inputs.parameters.k_prune_sigma}}
+            - -convMaskThreshold={{inputs.parameters.convMaskThreshold}}
+            - -search_flops={{workflow.parameters.search_flops}}
           ports:
             - name: debug
               containerPort: 3000
-              hostPort: 3000
+              #hostPort: 3000
             - name: tensorboard
               containerPort: 6006
-              hostPort: 6006
+              hostPort: 6007
           resources:
             requests:
               ephemeral-storage: "40Gi"

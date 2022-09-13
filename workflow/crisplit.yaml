@@ -50,8 +50,8 @@ workflow:
               when: "{{workflow.parameters.start}} < 1"
               arguments:
                 parameters:
-                  - {name: train, value: true}
                   - {name: prune, value: false}
+                  - {name: train, value: true}
                   - {name: test, value: false}
                   - {name: search_structure, value: true}
                   - {name: learning_rate, value: 1e-4}

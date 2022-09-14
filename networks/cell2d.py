@@ -1923,7 +1923,7 @@ def main(args):
         prevresults = ReadDict(args.prevresultspath)
         if prevresults is not None:
             if 'batches' in prevresults:
-                print('found prevresultspath={}'.format(prevresults))
+                print('found prevresultspath={}'.format(yaml.dump(prevresults, default_flow_style=False)))
                 results['batches'] = prevresults['batches']
             if 'initial_parameters' in prevresults:
                 results['initial_parameters'] = prevresults['initial_parameters']

@@ -352,7 +352,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
 
     parser.add_argument('-d', action='store_true',help='Wait for debuggee attach')   
-    parser.add_argument('-debug', type=str2bool, default=False, help='Wait for debuggee attach')  
+    parser.add_argument('-debug', type=str2bool, default=False, help='Wait for debuggee attach')
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
     parser.add_argument('-tensorboard_port', type=int, default=6006, help='Debug port')
@@ -370,6 +370,7 @@ def parse_arguments():
 
     parser.add_argument('-coco_class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
+    parser.add_argument('-learning_rate', type=float, default=2.0e-4, help='Adam learning rate')
     parser.add_argument('-batch_size', type=int, default=20, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
@@ -387,7 +388,6 @@ def parse_arguments():
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=512, help='Batch image height')
     parser.add_argument('-width', type=int, default=480, help='Batch image width')
-    parser.add_argument('-learning_rate', type=float, default=2.0e-4, help='Adam learning rate')
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
@@ -439,7 +439,7 @@ def parse_arguments():
 
     return args
 
-def ModelSize(model, results, class_dictionary):
+def ModelSize(args, model, results, class_dictionary):
     device = torch.device("cpu")
     if args.cuda:
         device = torch.device("cuda")
@@ -448,7 +448,6 @@ def ModelSize(model, results, class_dictionary):
     # flops, params = get_model_complexity_info(deepcopy(model), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
     #                                     print_per_layer_stat=True, verbose=False)
     flops = FlopCountAnalysis(model, input)
-
     parameters = count_parameters(model)
     image_flops = flops.total()
 
@@ -461,7 +460,7 @@ def load(s3, s3def, args, class_dictionary, loaders, results):
 
     if 'initial_parameters' not in results or args.model_src is None or args.model_src == '':
         model = MakeNetwork(class_dictionary, args)
-        results['initial_parameters'] , results['initial_flops'] = ModelSize(model, results, class_dictionary)
+        results['initial_parameters'] , results['initial_flops'] = ModelSize(args, model, results, class_dictionary)
 
     print('load initial_parameters = {} initial_flops = {}'.format(results['initial_parameters'], results['initial_flops']))
 
@@ -471,7 +470,7 @@ def load(s3, s3def, args, class_dictionary, loaders, results):
         if modelObj is not None:
             model = torch.load(io.BytesIO(modelObj))
 
-            results['model_parameters'] , results['model_flops'] = ModelSize(model, results, class_dictionary)
+            results['model_parameters'] , results['model_flops'] = ModelSize(args, model, results, class_dictionary)
 
             print('load model_parameters = {} model_flops = {}'.format(results['model_parameters'], results['model_flops']))
         else:
@@ -880,7 +879,7 @@ def Prune(args, s3, s3def, model, class_dictionary, results):
     model.ApplyStructure()
     reduced_parameters = count_parameters(model)
 
-    results['parameters_after_prune'], results['flops_after_prune'] = ModelSize(model, results, class_dictionary)
+    results['parameters_after_prune'], results['flops_after_prune'] = ModelSize(args, model, results, class_dictionary)
 
     save(model, s3, s3def, args)
     results['prune'] = {'final parameters':reduced_parameters, 

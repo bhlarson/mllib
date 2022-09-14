@@ -757,11 +757,12 @@ class FC(nn.Module):
     def __init__(self, 
                  in_channels, 
                  out_channels,
-
+                 device=torch.device("cpu"),
                  ):
         super(FC, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
+        self.device = device
 
 
         self.fc = nn.Linear(in_channels, self.out_channels)
@@ -962,7 +963,7 @@ class Classify(nn.Module):
 
         self.maxpool = nn.MaxPool2d(2, 2)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = FC(in_channels, self.out_channels)
+        self.fc = FC(in_channels, self.out_channels, device=self.device)
 
         self.total_trainable_weights = model_weights(self)
 
@@ -978,6 +979,30 @@ class Classify(nn.Module):
             in_channel_mask = out_channel_mask
 
         self.fc.ApplyStructure(in_channel_mask=in_channel_mask)
+
+    def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None, 
+                        weight_gain=None, sigmoid_scale=None, feature_threshold=None,
+                        k_prune_sigma=None, search_flops=None): # Apply a parameter change
+        if search_structure is not None:
+            self.search_structure = search_structure
+        if dropout is not None:
+            self.use_dropout = dropout
+        if convMaskThreshold is not None:
+            self.convMaskThreshold = convMaskThreshold
+        if weight_gain is not None:
+            self.weight_gain = weight_gain
+        if sigmoid_scale is not None:
+            self.sigmoid_scale = sigmoid_scale
+        if feature_threshold is not None:
+            self.feature_threshold = feature_threshold
+        if k_prune_sigma is not None:
+            self.k_prune_sigma = k_prune_sigma
+        if search_flops is not None:
+            self.search_flops = search_flops
+        for cell in self.cells:
+            cell.ApplyParameters(search_structure=search_structure, dropout=dropout, convMaskThreshold=convMaskThreshold,
+                                 weight_gain=weight_gain, sigmoid_scale=sigmoid_scale, feature_threshold=feature_threshold,
+                                 k_prune_sigma=k_prune_sigma, search_flops=search_flops)
 
     def forward(self, x, isTraining=False):
         #x = self.resnet_conv1(x)
@@ -1030,29 +1055,22 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Process arguments')
 
     parser.add_argument('-d', action='store_true',help='Wait for debuggee attach')   
-    parser.add_argument('-debug', type=str2bool, default=False, help='Wait for debuggee attach')   
+    parser.add_argument('-debug', type=str2bool, default=False, help='Wait for debuggee attach')
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
+    parser.add_argument('-tensorboard_port', type=int, default=6006, help='Debug port')
     parser.add_argument('-min', action='store_true', help='Minimum run with a few iterations to test execution')
     parser.add_argument('-minimum', type=str2bool, default=False, help='Minimum run with a few iterations to test execution')
 
     parser.add_argument('-credentails', type=str, default='creds.yaml', help='Credentials file.')
 
-    parser.add_argument('-prune', type=str2bool, default=False)
-    parser.add_argument('-train', type=str2bool, default=True)
-    parser.add_argument('-infer', type=str2bool, default=True)
-    parser.add_argument('-search_structure', type=str2bool, default=True)
-    parser.add_argument('-onnx', type=str2bool, default=True)
-    parser.add_argument('-job', action='store_true',help='Run as job')
-
+    parser.add_argument('-dataset', type=str, default='cifar10', choices=['cifar10', 'imagenet'], help='Dataset')
     parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152, 20, 32, 44, 56, 110], default=56, help='Run description')
 
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
-    parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model', type=str, default='model')
 
-    parser.add_argument('-epochs', type=int, default=500, help='Training epochs')
-    parser.add_argument('-batch_size', type=int, default=400, help='Training batch size') 
+    parser.add_argument('-batch_size', type=int, default=1000, help='Training batch size') 
 
     parser.add_argument('-learning_rate', type=float, default=1e-1, help='Training learning rate')
     parser.add_argument('-learning_rate_decay', type=float, default=0.5, help='Rate decay multiple')
@@ -1062,21 +1080,36 @@ def parse_arguments():
     
     parser.add_argument('-momentum', type=float, default=0.9, help='Learning Momentum')
     parser.add_argument('-weight_decay', type=float, default=0.0001)
+    parser.add_argument('-epochs', type=int, default=500, help='Training epochs')
+    parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
-    parser.add_argument('-model_type', type=str,  default='Classification')
+    parser.add_argument('-num_workers', type=int, default=10, help='Data loader workers')
+    parser.add_argument('-model_type', type=str,  default='classification')
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
     parser.add_argument('-model_src', type=str,  default=None)
     parser.add_argument('-model_dest', type=str, default="crisp20220511_t00_00")
+    parser.add_argument('-tb_dest', type=str, default='crispcifar10_20220909_061234_hiocnn_tb_01')
+    parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
+    parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
-    parser.add_argument('-k_structure', type=float, default=1e0, help='Structure minimization weighting factor')
-    parser.add_argument('-target_structure', type=float, default=0.00, help='Structure minimization weighting factor')
 
+    parser.add_argument('-height', type=int, default=200, help='Input image height')
+    parser.add_argument('-width', type=int, default=200, help='Input image width')
+    parser.add_argument('-channels', type=int, default=3, help='Input image color channels')
+    parser.add_argument('-k_accuracy', type=float, default=1.0, help='Accuracy weighting factor')
+    parser.add_argument('-k_structure', type=float, default=0.5, help='Structure minimization weighting factor')
+    parser.add_argument('-k_prune_basis', type=float, default=1.0, help='prune base loss scaling')
+    parser.add_argument('-k_prune_exp', type=float, default=50.0, help='prune basis exponential weighting factor')
+    parser.add_argument('-k_prune_sigma', type=float, default=1.0, help='prune basis exponential weighting factor')
+    parser.add_argument('-target_structure', type=float, default=0.00, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=bool, default=True)
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
     parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')
     parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convolution channels weights')
     parser.add_argument('-feature_threshold', type=float, default=0.5, help='tanh pruning threshold')
+    parser.add_argument('-convMaskThreshold', type=float, default=0.1, help='convolution channel sigmoid level to prune convolution channels')
+
 
     parser.add_argument('-augment_rotation', type=float, default=0.0, help='Input augmentation rotation degrees')
     parser.add_argument('-augment_scale_min', type=float, default=1.00, help='Input augmentation scale')
@@ -1085,10 +1118,25 @@ def parse_arguments():
     parser.add_argument('-augment_translate_y', type=float, default=0.125, help='Input augmentation translation')
     parser.add_argument('-augment_noise', type=float, default=0.1, help='Augment image noise')
 
+    parser.add_argument('-ejector', type=FenceSitterEjectors, default=FenceSitterEjectors.prune_basis, choices=list(FenceSitterEjectors))
+    parser.add_argument('-ejector_start', type=float, default=4, help='Ejector start epoch')
+    parser.add_argument('-ejector_full', type=float, default=5, help='Ejector full epoch')
+    parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector max value')
+    parser.add_argument('-ejector_exp', type=float, default=3.0, help='Ejector exponent')
+    parser.add_argument('-prune', type=str2bool, default=True)
+    parser.add_argument('-train', type=str2bool, default=True)
+    parser.add_argument('-test', type=str2bool, default=True)
+    parser.add_argument('-search_structure', type=str2bool, default=True)
+    parser.add_argument('-search_flops', type=str2bool, default=True)
+    parser.add_argument('-profile', type=str2bool, default=True)
+    parser.add_argument('-time_trial', type=str2bool, default=True)
+    parser.add_argument('-onnx', type=str2bool, default=True)
+    parser.add_argument('-job', action='store_true',help='Run as job')
+
     parser.add_argument('-resultspath', type=str, default='results.yaml')
     parser.add_argument('-prevresultspath', type=str, default=None)
     parser.add_argument('-test_dir', type=str, default=None)
-    parser.add_argument('-tensorboard_dir', type=str, default='./tb', 
+    parser.add_argument('-tensorboard_dir', type=str, default='./tb_logs', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
 
     parser.add_argument('-description', type=json.loads, default='{"description":"CRISP classificaiton"}', help='Test description')
@@ -1100,26 +1148,31 @@ def parse_arguments():
     if args.min:
         args.minimum = args.min
 
+    if args.dataset == 'cifar10':
+        args.width = 32
+        args.height = 32
+        args.channels = 3
+
     return args
 
-def ModelSize(model, results, loaders):
+def ModelSize(args, model, results, loaders):
 
     testloader = next(filter(lambda d: d.get('set') == 'test', loaders), None)
     if testloader is None:
         raise ValueError('{} {} failed to load testloader {}'.format(__file__, __name__, args.dataset))
 
-    iTest = iter(testloader['dataloader'])
-    data = next(iTest)
-    inputs, labels = data
+    device = torch.device("cpu")
+    if args.cuda:
+        device = torch.device("cuda")
+
+    input = torch.zeros((1, testloader['in_channels'], testloader['height'], testloader['width']), device=device)
 
     # flops, params = get_model_complexity_info(deepcopy(model), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
     #                                     print_per_layer_stat=True, verbose=False)
     flops = FlopCountAnalysis(model, input)
-    print('FlopCountAnalysis {} get_model_complexity_info flops {}'.format(flops.total(), results['initial_flops']))
-
     parameters = count_parameters(model)
-    image_flops = flops.total()/inputs.shape(0)
- 
+    image_flops = flops.total()
+
     return parameters, image_flops
 
 def load(s3, s3def, args, loaders, results):
@@ -1127,7 +1180,7 @@ def load(s3, s3def, args, loaders, results):
 
     if 'initial_parameters' not in results or args.model_src is None or args.model_src == '':
         model = MakeNetwork(args)
-        results['initial_parameters'] , results['initial_flops'] = ModelSize(model, results, loaders)
+        results['initial_parameters'] , results['initial_flops'] = ModelSize(args, model, results, loaders)
 
     print('load initial_parameters = {} initial_flops = {}'.format(results['initial_parameters'], results['initial_flops']))
 
@@ -1137,7 +1190,7 @@ def load(s3, s3def, args, loaders, results):
         if modelObj is not None:
             model = torch.load(io.BytesIO(modelObj))
 
-            results['model_parameters'] , results['model_flops'] = ModelSize(model, results, loaders)
+            results['model_parameters'] , results['model_flops'] = ModelSize(args, model, results, loaders)
 
             print('load model_parameters = {} model_flops = {}'.format(results['model_parameters'], results['model_flops']))
         else:
@@ -1493,6 +1546,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
 
     test_freq = args.test_sparsity*int(math.ceil(trainloader['batches']/testloader['batches']))
     tstart = None
+    compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
 
     # Train
     results['train'] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'architecture_reduction':[]}
@@ -1546,12 +1600,16 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
             # zero the parameter gradients
             optimizer.zero_grad(set_to_none=True)
             outputs = model(inputs, isTraining=True)
+            classifications = torch.argmax(outputs, 1)
             tinfer = time.perf_counter()
-            loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale  = criterion(outputs, labels, model)
+            loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale  = loss_fcn(outputs, labels, model)
             tloss = time.perf_counter()
             loss.backward()
             optimizer.step()
             tend = time.perf_counter()
+
+            top1_correct = (classifications == labels).float()
+            training_accuracy = torch.sum(top1_correct)/len(top1_correct)
 
             dtInfer = tinfer - tstart
             dtLoss = tloss - tinfer
@@ -1570,7 +1628,6 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                 writer.add_scalar('loss/train', loss, results['batches'])
                 writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, results['batches'])
                 writer.add_scalar('accuracy/train', training_accuracy, results['batches'])
-                writer.add_scalar('accuracy/test', test_accuracy, results['batches'])
                 writer.add_scalar('time/infer', dtInfer, results['batches'])
                 writer.add_scalar('time/loss', dtLoss, results['batches'])
                 writer.add_scalar('time/backpropegation', dtBackprop, results['batches'])
@@ -1703,7 +1760,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
 
     return results
 
-def Test(args, s3, s3def, model, loaders, device, results, profile):
+def Test(args, s3, s3def, model, loaders, device, results, writer, profile):
     torch.cuda.empty_cache()
     now = datetime.now()
     date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
@@ -1785,7 +1842,7 @@ def Prune(args, s3, s3def, model, loaders, results):
     model.ApplyStructure()
     reduced_parameters = count_parameters(model)
 
-    results['parameters_after_prune'], results['flops_after_prune'] = ModelSize(model, results, loaders)
+    results['parameters_after_prune'], results['flops_after_prune'] = ModelSize(args, model, results, loaders)
 
     save(model, s3, s3def, args)
     results['prune'] = {'final parameters':reduced_parameters, 
@@ -1875,7 +1932,7 @@ def main(args):
     classify, results = load(s3, s3def, args, loaders, results)
 
     # Prune with loaded parameters than apply current search_structure setting
-    segment.ApplyParameters(weight_gain=args.weight_gain, 
+    classify.ApplyParameters(weight_gain=args.weight_gain, 
                             sigmoid_scale=args.sigmoid_scale,
                             feature_threshold=args.feature_threshold,
                             search_structure=args.search_structure, 
@@ -1917,7 +1974,7 @@ def main(args):
 
     # Train
     if args.prune:
-        results = Prune(args, s3, s3def, classify, device, results)
+        results = Prune(args, s3, s3def, model=classify, loaders=loaders, results=results)
 
     if args.train:
         if args.profile:

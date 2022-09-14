@@ -32,6 +32,18 @@ workflow_metrics:
   name: workflow-controller-metrics
   nodePort: 30997
 
+workerdata:
+  name: workerstorage
+  size: 900Gi
+  hostPath:
+    path: /nvmestore/mlstore/mllib/data
+
+tblogs:
+  name: tblogs
+  size: 100Gi
+  hostPath:
+    path: /data/tb_logs
+
 postgresql:
   #See https://github.com/bitnami/charts/blob/master/bitnami/postgresql/ for more info
   postgresqlDatabase: mlflow_db

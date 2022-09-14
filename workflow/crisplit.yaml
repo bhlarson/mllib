@@ -246,11 +246,21 @@ workflow:
           - name: dshm
             emptyDir:
               medium: Memory
+          - name: workerstorage
+            persistentVolumeClaim:
+              claimName: workerstorage
+          - name: tblogs
+            persistentVolumeClaim:
+              claimName: tblogs
         container:
           image: '{{workflow.parameters.train_image}}'
           volumeMounts:
             - mountPath: /dev/shm
               name: dshm
+            - name: workerstorage
+              mountPath: /data
+            - name: tblogs
+              mountPath: /tb_logs
           command:
             - python3
           args:
@@ -286,7 +296,7 @@ workflow:
             - -ejector_max={{inputs.parameters.ejector_max}}
             - -debug={{workflow.parameters.debug}}
             - -minimum={{workflow.parameters.min}}
-            - -lit_dataset=annotations/lit/dataset.yaml
+            - -lit_dataset=data/lit/dataset.yaml
             - -lit_class_dict=model/crisplit/lit.json
             - -k_prune_sigma={{inputs.parameters.k_prune_sigma}}
             - -convMaskThreshold={{inputs.parameters.convMaskThreshold}}
@@ -294,10 +304,10 @@ workflow:
           ports:
             - name: debug
               containerPort: 3000
-              hostPort: 3000
+              #hostPort: 3000
             - name: tensorboard
               containerPort: 6006
-              hostPort: 6006
+              #hostPort: 6006
           resources:
             requests:
               ephemeral-storage: "40Gi"

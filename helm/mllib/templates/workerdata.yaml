@@ -1,0 +1,73 @@
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{.Values.workerdata.name}}
+spec:
+  storageClassName: workerstorage
+  capacity:
+    storage: {{.Values.workerdata.size | quote}}
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: {{.Values.workerdata.hostPath.path}}
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  # This name uniquely identifies the PVC. Will be used in deployment below.
+  name: {{.Values.workerdata.name}}
+  namespace: {{.Release.Namespace}}
+  labels:
+    app: workerstorage-claim
+spec:
+  # Read more about access modes here: http://kubernetes.io/docs/user-guide/persistent-volumes/#access-modes
+  accessModes:
+    - ReadWriteMany
+  resources:
+    # This is the request for storage. Should be available in the cluster.
+    requests:
+      storage: {{.Values.objectstore.size | quote}}
+  storageClassName: workerstorage
+
+---
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{.Values.tblogs.name}}
+spec:
+  storageClassName: workerstorage
+  capacity:
+    storage: {{.Values.tblogs.size | quote}}
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: {{.Values.tblogs.hostPath.path}}
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  # This name uniquely identifies the PVC. Will be used in deployment below.
+  name: {{.Values.tblogs.name}}
+  namespace: {{.Release.Namespace}}
+  labels:
+    app: workerstorage-claim
+spec:
+  # Read more about access modes here: http://kubernetes.io/docs/user-guide/persistent-volumes/#access-modes
+  accessModes:
+    - ReadWriteMany
+  resources:
+    # This is the request for storage. Should be available in the cluster.
+    requests:
+      storage: {{.Values.tblogs.size | quote}}
+  storageClassName: workerstorage
+
+---

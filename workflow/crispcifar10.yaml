@@ -38,6 +38,10 @@ workflow:
           value: 6006
         - name: search_flops
           value: true
+        - name: dataset_path
+          value: /data
+        - name: tb_logs
+          value: /tb_logs
 
     entrypoint: train-crisp
     priority: 1
@@ -45,51 +49,32 @@ workflow:
       - name: train-crisp
         dag:
           tasks:
-            - name: normalized-train
+            - name: train
               template: train
               when: "{{workflow.parameters.start}} < 1"
               arguments:
                 parameters:
                   - {name: prune, value: false}
                   - {name: train, value: true}
-                  - {name: test, value: false}
+                  - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: learning_rate, value: 1e-4}
-                  - {name: epochs, value: 3}
                   - {name: model_src, value: ""}
-                  - {name: model_dest, value: "crispcifar10_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
+                  - {name: model_dest, value: "crispcifar10_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
                 artifacts:
                   - name: prev_results
                     raw:
                       data: |
                         batches: 0
-            - name: train
-              dependencies: [normalized-train]
-              template: train
-              when: "{{workflow.parameters.start}} < 2"
-              arguments:
-                parameters:
-                  - {name: prune, value: false}
-                  - {name: train, value: true}
-                  - {name: test, value: true}
-                  - {name: search_structure, value: true}
-                  - {name: model_src, value: "crispcifar10_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
-                  - {name: model_dest, value: "crispcifar10_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
-                artifacts:
-                  - name: prev_results
-                    from: "{{tasks.normalized-train.outputs.artifacts.results}}"
             - name: search-structure-00
               dependencies: [train]
               template: train
-              when: "{{workflow.parameters.start}} < 3"
+              when: "{{workflow.parameters.start}} < 2"
               arguments:
                 parameters:
                   - {name: prune, value: true}
                   - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: ejector, value: 'prune_basis'}
-                  - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crispcifar10_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
                   - {name: model_dest, value: "crispcifar10_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00"}
                   - {name: convMaskThreshold, value: 0.02}
@@ -106,8 +91,6 @@ workflow:
                   - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: ejector, value: 'prune_basis'}
-                  - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crispcifar10_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00"}
                   - {name: model_dest, value: "crispcifar10_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01"}
                   - {name: convMaskThreshold, value: 0.02}
@@ -117,15 +100,13 @@ workflow:
             - name: search-structure-02
               dependencies: [search-structure-01]
               template: train
-              when: "{{workflow.parameters.start}} < 3"
+              when: "{{workflow.parameters.start}} < 4"
               arguments:
                 parameters:
                   - {name: prune, value: true}
                   - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: ejector, value: 'prune_basis'}
-                  - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crispcifar10_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01"}
                   - {name: model_dest, value: "crispcifar10_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02"}
                   - {name: convMaskThreshold, value: 0.02}
@@ -135,7 +116,7 @@ workflow:
             - name: search-structure-03
               dependencies: [search-structure-02]
               template: train
-              when: "{{workflow.parameters.start}} < 4"
+              when: "{{workflow.parameters.start}} < 5"
               arguments:
                 parameters:
                   - {name: prune, value: true}
@@ -151,7 +132,7 @@ workflow:
             - name: search-structure-04
               dependencies: [search-structure-03]
               template: train
-              when: "{{workflow.parameters.start}} < 5"
+              when: "{{workflow.parameters.start}} < 6"
               arguments:
                 parameters:
                   - {name: prune, value: true}
@@ -167,7 +148,7 @@ workflow:
             - name: search-structure-05
               dependencies: [search-structure-04]
               template: train
-              when: "{{workflow.parameters.start}} < 6"
+              when: "{{workflow.parameters.start}} < 7"
               arguments:
                 parameters:
                   - {name: prune, value: true}
@@ -190,7 +171,6 @@ workflow:
                   - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: false}
-                  - {name: epochs, value: 20}
                   - {name: model_src, value: "crispcifar10_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_05"}
                   - {name: model_dest, value: "crispcifar10_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}"}
                   - {name: convMaskThreshold, value: 0.5}
@@ -208,11 +188,11 @@ workflow:
             - {name: onnx, value: false}
             - {name: search_structure, value: true}
             - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-            - {name: epochs, value: 20}
+            - {name: epochs, value: 70}
             - {name: start_epoch, value: 0}
             - {name: ejector, value: 'prune_basis'}
-            - {name: ejector_start, value: 9}
-            - {name: ejector_full, value: 10}
+            - {name: ejector_start, value: 29}
+            - {name: ejector_full, value: 30}
             - {name: ejector_max, value: 1.0}
             - {name: model_src, value: ""}
             - {name: model_dest, value: "crispcifar10_{{workflow.parameters.output_name}}"}
@@ -220,6 +200,8 @@ workflow:
             - {name: k_structure, value: 0.1}
             - {name: k_prune_basis, value: 0.2}
             - {name: learning_rate, value: 2e-4}
+            - {name: learning_rate_decay, value: 0.5}
+            - {name: rate_schedule, value: "[40, 50, 60]"}
             - {name: description, value: "{{workflow.parameters.description}}"}
             - {name: resultspath, value: "/app/results.yaml"}
             - {name: prevresultspath, value: "/app/prevresults.yaml"}
@@ -255,9 +237,9 @@ workflow:
             - mountPath: /dev/shm
               name: dshm
             - name: workerstorage
-              mountPath: /data
+              mountPath: '{{workflow.parameters.dataset_path}}'
             - name: tblogs
-              mountPath: /tb_logs
+              mountPath: '{{workflow.parameters.tb_logs}}'
           command:
             - python3
           args:
@@ -276,9 +258,10 @@ workflow:
             - -k_accuracy={{inputs.parameters.k_accuracy}}
             - -k_structure={{inputs.parameters.k_structure}}
             - -learning_rate={{inputs.parameters.learning_rate}}
+            - -learning_rate_decay={{inputs.parameters.learning_rate_decay}}
+            - -rate_schedule={{inputs.parameters.rate_schedule}}
             - -model_src={{inputs.parameters.model_src}}
             - -model_dest={{inputs.parameters.model_dest}}
-            - -tb_dest=crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_tb
             - -description={{inputs.parameters.description}}
             - -resultspath={{inputs.parameters.resultspath}}
             - -prevresultspath={{inputs.parameters.prevresultspath}}
@@ -295,13 +278,14 @@ workflow:
             - -k_prune_sigma={{inputs.parameters.k_prune_sigma}}
             - -convMaskThreshold={{inputs.parameters.convMaskThreshold}}
             - -search_flops={{workflow.parameters.search_flops}}
+            - -dataset_path={{workflow.parameters.dataset_path}}
+            - -tensorboard_dir={{workflow.parameters.tb_logs}}/crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_tb
+            - -tb_dest=crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_tb
+
           ports:
             - name: debug
               containerPort: 3000
-              #hostPort: 3000
-            - name: tensorboard
-              containerPort: 6006
-              #hostPort: 6006
+              hostPort: 3000
           resources:
             requests:
               ephemeral-storage: "40Gi"

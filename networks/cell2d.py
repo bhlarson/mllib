@@ -1088,7 +1088,6 @@ def parse_arguments():
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
     parser.add_argument('-model_src', type=str,  default=None)
     parser.add_argument('-model_dest', type=str, default="crisp20220511_t00_00")
-    parser.add_argument('-tb_dest', type=str, default='crispcifar10_20220909_061234_hiocnn_tb_01')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
@@ -1129,15 +1128,16 @@ def parse_arguments():
     parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-search_flops', type=str2bool, default=True)
     parser.add_argument('-profile', type=str2bool, default=True)
-    parser.add_argument('-time_trial', type=str2bool, default=True)
+    parser.add_argument('-time_trial', type=str2bool, default=False)
     parser.add_argument('-onnx', type=str2bool, default=True)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
     parser.add_argument('-resultspath', type=str, default='results.yaml')
     parser.add_argument('-prevresultspath', type=str, default=None)
     parser.add_argument('-test_dir', type=str, default=None)
-    parser.add_argument('-tensorboard_dir', type=str, default='./tb_logs', 
+    parser.add_argument('-tensorboard_dir', type=str, default='./tb_logs',
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
+    parser.add_argument('-tb_dest', type=str, default='crispcifar10_20220909_061234_hiocnn_tb_01')
 
     parser.add_argument('-description', type=json.loads, default='{"description":"CRISP classificaiton"}', help='Test description')
 
@@ -1498,7 +1498,7 @@ def CreateCifar10Loaders(dataset_path, batch_size = 2,
         loader['height']=32
         loader['in_channels']=3
         loader['num_classes']=len(Cifar10Classes)
-        loader['classes']=Cifar10Classes
+        loader['classes']=list(Cifar10Classes)
         loader['batches'] =int(len(dataset)/batch_size)
         loader['length'] = loader['batches']*batch_size
         loader['dataloader'] = torch.utils.data.DataLoader(dataset=dataset, 
@@ -1951,6 +1951,7 @@ def main(args):
 
     tb = None
     writer = None
+    writer_path = '{}/{}'.format(args.tensorboard_dir, args.model_dest)
 
     # Load previous tensorboard for multi-step training
     if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
@@ -1960,13 +1961,12 @@ def main(args):
     if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0):
         os.makedirs(args.tensorboard_dir, exist_ok=True)
 
-        tb = program.TensorBoard()
-        tb.configure(('tensorboard', '--logdir', args.tensorboard_dir))
-        tb.flags.bind_all = True
-        tb.flags.port = args.tensorboard_port
-        url = tb.launch()
-        print(f"Tensorboard on {url}")
-        writer_path = '{}/{}'.format(args.tensorboard_dir, args.model_dest)
+        # tb = program.TensorBoard()
+        # tb.configure(('tensorboard', '--logdir', args.tensorboard_dir))
+        # tb.flags.bind_all = True
+        # tb.flags.port = args.tensorboard_port
+        # url = tb.launch()
+        print(f"To launch tensorboard server: tensorboard --bind_all --logdir {args.tensorboard_dir}") # https://stackoverflow.com/questions/47425882/tensorboard-logdir-with-s3-path
         writer = SummaryWriter(writer_path)
 
     if 'batches' not in results:
@@ -1981,7 +1981,7 @@ def main(args):
             with profile(
                     activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                     schedule=torch.profiler.schedule(skip_first=3, wait=1, warmup=1, active=3, repeat=1),
-                    on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
+                    on_trace_ready=torch.profiler.tensorboard_trace_handler(writer_path),
                     record_shapes=True, profile_memory=True, with_stack=True, with_flops=False, with_modules=False
             ) as prof:
                 results = Train(args, s3, s3def, classify, loaders, device, results, writer, prof)
@@ -1993,7 +1993,7 @@ def main(args):
             with profile(
                     activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                     schedule=torch.profiler.schedule(skip_first=3, wait=1, warmup=1, active=3, repeat=0),
-                    on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
+                    on_trace_ready=torch.profiler.tensorboard_trace_handler(writer_path),
                     record_shapes=False, profile_memory=False, with_stack=True, with_flops=False, with_modules=True
             ) as prof:
                 results = Test(args, s3, s3def, classify, loaders, device, results, writer, prof)

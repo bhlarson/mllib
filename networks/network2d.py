@@ -617,175 +617,188 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
                             bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}', 
                             total=trainloader['batches'], desc="Train batches", disable=args.job):
 
-            # get the inputs; data is a list of [inputs, labels]
-            prevtstart = tstart
-            tstart = time.perf_counter()
+            try:
 
-            inputs, labels, mean, stdev = data
+                # get the inputs; data is a list of [inputs, labels]
+                prevtstart = tstart
+                tstart = time.perf_counter()
 
-            if args.cuda:
-                inputs = inputs.cuda()
-                labels = labels.cuda()
+                inputs, labels, mean, stdev = data
 
-            # zero the parameter gradients
-            optimizer.zero_grad(set_to_none=True)
+                if args.cuda:
+                    inputs = inputs.cuda()
+                    labels = labels.cuda()
 
-            #with torch.cuda.amp.autocast():
-            outputs = model(inputs)
-            tinfer = time.perf_counter()
-            loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale = loss_fcn(outputs, labels, model)
-            tloss = time.perf_counter()
-            loss.backward()
-            optimizer.step()
-            tend = time.perf_counter()
+                # zero the parameter gradients
+                optimizer.zero_grad(set_to_none=True)
 
-            dtInfer = tinfer - tstart
-            dtLoss = tloss - tinfer
-            dtBackprop = tend - tloss
-            dtCompute = tend - tstart
+                #with torch.cuda.amp.autocast():
+                outputs = model(inputs)
+                tinfer = time.perf_counter()
+                loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale = loss_fcn(outputs, labels, model)
+                tloss = time.perf_counter()
+                loss.backward()
+                optimizer.step()
+                tend = time.perf_counter()
 
-            dtCycle = 0
-            if prevtstart is not None:
-                dtCycle = tstart - prevtstart
+                dtInfer = tinfer - tstart
+                dtLoss = tloss - tinfer
+                dtBackprop = tend - tloss
+                dtCompute = tend - tstart
 
-            # print statistics
-            running_loss += loss.item()
-            training_cross_entropy_loss = cross_entropy_loss
-            if writer is not None:
-                writer.add_scalar('loss/train', loss, results['batches'])
-                writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, results['batches'])
-                writer.add_scalar('time/infer', dtInfer, results['batches'])
-                writer.add_scalar('time/loss', dtLoss, results['batches'])
-                writer.add_scalar('time/backpropegation', dtBackprop, results['batches'])
-                writer.add_scalar('time/compute', dtCompute, results['batches'])
-                writer.add_scalar('time/cycle', dtCycle, results['batches'])
-                writer.add_scalar('CRISP/architecture_loss', architecture_loss, results['batches'])
-                writer.add_scalar('CRISP/prune_loss', prune_loss, results['batches'])
-                writer.add_scalar('CRISP/architecture_reduction', architecture_reduction, results['batches'])
-                #writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
+                dtCycle = 0
+                if prevtstart is not None:
+                    dtCycle = tstart - prevtstart
 
-            if i % test_freq == test_freq-1:    # Save image and run test
+                # print statistics
+                running_loss += loss.item()
+                training_cross_entropy_loss = cross_entropy_loss
                 if writer is not None:
-                    imprune_weights = plotsearch.plot(cell_weights)
-                    if imprune_weights.size > 0:
-                        im_class_weights = cv2.cvtColor(imprune_weights, cv2.COLOR_BGR2RGB)
-                        writer.add_image('network/prune_weights', im_class_weights, 0,dataformats='HWC')
+                    writer.add_scalar('loss/train', loss, results['batches'])
+                    writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, results['batches'])
+                    writer.add_scalar('time/infer', dtInfer, results['batches'])
+                    writer.add_scalar('time/loss', dtLoss, results['batches'])
+                    writer.add_scalar('time/backpropegation', dtBackprop, results['batches'])
+                    writer.add_scalar('time/compute', dtCompute, results['batches'])
+                    writer.add_scalar('time/cycle', dtCycle, results['batches'])
+                    writer.add_scalar('CRISP/architecture_loss', architecture_loss, results['batches'])
+                    writer.add_scalar('CRISP/prune_loss', prune_loss, results['batches'])
+                    writer.add_scalar('CRISP/architecture_reduction', architecture_reduction, results['batches'])
+                    #writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
 
+                if i % test_freq == test_freq-1:    # Save image and run test
+                    if writer is not None:
+                        imprune_weights = plotsearch.plot(cell_weights)
+                        if imprune_weights.size > 0:
+                            im_class_weights = cv2.cvtColor(imprune_weights, cv2.COLOR_BGR2RGB)
+                            writer.add_image('network/prune_weights', im_class_weights, 0,dataformats='HWC')
+
+                        imgrad = plotgrads.plot(model)
+                        if imgrad.size > 0:
+                            im_grad_norm = cv2.cvtColor(imgrad, cv2.COLOR_BGR2RGB)
+                            writer.add_image('network/gradient_norm', im_grad_norm, 0,dataformats='HWC')
+
+                    images = inputs.cpu().permute(0, 2, 3, 1).numpy()
+                    labels = np.around(labels.cpu().numpy()).astype('uint8')
+                    segmentations = torch.argmax(outputs, 1)
+                    segmentations = segmentations.cpu().numpy().astype('uint8')
+                    if writer is not None:
+                        if not write_graph:
+                            writer.add_graph(model, inputs)
+                            write_graph = True
+                        for j in range(1):
+                            imanseg = DisplayImgAn(images[j], labels[j], segmentations[j], trainloader['dataloader'], mean[j], stdev[j])      
+                            writer.add_image('segmentation/train', imanseg, 0,dataformats='HWC')
+
+                    with torch.no_grad():
+                        data = next(iTest)
+                        inputs, labels, mean, stdev = data
+                        if args.cuda:
+                            inputs = inputs.cuda()
+                            labels = labels.cuda()
+
+                        #with torch.cuda.amp.autocast():
+                        outputs = model(inputs)
+                        loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale = loss_fcn(outputs, labels, model)
+
+                    if writer is not None:
+                        writer.add_scalar('loss/test', loss, results['batches'])
+                        writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, results['batches'])
+
+                    running_loss /=test_freq
+                    msg = '[{:3}/{}, {:6d}/{}]  loss: {:0.5e}|{:0.5e} cross-entropy loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test) step time: {:0.3f}'.format(
+                        epoch + 1, 
+                        args.epochs, 
+                        i + 1, 
+                        trainloader['batches'], 
+                        running_loss, loss.item(),
+                        training_cross_entropy_loss.item(), 
+                        cross_entropy_loss.item(), 
+                        architecture_reduction.item(), 
+                        dtCycle
+                    )
+                    if args.job is True:
+                        print(msg)
+                    else:
+                        tqdm.write(msg)
+                    running_loss = 0.0
+
+                    images = inputs.cpu().permute(0, 2, 3, 1).numpy()
+                    labels = np.around(labels.cpu().numpy()).astype('uint8')
+                    segmentations = torch.argmax(outputs, 1)
+                    segmentations = segmentations.cpu().numpy().astype('uint8')
+
+                    if writer is not None:
+                        for j in range(1):
+                            imanseg = DisplayImgAn(images[j], labels[j], segmentations[j], trainloader['dataloader'], mean[j], stdev[j])      
+                            writer.add_image('segmentation/test', imanseg, 0,dataformats='HWC')
+
+            except:
+                print ("Unhandled error in train loop.  Continueing")
+
+            try:
+                iSave = 1000
+                if i % iSave == iSave-1:    # print every iSave mini-batches
+                    img = plotsearch.plot(cell_weights)
+                    if img.size > 0:
+                        is_success, buffer = cv2.imencode(".png", img, compression_params)
+                        img_enc = io.BytesIO(buffer).read()
+                        filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                        s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
                     imgrad = plotgrads.plot(model)
                     if imgrad.size > 0:
-                        im_grad_norm = cv2.cvtColor(imgrad, cv2.COLOR_BGR2RGB)
-                        writer.add_image('network/gradient_norm', im_grad_norm, 0,dataformats='HWC')
+                        is_success, buffer = cv2.imencode(".png", imgrad)  
+                        img_enc = io.BytesIO(buffer).read()
+                        filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                        s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+                        # Save calls zero_grads so call it after plotgrads.plot
 
-                images = inputs.cpu().permute(0, 2, 3, 1).numpy()
-                labels = np.around(labels.cpu().numpy()).astype('uint8')
-                segmentations = torch.argmax(outputs, 1)
-                segmentations = segmentations.cpu().numpy().astype('uint8')
-                if writer is not None:
-                    if not write_graph:
-                        writer.add_graph(model, inputs)
-                        write_graph = True
-                    for j in range(1):
-                        imanseg = DisplayImgAn(images[j], labels[j], segmentations[j], trainloader['dataloader'], mean[j], stdev[j])      
-                        writer.add_image('segmentation/train', imanseg, 0,dataformats='HWC')
+                    save(model, s3, s3def, args)
+            
+                if profile is not None:
+                    profile.step()
+            except:
+                print ("Unhandled error in test loop.  Continueing")
 
-                with torch.no_grad():
-                    data = next(iTest)
-                    inputs, labels, mean, stdev = data
-                    if args.cuda:
-                        inputs = inputs.cuda()
-                        labels = labels.cuda()
-
-                    #with torch.cuda.amp.autocast():
-                    outputs = model(inputs)
-                    loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale = loss_fcn(outputs, labels, model)
-
-                if writer is not None:
-                    writer.add_scalar('loss/test', loss, results['batches'])
-                    writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, results['batches'])
-
-                running_loss /=test_freq
-                msg = '[{:3}/{}, {:6d}/{}]  loss: {:0.5e}|{:0.5e} cross-entropy loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test) step time: {:0.3f}'.format(
-                    epoch + 1, 
-                    args.epochs, 
-                    i + 1, 
-                    trainloader['batches'], 
-                    running_loss, loss.item(),
-                    training_cross_entropy_loss.item(), 
-                    cross_entropy_loss.item(), 
-                    architecture_reduction.item(), 
-                    dtCycle
-                )
-                if args.job is True:
-                    print(msg)
-                else:
-                    tqdm.write(msg)
-                running_loss = 0.0
-
-                images = inputs.cpu().permute(0, 2, 3, 1).numpy()
-                labels = np.around(labels.cpu().numpy()).astype('uint8')
-                segmentations = torch.argmax(outputs, 1)
-                segmentations = segmentations.cpu().numpy().astype('uint8')
-
-                if writer is not None:
-                    for j in range(1):
-                        imanseg = DisplayImgAn(images[j], labels[j], segmentations[j], trainloader['dataloader'], mean[j], stdev[j])      
-                        writer.add_image('segmentation/test', imanseg, 0,dataformats='HWC')
-
-            iSave = 1000
-            if i % iSave == iSave-1:    # print every iSave mini-batches
-                img = plotsearch.plot(cell_weights)
-                if img.size > 0:
-                    is_success, buffer = cv2.imencode(".png", img, compression_params)
-                    img_enc = io.BytesIO(buffer).read()
-                    filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-                    s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
-                imgrad = plotgrads.plot(model)
-                if imgrad.size > 0:
-                    is_success, buffer = cv2.imencode(".png", imgrad)  
-                    img_enc = io.BytesIO(buffer).read()
-                    filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-                    s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
-                    # Save calls zero_grads so call it after plotgrads.plot
-
-                save(model, s3, s3def, args)
-        
-            if profile is not None:
-                profile.step()
             results['batches'] += 1
-
             if args.minimum and i >= test_freq:
                 break
 
-        img = plotsearch.plot(cell_weights)
-        if img.size > 0:
-            is_success, buffer = cv2.imencode(".png", img, compression_params)
-            img_enc = io.BytesIO(buffer).read()
-            filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-            s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+        try:
 
-        # Plot gradients before saving which clears the gradients
-        imgrad = plotgrads.plot(model)
-        if imgrad.size > 0:
-            is_success, buffer = cv2.imencode(".png", imgrad)  
-            img_enc = io.BytesIO(buffer).read()
-            filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-            s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+            img = plotsearch.plot(cell_weights)
+            if img.size > 0:
+                is_success, buffer = cv2.imencode(".png", img, compression_params)
+                img_enc = io.BytesIO(buffer).read()
+                filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
 
-        save(model, s3, s3def, args)
+            # Plot gradients before saving which clears the gradients
+            imgrad = plotgrads.plot(model)
+            if imgrad.size > 0:
+                is_success, buffer = cv2.imencode(".png", imgrad)  
+                img_enc = io.BytesIO(buffer).read()
+                filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
 
-        if args.minimum:
-            break
+            save(model, s3, s3def, args)
 
-        print('{} training complete'.format(args.model_dest))
-        results['training'] = {}
-        if cross_entropy_loss: results['training']['cross_entropy_loss']=cross_entropy_loss.item()
-        if architecture_loss: results['training']['architecture_loss']=architecture_loss.item()
-        if prune_loss: results['training']['prune_loss']=prune_loss.item()
-        if architecture_reduction: results['training']['architecture_reduction']=architecture_reduction.item()
+            if args.minimum:
+                break
 
-        if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
-            tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
-            s3.PutDir(s3def['sets']['test']['bucket'], args.tensorboard_dir, tb_path )
+            print('{} training complete'.format(args.model_dest))
+            results['training'] = {}
+            if cross_entropy_loss: results['training']['cross_entropy_loss']=cross_entropy_loss.item()
+            if architecture_loss: results['training']['architecture_loss']=architecture_loss.item()
+            if prune_loss: results['training']['prune_loss']=prune_loss.item()
+            if architecture_reduction: results['training']['architecture_reduction']=architecture_reduction.item()
+
+            if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
+                tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
+                s3.PutDir(s3def['sets']['test']['bucket'], args.tensorboard_dir, tb_path )
+
+        except:
+            print ("Unhandled error in epoch reporting.  Continueing")
 
     return results
 

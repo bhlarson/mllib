@@ -1064,9 +1064,9 @@ def parse_arguments():
 
     parser.add_argument('-credentails', type=str, default='creds.yaml', help='Credentials file.')
 
-    parser.add_argument('-dataset', type=str, default='cifar10', choices=['cifar10', 'imagenet'], help='Dataset')
     parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152, 20, 32, 44, 56, 110], default=56, help='Run description')
 
+    parser.add_argument('-dataset', type=str, default='cifar10', choices=['cifar10', 'imagenet'], help='Dataset')
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
     parser.add_argument('-model', type=str, default='model')
 
@@ -1694,7 +1694,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                     tqdm.write(msg)
                 running_loss = 0.0
 
-            iSave = 1000
+            iSave = 100
             if i % iSave == iSave-1:    # print every iSave mini-batches
                 img = plotsearch.plot(cell_weights)
                 if img.size > 0:
@@ -1760,7 +1760,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
 
     return results
 
-def Test(args, s3, s3def, model, loaders, device, results, writer, profile):
+def Test(args, s3, s3def, model, loaders, device, results, writer, profile = None):
     torch.cuda.empty_cache()
     now = datetime.now()
     date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
@@ -1961,11 +1961,6 @@ def main(args):
     if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0):
         os.makedirs(args.tensorboard_dir, exist_ok=True)
 
-        # tb = program.TensorBoard()
-        # tb.configure(('tensorboard', '--logdir', args.tensorboard_dir))
-        # tb.flags.bind_all = True
-        # tb.flags.port = args.tensorboard_port
-        # url = tb.launch()
         print(f"To launch tensorboard server: tensorboard --bind_all --logdir {args.tensorboard_dir}") # https://stackoverflow.com/questions/47425882/tensorboard-logdir-with-s3-path
         writer = SummaryWriter(writer_path)
 

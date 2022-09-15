@@ -12,7 +12,7 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: batch_size
-          value: 8
+          value: 2500
         - name: output_name
           value: 20220520i
         - name: description
@@ -21,21 +21,17 @@ workflow:
           value: 0.0
         - name: dataset
           value: cifar10
-        - name: width
-          value: 640
-        - name: height
-          value: 640
           # Start step to test/recover failed runs
         - name: start
           value: 0
           # Start container and wait for debugger to attach
         - name: debug
           value: false
+        - name: profile
+          value: false
           # Perform minimum run to test code execution
         - name: min
           value: false
-        - name: tbport
-          value: 6006
         - name: search_flops
           value: true
         - name: dataset_path
@@ -188,20 +184,20 @@ workflow:
             - {name: onnx, value: false}
             - {name: search_structure, value: true}
             - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-            - {name: epochs, value: 70}
+            - {name: epochs, value: 50}
             - {name: start_epoch, value: 0}
             - {name: ejector, value: 'prune_basis'}
-            - {name: ejector_start, value: 29}
-            - {name: ejector_full, value: 30}
+            - {name: ejector_start, value: 30}
+            - {name: ejector_full, value: 40}
             - {name: ejector_max, value: 1.0}
             - {name: model_src, value: ""}
             - {name: model_dest, value: "crispcifar10_{{workflow.parameters.output_name}}"}
             - {name: k_accuracy, value: 5.0}
             - {name: k_structure, value: 0.1}
             - {name: k_prune_basis, value: 0.2}
-            - {name: learning_rate, value: 2e-4}
+            - {name: learning_rate, value: 2e-3}
             - {name: learning_rate_decay, value: 0.5}
-            - {name: rate_schedule, value: "[40, 50, 60]"}
+            - {name: rate_schedule, value: "[30, 40, 45]"}
             - {name: description, value: "{{workflow.parameters.description}}"}
             - {name: resultspath, value: "/app/results.yaml"}
             - {name: prevresultspath, value: "/app/prevresults.yaml"}
@@ -245,10 +241,9 @@ workflow:
           args:
             - networks/cell2d.py
             - -dataset={{workflow.parameters.dataset}}
-            - -height={{workflow.parameters.height}}
-            - -width={{workflow.parameters.width}}
             - -prune={{inputs.parameters.prune}}
             - -train={{inputs.parameters.train}}
+            - -profile={{workflow.parameters.profile}}
             - -epochs={{inputs.parameters.epochs}}
             - -start_epoch={{inputs.parameters.start_epoch}}
             - -test={{inputs.parameters.test}}
@@ -285,7 +280,7 @@ workflow:
           ports:
             - name: debug
               containerPort: 3000
-              hostPort: 3000
+              #hostPort: 3000
           resources:
             requests:
               ephemeral-storage: "40Gi"

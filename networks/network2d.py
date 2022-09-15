@@ -21,8 +21,8 @@ from torch.utils.tensorboard import SummaryWriter
 from collections import namedtuple
 from collections import OrderedDict
 from typing import Callable, Optional
-import cv2
 from tqdm import tqdm
+import cv2
 
 from pymlutil.torch_util import count_parameters, model_stats, model_weights
 from pymlutil.jsonutil import ReadDict, WriteDict, str2bool
@@ -364,8 +364,9 @@ def parse_arguments():
     parser.add_argument('-imStatistics', type=str2bool, default=False, help='Record individual image statistics')
 
     parser.add_argument('-dataset', type=str, default='coco', choices=['coco', 'lit'], help='Dataset')
+    parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
 
-    parser.add_argument('-lit_dataset', type=str, default='annotations/lit/dataset.yaml', help='Image dataset file')
+    parser.add_argument('-lit_dataset', type=str, default='data/lit/dataset.yaml', help='Image dataset file')
     parser.add_argument('-lit_class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
     parser.add_argument('-coco_class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
@@ -984,7 +985,7 @@ def main(args):
         prevresults = ReadDict(args.prevresultspath)
         if prevresults is not None:
             if 'batches' in prevresults:
-                print('found prevresultspath={}'.format(prevresults))
+                print('found prevresultspath={}'.format(yaml.dump(prevresults, default_flow_style=False)))
                 results['batches'] = prevresults['batches']
             if 'initial_parameters' in prevresults:
                 results['initial_parameters'] = prevresults['initial_parameters']
@@ -1019,6 +1020,7 @@ def main(args):
 
     tb = None
     writer = None
+    writer_path = '{}/{}'.format(args.tensorboard_dir, args.model_dest)
 
     # Load previous tensorboard for multi-step training
     if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
@@ -1028,13 +1030,7 @@ def main(args):
     if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0):
         os.makedirs(args.tensorboard_dir, exist_ok=True)
 
-        tb = program.TensorBoard()
-        tb.configure(('tensorboard', '--logdir', args.tensorboard_dir))
-        tb.flags.bind_all = True
-        tb.flags.port = args.tensorboard_port
-        url = tb.launch()
-        print(f"Tensorboard on {url}")
-        writer_path = '{}/{}'.format(args.tensorboard_dir, args.model_dest)
+        print(f"To launch tensorboard server: tensorboard --bind_all --logdir {args.tensorboard_dir}") # https://stackoverflow.com/questions/47425882/tensorboard-logdir-with-s3-path
         writer = SummaryWriter(writer_path)
 
     if 'batches' not in results:
@@ -1049,7 +1045,7 @@ def main(args):
             with profile(
                     activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                     schedule=torch.profiler.schedule(skip_first=3, wait=1, warmup=1, active=3, repeat=1),
-                    on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
+                    on_trace_ready=torch.profiler.tensorboard_trace_handler(writer_path),
                     record_shapes=True, profile_memory=True, with_stack=True, with_flops=False, with_modules=False
             ) as prof:
                 results = Train(args, s3, s3def, class_dictionary, segment, loaders, device, results, writer, prof)
@@ -1061,7 +1057,7 @@ def main(args):
             with profile(
                     activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                     schedule=torch.profiler.schedule(skip_first=3, wait=1, warmup=1, active=3, repeat=0),
-                    on_trace_ready=torch.profiler.tensorboard_trace_handler(args.tensorboard_dir),
+                    on_trace_ready=torch.profiler.tensorboard_trace_handler(writer_path),
                     record_shapes=False, profile_memory=False, with_stack=True, with_flops=False, with_modules=True
             ) as prof:
                 results = Test(args, s3, s3def, class_dictionary, segment, loaders, device, results, writer, prof)
@@ -1111,7 +1107,7 @@ if __name__ == '__main__':
         '''
 
         debugpy.listen(address=(args.debug_address, args.debug_port)) # Pause the program until a remote debugger is attached
-        debugpy.wait_for_client()
+        debugpy.wait_for_client() # Pause the program until a remote debugger is attached
         print("Debugger attached")
 
     result = main(args)

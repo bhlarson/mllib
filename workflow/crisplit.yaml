@@ -31,13 +31,17 @@ workflow:
           # Start container and wait for debugger to attach
         - name: debug
           value: false
+        - name: profile
+          value: false
           # Perform minimum run to test code execution
         - name: min
           value: false
-        - name: tbport
-          value: 6006
         - name: search_flops
           value: true
+        - name: dataset_path
+          value: /data
+        - name: tb_logs
+          value: /tb_logs
 
     entrypoint: train-crisp
     priority: 1
@@ -91,7 +95,6 @@ workflow:
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
                   - {name: ejector, value: 'prune_basis'}
-                  - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00"}
                   - {name: convMaskThreshold, value: 0.02}
@@ -109,7 +112,6 @@ workflow:
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
                   - {name: ejector, value: 'prune_basis'}
-                  - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01"}
                   - {name: convMaskThreshold, value: 0.02}
@@ -127,7 +129,6 @@ workflow:
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
                   - {name: ejector, value: 'prune_basis'}
-                  - {name: ejector_max, value: 1.0}
                   - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01"}
                   - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02"}
                   - {name: convMaskThreshold, value: 0.02}
@@ -258,9 +259,9 @@ workflow:
             - mountPath: /dev/shm
               name: dshm
             - name: workerstorage
-              mountPath: /data
+              mountPath: '{{workflow.parameters.dataset_path}}'
             - name: tblogs
-              mountPath: /tb_logs
+              mountPath: '{{workflow.parameters.tb_logs}}'
           command:
             - python3
           args:
@@ -270,6 +271,7 @@ workflow:
             - -width={{workflow.parameters.width}}
             - -prune={{inputs.parameters.prune}}
             - -train={{inputs.parameters.train}}
+            - -profile={{workflow.parameters.profile}}
             - -epochs={{inputs.parameters.epochs}}
             - -start_epoch={{inputs.parameters.start_epoch}}
             - -test={{inputs.parameters.test}}
@@ -281,7 +283,6 @@ workflow:
             - -learning_rate={{inputs.parameters.learning_rate}}
             - -model_src={{inputs.parameters.model_src}}
             - -model_dest={{inputs.parameters.model_dest}}
-            - -tb_dest=crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_tb
             - -description={{inputs.parameters.description}}
             - -resultspath={{inputs.parameters.resultspath}}
             - -prevresultspath={{inputs.parameters.prevresultspath}}
@@ -301,13 +302,14 @@ workflow:
             - -k_prune_sigma={{inputs.parameters.k_prune_sigma}}
             - -convMaskThreshold={{inputs.parameters.convMaskThreshold}}
             - -search_flops={{workflow.parameters.search_flops}}
+            - -dataset_path={{workflow.parameters.dataset_path}}
+            - -tensorboard_dir={{workflow.parameters.tb_logs}}/crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_tb
+            - -tb_dest=crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_tb
+
           ports:
             - name: debug
               containerPort: 3000
               #hostPort: 3000
-            - name: tensorboard
-              containerPort: 6006
-              #hostPort: 6006
           resources:
             requests:
               ephemeral-storage: "40Gi"

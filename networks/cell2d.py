@@ -1694,7 +1694,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                     tqdm.write(msg)
                 running_loss = 0.0
 
-            iSave = 100
+            iSave = 10
             if i % iSave == iSave-1:    # print every iSave mini-batches
                 img = plotsearch.plot(cell_weights)
                 if img.size > 0:

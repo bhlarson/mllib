@@ -6,6 +6,7 @@ import io
 import json
 import yaml
 import platform
+from enum import Enum
 import time
 from datetime import datetime
 import numpy as np

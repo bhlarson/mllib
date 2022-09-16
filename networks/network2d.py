@@ -9,8 +9,8 @@ import platform
 import time
 from datetime import datetime
 import numpy as np
-import torch
 from copy import deepcopy
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -617,7 +617,6 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
                             total=trainloader['batches'], desc="Train batches", disable=args.job):
 
             try:
-
                 # get the inputs; data is a list of [inputs, labels]
                 prevtstart = tstart
                 tstart = time.perf_counter()
@@ -898,7 +897,7 @@ def Prune(args, s3, s3def, model, class_dictionary, results):
                         'initial flops': results['initial_flops'], 
                         'remaining flops':results['flops_after_prune']/results['initial_flops'] }
     print('{} prune results {}'.format(args.model_dest, yaml.dump(results['prune'], default_flow_style=False)))
-    
+
     return results
 
 def onnx(model, s3, s3def, args, input_channels):

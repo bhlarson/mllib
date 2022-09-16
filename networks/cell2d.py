@@ -1,18 +1,14 @@
-import enum
+#!/usr/bin/python3
 import math
 import os
 import sys
-import math
 import io
 import json
 import yaml
-import random
 import platform
-from enum import Enum
 import time
 from datetime import datetime
 import numpy as np
-import torch
 from copy import deepcopy
 import torch
 import torch.nn as nn
@@ -1596,184 +1592,189 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                             bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}', 
                             total=trainloader['batches'], desc="Train batches", disable=args.job):
 
-            # get the inputs; data is a list of [inputs, labels]
-            prevtstart = tstart
-            tstart = time.perf_counter()
+            try:
+                # get the inputs; data is a list of [inputs, labels]
+                prevtstart = tstart
+                tstart = time.perf_counter()
 
-            inputs, labels = data
+                inputs, labels = data
 
-            if args.cuda:
-                inputs = inputs.cuda()
-                labels = labels.cuda()
+                if args.cuda:
+                    inputs = inputs.cuda()
+                    labels = labels.cuda()
 
-            if not write_graph:
-                writer.add_graph(model, inputs)
-                write_graph = True
+                if not write_graph:
+                    writer.add_graph(model, inputs)
+                    write_graph = True
 
-            # zero the parameter gradients
-            optimizer.zero_grad(set_to_none=True)
-            outputs = model(inputs, isTraining=True)
-            classifications = torch.argmax(outputs, 1)
-            tinfer = time.perf_counter()
-            loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale  = loss_fcn(outputs, labels, model)
-            tloss = time.perf_counter()
-            loss.backward()
-            optimizer.step()
-            tend = time.perf_counter()
-
-            top1_correct = (classifications == labels).float()
-            training_accuracy = torch.sum(top1_correct)/len(top1_correct)
-
-            dtInfer = tinfer - tstart
-            dtLoss = tloss - tinfer
-            dtBackprop = tend - tloss
-            dtCompute = tend - tstart
-
-            dtCycle = 0
-            if prevtstart is not None:
-                dtCycle = tstart - prevtstart
-
-            # print statistics
-            running_loss += loss.item()
-            training_cross_entropy_loss = cross_entropy_loss
-
-            if writer is not None:
-                writer.add_scalar('loss/train', loss, results['batches'])
-                writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, results['batches'])
-                writer.add_scalar('accuracy/train', training_accuracy, results['batches'])
-                writer.add_scalar('time/infer', dtInfer, results['batches'])
-                writer.add_scalar('time/loss', dtLoss, results['batches'])
-                writer.add_scalar('time/backpropegation', dtBackprop, results['batches'])
-                writer.add_scalar('time/compute', dtCompute, results['batches'])
-                writer.add_scalar('time/cycle', dtCycle, results['batches'])
-                writer.add_scalar('CRISP/architecture_loss', architecture_loss, results['batches'])
-                writer.add_scalar('CRISP/prune_loss', prune_loss, results['batches'])
-                writer.add_scalar('CRISP/architecture_reduction', architecture_reduction, results['batches'])
-                #writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
-
-            if i % test_freq == test_freq-1:    # Save image and run test
-                if writer is not None:
-                    imprune_weights = plotsearch.plot(cell_weights)
-                    if imprune_weights.size > 0:
-                        im_class_weights = cv2.cvtColor(imprune_weights, cv2.COLOR_BGR2RGB)
-                        writer.add_image('network/prune_weights', im_class_weights, 0,dataformats='HWC')
-
-                    imgrad = plotgrads.plot(model)
-                    if imgrad.size > 0:
-                        im_grad_norm = cv2.cvtColor(imgrad, cv2.COLOR_BGR2RGB)
-                        writer.add_image('network/gradient_norm', im_grad_norm, 0,dataformats='HWC')
-
-
+                # zero the parameter gradients
+                optimizer.zero_grad(set_to_none=True)
+                outputs = model(inputs, isTraining=True)
                 classifications = torch.argmax(outputs, 1)
+                tinfer = time.perf_counter()
+                loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale  = loss_fcn(outputs, labels, model)
+                tloss = time.perf_counter()
+                loss.backward()
+                optimizer.step()
+                tend = time.perf_counter()
+
                 top1_correct = (classifications == labels).float()
                 training_accuracy = torch.sum(top1_correct)/len(top1_correct)
-                with torch.no_grad():
-                    data = next(iTest)
-                    inputs, labels = data
 
-                    if args.cuda:
-                        inputs = inputs.cuda()
-                        labels = labels.cuda()
+                dtInfer = tinfer - tstart
+                dtLoss = tloss - tinfer
+                dtBackprop = tend - tloss
+                dtCompute = tend - tstart
 
-                #with torch.cuda.amp.autocast():
-                outputs = model(inputs)
-                loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale = loss_fcn(outputs, labels, model)
-                classifications = torch.argmax(outputs, 1)
-                top1_correct = (classifications == labels).float()
-                test_accuracy = torch.sum(top1_correct)/len(top1_correct)
+                dtCycle = 0
+                if prevtstart is not None:
+                    dtCycle = tstart - prevtstart
+
+                # print statistics
+                running_loss += loss.item()
+                training_cross_entropy_loss = cross_entropy_loss
 
                 if writer is not None:
-                    writer.add_scalar('loss/test', loss, results['batches'])
-                    writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, results['batches'])
-                    writer.add_scalar('accuracy/test', test_accuracy, results['batches'])
+                    writer.add_scalar('loss/train', loss, results['batches'])
+                    writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, results['batches'])
+                    writer.add_scalar('accuracy/train', training_accuracy, results['batches'])
+                    writer.add_scalar('time/infer', dtInfer, results['batches'])
+                    writer.add_scalar('time/loss', dtLoss, results['batches'])
+                    writer.add_scalar('time/backpropegation', dtBackprop, results['batches'])
+                    writer.add_scalar('time/compute', dtCompute, results['batches'])
+                    writer.add_scalar('time/cycle', dtCycle, results['batches'])
+                    writer.add_scalar('CRISP/architecture_loss', architecture_loss, results['batches'])
+                    writer.add_scalar('CRISP/prune_loss', prune_loss, results['batches'])
+                    writer.add_scalar('CRISP/architecture_reduction', architecture_reduction, results['batches'])
+                    #writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
 
-                running_loss /=test_freq
-                msg = '[{:3}/{}, {:6d}/{}]  loss: {:0.5e}|{:0.5e} cross-entropy loss: {:0.5e}|{:0.5e} accuracy: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test) step time: {:0.3f}'.format(
-                    epoch + 1,
-                    args.epochs, 
-                    i + 1, 
-                    trainloader['batches'],
-                    running_loss, loss.item(),
-                    training_cross_entropy_loss.item(), 
-                    cross_entropy_loss.item(), 
-                    training_accuracy.item(), 
-                    test_accuracy.item(), 
-                    architecture_reduction.item(), 
-                    dtCycle
-                )
-                if args.job is True:
-                    print(msg)
-                else:
-                    tqdm.write(msg)
-                running_loss = 0.0
+                if i % test_freq == test_freq-1:    # Save image and run test
+                    if writer is not None:
+                        imprune_weights = plotsearch.plot(cell_weights)
+                        if imprune_weights.size > 0:
+                            im_class_weights = cv2.cvtColor(imprune_weights, cv2.COLOR_BGR2RGB)
+                            writer.add_image('network/prune_weights', im_class_weights, 0,dataformats='HWC')
 
-            iSave = 100
-            if i % iSave == iSave-1:    # print every iSave mini-batches
-                img = plotsearch.plot(cell_weights)
-                if img.size > 0:
-                    is_success, buffer = cv2.imencode(".png", img, compression_params)
-                    img_enc = io.BytesIO(buffer).read()
-                    filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-                    s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
-                imgrad = plotgrads.plot(model)
-                if imgrad.size > 0:
-                    is_success, buffer = cv2.imencode(".png", imgrad)  
-                    img_enc = io.BytesIO(buffer).read()
-                    filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-                    s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
-                    # Save calls zero_grads so call it after plotgrads.plot
+                        imgrad = plotgrads.plot(model)
+                        if imgrad.size > 0:
+                            im_grad_norm = cv2.cvtColor(imgrad, cv2.COLOR_BGR2RGB)
+                            writer.add_image('network/gradient_norm', im_grad_norm, 0,dataformats='HWC')
 
-                save(model, s3, s3def, args)
 
-            if args.minimum and i+1 >= test_freq:
-                break
+                    classifications = torch.argmax(outputs, 1)
+                    top1_correct = (classifications == labels).float()
+                    training_accuracy = torch.sum(top1_correct)/len(top1_correct)
+                    with torch.no_grad():
+                        data = next(iTest)
+                        inputs, labels = data
 
-            if profile is not None:
-                profile.step()
+                        if args.cuda:
+                            inputs = inputs.cuda()
+                            labels = labels.cuda()
+
+                    #with torch.cuda.amp.autocast():
+                    outputs = model(inputs)
+                    loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale = loss_fcn(outputs, labels, model)
+                    classifications = torch.argmax(outputs, 1)
+                    top1_correct = (classifications == labels).float()
+                    test_accuracy = torch.sum(top1_correct)/len(top1_correct)
+
+                    if writer is not None:
+                        writer.add_scalar('loss/test', loss, results['batches'])
+                        writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, results['batches'])
+                        writer.add_scalar('accuracy/test', test_accuracy, results['batches'])
+
+                    running_loss /=test_freq
+                    msg = '[{:3}/{}, {:6d}/{}]  loss: {:0.5e}|{:0.5e} cross-entropy loss: {:0.5e}|{:0.5e} accuracy: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test) step time: {:0.3f}'.format(
+                        epoch + 1,
+                        args.epochs, 
+                        i + 1, 
+                        trainloader['batches'],
+                        running_loss, loss.item(),
+                        training_cross_entropy_loss.item(), 
+                        cross_entropy_loss.item(), 
+                        training_accuracy.item(), 
+                        test_accuracy.item(), 
+                        architecture_reduction.item(), 
+                        dtCycle
+                    )
+                    if args.job is True:
+                        print(msg)
+                    else:
+                        tqdm.write(msg)
+                    running_loss = 0.0
+
+                iSave = 100
+                if i % iSave == iSave-1:    # print every iSave mini-batches
+                    img = plotsearch.plot(cell_weights)
+                    if img.size > 0:
+                        is_success, buffer = cv2.imencode(".png", img, compression_params)
+                        img_enc = io.BytesIO(buffer).read()
+                        filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                        s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+                    imgrad = plotgrads.plot(model)
+                    if imgrad.size > 0:
+                        is_success, buffer = cv2.imencode(".png", imgrad)  
+                        img_enc = io.BytesIO(buffer).read()
+                        filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                        s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+                        # Save calls zero_grads so call it after plotgrads.plot
+
+                    save(model, s3, s3def, args)
+
+                if args.minimum and i+1 >= test_freq:
+                    break
+
+                if profile is not None:
+                    profile.step()
+            except:
+                print ("Unhandled error in train loop.  Continuing")
+
             results['batches'] += 1
-
             if args.minimum and i >= test_freq:
                 break
 
+        try:
+            #scheduler1.step()
+            scheduler2.step()
 
-        #scheduler1.step()
-        scheduler2.step()
+            img = plotsearch.plot(cell_weights)
+            if img.size > 0:
+                is_success, buffer = cv2.imencode(".png", img, compression_params)
+                img_enc = io.BytesIO(buffer).read()
+                filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
 
-        img = plotsearch.plot(cell_weights)
-        if img.size > 0:
-            is_success, buffer = cv2.imencode(".png", img, compression_params)
-            img_enc = io.BytesIO(buffer).read()
-            filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-            s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+            # Plot gradients before saving which clears the gradients
+            imgrad = plotgrads.plot(model)
+            if imgrad.size > 0:
+                is_success, buffer = cv2.imencode(".png", imgrad)  
+                img_enc = io.BytesIO(buffer).read()
+                filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
 
-        # Plot gradients before saving which clears the gradients
-        imgrad = plotgrads.plot(model)
-        if imgrad.size > 0:
-            is_success, buffer = cv2.imencode(".png", imgrad)  
-            img_enc = io.BytesIO(buffer).read()
-            filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-            s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+            save(model, s3, s3def, args)
 
-        save(model, s3, s3def, args)
+            if args.minimum:
+                break
 
-        if args.minimum:
-            break
+            print('{} training complete'.format(args.model_dest))
+            results['training'] = {}
+            if cross_entropy_loss: results['training']['cross_entropy_loss']=cross_entropy_loss.item()
+            if architecture_loss: results['training']['architecture_loss']=architecture_loss.item()
+            if prune_loss: results['training']['prune_loss']=prune_loss.item()
+            if architecture_reduction: results['training']['architecture_reduction']=architecture_reduction.item()
+            if training_accuracy: results['training']['accuracy'] =  training_accuracy.item()
 
-        print('{} training complete'.format(args.model_dest))
-        results['training'] = {}
-        if cross_entropy_loss: results['training']['cross_entropy_loss']=cross_entropy_loss.item()
-        if architecture_loss: results['training']['architecture_loss']=architecture_loss.item()
-        if prune_loss: results['training']['prune_loss']=prune_loss.item()
-        if architecture_reduction: results['training']['architecture_reduction']=architecture_reduction.item()
-        if training_accuracy: results['training']['accuracy'] =  training_accuracy.item()
+            if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
+                tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
+                s3.PutDir(s3def['sets']['test']['bucket'], args.tensorboard_dir, tb_path )
 
-        if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
-            tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
-            s3.PutDir(s3def['sets']['test']['bucket'], args.tensorboard_dir, tb_path )
-
+        except:
+            print ("Unhandled error in epoch reporting.  Continuing")
     return results
 
-def Test(args, s3, s3def, model, loaders, device, results, writer, profile = None):
+def Test(args, s3, s3def, model, loaders, device, results, writer, profile=None):
     torch.cuda.empty_cache()
     now = datetime.now()
     date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
@@ -2050,7 +2051,7 @@ if __name__ == '__main__':
         Connet to vscode "Python: Remote" configuration
         '''
 
-        debugpy.listen(address=(args.debug_address, args.debug_port))
+        debugpy.listen(address=(args.debug_address, args.debug_port)) # Pause the program until a remote debugger is attached
         debugpy.wait_for_client() # Pause the program until a remote debugger is attached
         print("Debugger attached")
 

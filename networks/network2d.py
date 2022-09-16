@@ -355,7 +355,6 @@ def parse_arguments():
     parser.add_argument('-debug', type=str2bool, default=False, help='Wait for debuggee attach')
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
-    parser.add_argument('-tensorboard_port', type=int, default=6006, help='Debug port')
     parser.add_argument('-min', action='store_true', help='Minimum run with a few iterations to test execution')
     parser.add_argument('-minimum', type=str2bool, default=False, help='Minimum run with a few iterations to test execution')
 
@@ -733,10 +732,6 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
                             imanseg = DisplayImgAn(images[j], labels[j], segmentations[j], trainloader['dataloader'], mean[j], stdev[j])      
                             writer.add_image('segmentation/test', imanseg, 0,dataformats='HWC')
 
-            except:
-                print ("Unhandled error in train loop.  Continueing")
-
-            try:
                 iSave = 1000
                 if i % iSave == iSave-1:    # print every iSave mini-batches
                     img = plotsearch.plot(cell_weights)
@@ -758,7 +753,7 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
                 if profile is not None:
                     profile.step()
             except:
-                print ("Unhandled error in test loop.  Continueing")
+                print ("Unhandled error in train loop.  Continuing")
 
             results['batches'] += 1
             if args.minimum and i >= test_freq:
@@ -798,7 +793,7 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
                 s3.PutDir(s3def['sets']['test']['bucket'], args.tensorboard_dir, tb_path )
 
         except:
-            print ("Unhandled error in epoch reporting.  Continueing")
+            print ("Unhandled error in epoch reporting.  Continuing")
 
     return results
 

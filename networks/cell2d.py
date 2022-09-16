@@ -347,8 +347,12 @@ class ConvBR(nn.Module):
                     cell_weights += flops_total
                 if self.batch_norm:
                     flops_relaxed, flops_total = bn_flops_counter_hook(self.batchnorm2d, self.output_shape, self.relaxation)
-                    architecture_weights += bn_flops_counter_hook(self.batchnorm2d, self.output_shape, self.relaxation)
+                    architecture_weights += flops_relaxed
                     cell_weights += flops_total
+
+                if not torch.is_tensor(architecture_weights):
+                    architecture_weights = torch.tensor(architecture_weights, device = self.device)
+
                 architecture_weights = torch.reshape(architecture_weights,[-1]) # reshape to single element array to be the same format as not flops architecture_weights
 
             else:
@@ -923,10 +927,20 @@ def ResnetCells(size = Resnet.layers_50):
 
 
 class Classify(nn.Module):
-    def __init__(self, convolutions, 
-    device=torch.device("cpu"), source_channels = 3, out_channels = 10, initial_channels=16, 
-    batch_norm=True, weight_gain=11, convMaskThreshold=0.5, 
-    dropout_rate=0.2, search_structure = True, sigmoid_scale=5.0, feature_threshold=0.5):
+    def __init__(self, 
+                convolutions, 
+                device=torch.device("cpu"), 
+                source_channels = 3, 
+                out_channels = 10, 
+                initial_channels=16, 
+                batch_norm=True, 
+                weight_gain=11, 
+                convMaskThreshold=0.5, 
+                dropout_rate=0.2, 
+                search_structure = True, 
+                sigmoid_scale=5.0, 
+                feature_threshold=0.5, 
+                search_flops = True,):
         super().__init__()
         self.device = device
         self.source_channels = source_channels
@@ -939,6 +953,7 @@ class Classify(nn.Module):
         self.search_structure = search_structure
         self.sigmoid_scale = sigmoid_scale
         self.feature_threshold = feature_threshold
+        self.search_flops = search_flops
                 
         self.cells = torch.nn.ModuleList()
         in_channels = self.source_channels
@@ -957,7 +972,8 @@ class Classify(nn.Module):
                 dropout_rate=self.dropout_rate, 
                 search_structure=self.search_structure, 
                 sigmoid_scale=self.sigmoid_scale, 
-                feature_threshold=self.feature_threshold)
+                feature_threshold=self.feature_threshold,
+                             search_flops = self.search_flops)
             in_channels = cell_convolutions['cell'][-1]['out_channels']
             self.cells.append(cell)
 
@@ -1058,13 +1074,12 @@ def parse_arguments():
     parser.add_argument('-debug', type=str2bool, default=False, help='Wait for debuggee attach')
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
-    parser.add_argument('-tensorboard_port', type=int, default=6006, help='Debug port')
     parser.add_argument('-min', action='store_true', help='Minimum run with a few iterations to test execution')
     parser.add_argument('-minimum', type=str2bool, default=False, help='Minimum run with a few iterations to test execution')
 
     parser.add_argument('-credentails', type=str, default='creds.yaml', help='Credentials file.')
 
-    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152, 20, 32, 44, 56, 110], default=56, help='Run description')
+    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152, 20, 32, 44, 56, 110], default=101, help='Run description')
 
     parser.add_argument('-dataset', type=str, default='cifar10', choices=['cifar10', 'imagenet'], help='Dataset')
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
@@ -1088,7 +1103,7 @@ def parse_arguments():
     parser.add_argument('-model_class', type=str,  default='CIFAR10')
     parser.add_argument('-model_src', type=str,  default=None)
     parser.add_argument('-model_dest', type=str, default="crisp20220511_t00_00")
-    parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
+    parser.add_argument('-test_sparsity', type=int, default=1, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
 
@@ -1450,8 +1465,6 @@ class PlotGradients():
 
         return img
 
-
-
 class AddGaussianNoise(object):
     def __init__(self, mean=0., std=1.):
         self.std = std
@@ -1694,7 +1707,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                     tqdm.write(msg)
                 running_loss = 0.0
 
-            iSave = 10
+            iSave = 100
             if i % iSave == iSave-1:    # print every iSave mini-batches
                 img = plotsearch.plot(cell_weights)
                 if img.size > 0:

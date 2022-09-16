@@ -36,8 +36,6 @@ workflow:
           # Perform minimum run to test code execution
         - name: min
           value: false
-        - name: tbport
-          value: 6006
         - name: search_flops
           value: true
         - name: dataset_path

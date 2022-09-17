@@ -16,7 +16,7 @@ workflow:
         - name: output_name
           value: 20220520i
         - name: description
-          value: '{"author":"Brad Larson","description":"Crisp cifar10 segmentation"}'
+          value: '{"author":"Brad Larson","description":"Crisp cifar10 classification"}'
         - name: target_structure
           value: 0.0
         - name: dataset
@@ -38,6 +38,9 @@ workflow:
           value: /data
         - name: tb_logs
           value: /tb_logs
+        # cell2d.py -resnet_len for supported lenghts
+        - name: resnet_len
+          value: 101
 
     entrypoint: train-crisp
     priority: 1
@@ -276,6 +279,7 @@ workflow:
             - -dataset_path={{workflow.parameters.dataset_path}}
             - -tensorboard_dir={{workflow.parameters.tb_logs}}/crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_tb
             - -tb_dest=crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_tb
+            - -resnet_len={{workflow.parameters.resnet_len}}
 
           ports:
             - name: debug

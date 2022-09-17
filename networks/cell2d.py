@@ -36,6 +36,9 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data.sampler import SubsetRandomSampler
 
+from torchdatasetutil.imagenetstore import CreateImagesetLoaders
+from torchdatasetutil.cifar10store import CreateCifar10Loaders
+
 from ptflops import get_model_complexity_info
 from fvcore.nn import FlopCountAnalysis
 
@@ -1078,11 +1081,12 @@ def parse_arguments():
 
     parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152, 20, 32, 44, 56, 110], default=101, help='Run description')
 
-    parser.add_argument('-dataset', type=str, default='cifar10', choices=['cifar10', 'imagenet'], help='Dataset')
-    parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
+    parser.add_argument('-dataset', type=str, default='imagenet', choices=['cifar10', 'imagenet'], help='Dataset')
+    parser.add_argument('-dataset_path', type=str, default='/data', help='Local dataset path')
+    parser.add_argument('-obj_imagenet', type=str, default='data/imagenet', help='Local dataset path')
     parser.add_argument('-model', type=str, default='model')
 
-    parser.add_argument('-batch_size', type=int, default=1000, help='Training batch size') 
+    parser.add_argument('-batch_size', type=int, default=80, help='Training batch size') 
 
     parser.add_argument('-learning_rate', type=float, default=1e-1, help='Training learning rate')
     parser.add_argument('-learning_rate_decay', type=float, default=0.5, help='Rate decay multiple')
@@ -1095,9 +1099,9 @@ def parse_arguments():
     parser.add_argument('-epochs', type=int, default=500, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
-    parser.add_argument('-num_workers', type=int, default=10, help='Data loader workers')
+    parser.add_argument('-num_workers', type=int, default=0, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='classification')
-    parser.add_argument('-model_class', type=str,  default='CIFAR10')
+    parser.add_argument('-model_class', type=str,  default='imagenet')
     parser.add_argument('-model_src', type=str,  default=None)
     parser.add_argument('-model_dest', type=str, default="crisp20220511_t00_00")
     parser.add_argument('-test_sparsity', type=int, default=1, help='test step multiple')
@@ -1121,7 +1125,6 @@ def parse_arguments():
     parser.add_argument('-feature_threshold', type=float, default=0.5, help='tanh pruning threshold')
     parser.add_argument('-convMaskThreshold', type=float, default=0.1, help='convolution channel sigmoid level to prune convolution channels')
 
-
     parser.add_argument('-augment_rotation', type=float, default=0.0, help='Input augmentation rotation degrees')
     parser.add_argument('-augment_scale_min', type=float, default=1.00, help='Input augmentation scale')
     parser.add_argument('-augment_scale_max', type=float, default=1.00, help='Input augmentation scale')
@@ -1139,7 +1142,7 @@ def parse_arguments():
     parser.add_argument('-test', type=str2bool, default=True)
     parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-search_flops', type=str2bool, default=True)
-    parser.add_argument('-profile', type=str2bool, default=True)
+    parser.add_argument('-profile', type=str2bool, default=False)
     parser.add_argument('-time_trial', type=str2bool, default=False)
     parser.add_argument('-onnx', type=str2bool, default=True)
     parser.add_argument('-job', action='store_true',help='Run as job')
@@ -1147,7 +1150,8 @@ def parse_arguments():
     parser.add_argument('-resultspath', type=str, default='results.yaml')
     parser.add_argument('-prevresultspath', type=str, default=None)
     parser.add_argument('-test_dir', type=str, default=None)
-    parser.add_argument('-tensorboard_dir', type=str, default='./tb_logs',
+    #parser.add_argument('-tensorboard_dir', type=str, default='/tb_logs',
+    parser.add_argument('-tensorboard_dir', type=str, default=None,
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
     parser.add_argument('-tb_dest', type=str, default='crispcifar10_20220909_061234_hiocnn_tb_01')
 
@@ -1169,7 +1173,7 @@ def parse_arguments():
 
 def ModelSize(args, model, results, loaders):
 
-    testloader = next(filter(lambda d: d.get('set') == 'test', loaders), None)
+    testloader = next(filter(lambda d: d.get('set') == 'test' or d.get('set') == 'val', loaders), None)
     if testloader is None:
         raise ValueError('{} {} failed to load testloader {}'.format(__file__, __name__, args.dataset))
 
@@ -1191,7 +1195,7 @@ def load(s3, s3def, args, loaders, results):
     model = None
 
     if 'initial_parameters' not in results or args.model_src is None or args.model_src == '':
-        model = MakeNetwork(args)
+        model = MakeNetwork(args, source_channels = loaders[0]['in_channels'], out_channels = loaders[0]['num_classes'])
         results['initial_parameters'] , results['initial_flops'] = ModelSize(args, model, results, loaders)
 
     print('load initial_parameters = {} initial_flops = {}'.format(results['initial_parameters'], results['initial_flops']))
@@ -1219,7 +1223,7 @@ def save(model, s3, s3def, args, loc=''):
     outname = '{}/{}/{}{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest,loc)
     s3.PutObject(s3def['sets']['model']['bucket'], outname, out_buffer)
 
-def MakeNetwork(args):
+def MakeNetwork(args, source_channels = 3, out_channels = 10):
     resnetCells = ResnetCells(Resnet(args.resnet_len))
 
     device = torch.device("cpu")
@@ -1232,7 +1236,9 @@ def MakeNetwork(args):
                         search_structure=args.search_structure, 
                         sigmoid_scale=args.sigmoid_scale,
                         batch_norm = args.batch_norm,
-                        feature_threshold = args.feature_threshold
+                        feature_threshold = args.feature_threshold, 
+                        source_channels = source_channels, 
+                        out_channels = out_channels, 
                         )
 
     network.to(device)
@@ -1476,51 +1482,10 @@ class AddGaussianNoise(object):
 default_loaders = [{'set':'train', 'enable_transform':True},
                    {'set':'test', 'enable_transform':False}]
 
-def CreateCifar10Loaders(dataset_path, batch_size = 2,  
-                      num_workers=0, cuda = True, loaders = default_loaders, 
-                      rotate=3, scale_min=0.75, scale_max=1.25, offset=0.1):
-
-    Cifar10Classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
-
-    pin_memory = False
-    if cuda:
-        pin_memory = True
-
-    for i, loader in enumerate(loaders):
-        if loader['enable_transform']:
-            transform = transforms.Compose([transforms.RandomHorizontalFlip(p=0.5),
-                transforms.RandomAffine(degrees=rotate,
-                    translate=(offset, offset), 
-                    scale=(scale_min, scale_max), 
-                    interpolation=transforms.InterpolationMode.BILINEAR),
-                transforms.ToTensor(),
-                transforms.Normalize((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), # Imagenet mean and standard deviation
-                AddGaussianNoise(0., args.augment_noise)
-            ])
-        else:
-            transform = transforms.Compose([transforms.ToTensor(), 
-                    transforms.Normalize((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)) # Imagenet mean and standard deviation
-                ])
-
-        dataset = torchvision.datasets.CIFAR10(root=dataset_path, train=loader['set']=='train', download=True, transform=transform)
-        # Creating PT data samplers and loaders:
-        loader['width']=32
-        loader['height']=32
-        loader['in_channels']=3
-        loader['num_classes']=len(Cifar10Classes)
-        loader['classes']=list(Cifar10Classes)
-        loader['batches'] =int(len(dataset)/batch_size)
-        loader['length'] = loader['batches']*batch_size
-        loader['dataloader'] = torch.utils.data.DataLoader(dataset=dataset, 
-                                                    batch_size=batch_size,
-                                                    num_workers=num_workers, 
-                                                    pin_memory=pin_memory)
-    return loaders
-
 def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None):
 
     trainloader = next(filter(lambda d: d.get('set') == 'train', loaders), None)
-    testloader = next(filter(lambda d: d.get('set') == 'test', loaders), None)
+    testloader = next(filter(lambda d: d.get('set') == 'test' or d.get('set') == 'val', loaders), None)
 
     if trainloader is None:
         raise ValueError('{} {} failed to load trainloader {}'.format(__file__, __name__, args.dataset)) 
@@ -1604,7 +1569,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                     inputs = inputs.cuda()
                     labels = labels.cuda()
 
-                if not write_graph:
+                if writer is not None and not write_graph:
                     writer.add_graph(model, inputs)
                     write_graph = True
 
@@ -1728,7 +1693,8 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
 
                 if profile is not None:
                     profile.step()
-            except:
+            #except:
+            except NameError:
                 print ("Unhandled error in train loop.  Continuing")
 
             results['batches'] += 1
@@ -1771,7 +1737,8 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                 tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
                 s3.PutDir(s3def['sets']['test']['bucket'], args.tensorboard_dir, tb_path )
 
-        except:
+        #except:
+        except NameError:
             print ("Unhandled error in epoch reporting.  Continuing")
     return results
 
@@ -1781,7 +1748,7 @@ def Test(args, s3, s3def, model, loaders, device, results, writer, profile=None)
     date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
     test_summary = {'date':date_time}
 
-    testloader = next(filter(lambda d: d.get('set') == 'test', loaders), None)
+    testloader = next(filter(lambda d: d.get('set') == 'test' or d.get('set') == 'val', loaders), None)
     if testloader is None:
         raise ValueError('{} {} failed to load testloader {}'.format(__file__, __name__, args.dataset)) 
 
@@ -1926,10 +1893,25 @@ def main(args):
         device = torch.device("cuda")
 
     # Load dataset
-    loaders = CreateCifar10Loaders(args.dataset_path, batch_size = args.batch_size,  
-                        num_workers=args.num_workers, cuda = args.cuda, 
-                        rotate=args.augment_rotation, scale_min=args.augment_scale_min, scale_max=args.augment_scale_max, offset=args.augment_translate_x)
-    results['classes'] = loaders[0]['classes']
+    if args.dataset == 'cifar10':
+        loaders = CreateCifar10Loaders(args.dataset_path, batch_size = args.batch_size,  
+                                       num_workers=args.num_workers, 
+                                       cuda = args.cuda, 
+                                       rotate=args.augment_rotation, 
+                                       scale_min=args.augment_scale_min, 
+                                       scale_max=args.augment_scale_max, 
+                                       offset=args.augment_translate_x)
+        results['classes'] = loaders[0]['classes']
+    elif args.dataset == 'imagenet':
+        loaders = CreateImagesetLoaders(s3, s3def, 
+                                        args.obj_imagenet, 
+                                        args.dataset_path+'/imagenet', 
+                                        width=args.width, 
+                                        height=args.height, 
+                                        batch_size=args.batch_size, 
+                                        num_workers=args.num_workers,
+                                        cuda = args.cuda)
+
 
     # Load number of previous batches to continue tensorboard from previous training
     prevresultspath = None
@@ -1982,7 +1964,7 @@ def main(args):
     if 'batches' not in results:
         results['batches'] = 0
 
-    # Train
+
     if args.prune:
         results = Prune(args, s3, s3def, model=classify, loaders=loaders, results=results)
 

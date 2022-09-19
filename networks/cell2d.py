@@ -1974,7 +1974,7 @@ def main(args):
                     activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                     schedule=torch.profiler.schedule(skip_first=3, wait=1, warmup=1, active=3, repeat=1),
                     on_trace_ready=torch.profiler.tensorboard_trace_handler(writer_path),
-                    record_shapes=True, profile_memory=True, with_stack=True, with_flops=False, with_modules=False
+                    record_shapes=False, profile_memory=False, with_stack=True, with_flops=False, with_modules=False
             ) as prof:
                 results = Train(args, s3, s3def, classify, loaders, device, results, writer, prof)
         else:

@@ -12,7 +12,7 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: batch_size
-          value: 1000
+          value: 500
         - name: output_name
           value: 20220520i
         - name: description
@@ -59,7 +59,7 @@ workflow:
                   - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: model_src, value: ""}
+                  - {name: model_src, value: "crispcifar10_20220919_171650_ipc0010_train"}
                   - {name: model_dest, value: "crispcifar10_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
                   - {name: description, value: '{"author":"Brad Larson","description":"Crisp segment class normalized train target size target {{workflow.parameters.target_structure}}"}'}
 
@@ -191,7 +191,7 @@ workflow:
             - {name: onnx, value: false}
             - {name: search_structure, value: true}
             - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-            - {name: epochs, value: 100}
+            - {name: epochs, value: 2}
             - {name: start_epoch, value: 0}
             - {name: ejector, value: 'prune_basis'}
             - {name: ejector_start, value: 59}

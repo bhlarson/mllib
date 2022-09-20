@@ -42,9 +42,6 @@ workflow:
           value: /data
         - name: tb_logs
           value: /tb_logs
-        # cell2d.py -resnet_len for supported lenghts
-        - name: resnet_len
-          value: 101
         - name: num_workers
           value: 5
 
@@ -309,8 +306,7 @@ workflow:
             - -search_flops={{workflow.parameters.search_flops}}
             - -dataset_path={{workflow.parameters.dataset_path}}
             - -tensorboard_dir={{workflow.parameters.tb_logs}}/crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_tb
-            - -tb_dest=crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_t
-            - -resnet_len={{workflow.parameters.resnet_len}}
+            - -tb_dest=crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_tb
             - -num_workers={{workflow.parameters.num_workers}}
             
           ports:

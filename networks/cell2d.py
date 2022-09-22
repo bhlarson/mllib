@@ -82,7 +82,8 @@ def conv_flops_counter_hook(conv_module, in_relaxation, output_shape, out_relaxa
     input_relaxation = []
     if in_relaxation is not None and len(in_relaxation) > 0:
         for in_relaxation_source in in_relaxation:
-            input_relaxation.append(in_relaxation_source.weights())
+            if in_relaxation_source is not None:
+                input_relaxation.append(in_relaxation_source.weights())
 
     in_channels = conv_module.in_channels
     out_channels = conv_module.out_channels
@@ -338,7 +339,7 @@ class ConvBR(nn.Module):
             architecture_weights = conv_weights.sum_to_size((1))
         else:
 
-            if self.search_flops:
+            if self.search_structure and self.search_flops:
                 architecture_weights, cell_weights = conv_flops_counter_hook(self.conv, self.prev_relaxation, self.output_shape, self.relaxation)
 
                 if self.activation:
@@ -1088,6 +1089,7 @@ def parse_arguments():
 
     parser.add_argument('-batch_size', type=int, default=80, help='Training batch size') 
 
+    parser.add_argument('-optimizer', type=str, default='sgd', choices=['sgd', 'adam'], help='Optimizer')
     parser.add_argument('-learning_rate', type=float, default=1e-1, help='Training learning rate')
     parser.add_argument('-learning_rate_decay', type=float, default=0.5, help='Rate decay multiple')
     parser.add_argument('-rate_schedule', type=json.loads, default='[50, 100, 150, 200, 250, 300, 350, 400, 450, 500]', help='Training learning rate')
@@ -1137,11 +1139,11 @@ def parse_arguments():
     parser.add_argument('-ejector_full', type=float, default=5, help='Ejector full epoch')
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector max value')
     parser.add_argument('-ejector_exp', type=float, default=3.0, help='Ejector exponent')
-    parser.add_argument('-prune', type=str2bool, default=True)
+    parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-test', type=str2bool, default=True)
-    parser.add_argument('-search_structure', type=str2bool, default=True)
-    parser.add_argument('-search_flops', type=str2bool, default=True)
+    parser.add_argument('-search_structure', type=str2bool, default=False)
+    parser.add_argument('-search_flops', type=str2bool, default=False)
     parser.add_argument('-profile', type=str2bool, default=False)
     parser.add_argument('-time_trial', type=str2bool, default=False)
     parser.add_argument('-onnx', type=str2bool, default=True)
@@ -1163,11 +1165,6 @@ def parse_arguments():
         args.debug = args.d
     if args.min:
         args.minimum = args.min
-
-    if args.dataset == 'cifar10':
-        args.width = 32
-        args.height = 32
-        args.channels = 3
 
     return args
 
@@ -1512,8 +1509,14 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                             total_weights= total_weights,
                             )
 
-    optimizer = optim.SGD(model.parameters(), lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay )
-    #optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay )
+    if args.optimizer == 'sgd':
+        optimizer = optim.SGD(model.parameters(), lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay )
+    elif args.optimizer == 'adam':
+        optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay )
+    else:
+        error_message = "Invalid optimizer argument {}".format(args)
+        print(error_message)
+        raise ValueError(error_message)
     plotsearch = PlotSearch()
     plotgrads = PlotGradients()
     #scheduler1 = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.999)
@@ -1615,7 +1618,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                     #writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
 
                 if i % test_freq == test_freq-1:    # Save image and run test
-                    if writer is not None:
+                    if args.search_structure and writer is not None:
                         imprune_weights = plotsearch.plot(cell_weights)
                         if imprune_weights.size > 0:
                             im_class_weights = cv2.cvtColor(imprune_weights, cv2.COLOR_BGR2RGB)
@@ -1671,7 +1674,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                     running_loss = 0.0
 
                 iSave = 100
-                if i % iSave == iSave-1:    # print every iSave mini-batches
+                if args.search_structure and writer is not None and i % iSave == iSave-1:    # print every iSave mini-batches
                     img = plotsearch.plot(cell_weights)
                     if img.size > 0:
                         is_success, buffer = cv2.imencode(".png", img, compression_params)
@@ -1917,7 +1920,6 @@ def main(args):
                                         cuda = args.cuda)
     else:
         raise ValueError("Unupported dataset {}".format(args.dataset))
-
 
     # Load number of previous batches to continue tensorboard from previous training
     prevresultspath = None

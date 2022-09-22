@@ -19,6 +19,8 @@ workflow:
           value: '{"author":"Brad Larson","description":"Crisp COCO segmentation"}'
         - name: target_structure
           value: 0.0
+        - name: model_class
+          value: segmin
         - name: dataset
           value: coco
         - name: width
@@ -65,7 +67,6 @@ workflow:
                   - {name: model_src, value: ""}
                   - {name: model_dest, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
                   - {name: class_weight, value: "[0.01, 0.1, 0.5, 1.0]"}
-                  - {name: description, value: '{"author":"Brad Larson","description":"Crisp segment class normalized train target size target {{workflow.parameters.target_structure}}"}'}
                 artifacts:
                   - name: prev_results
                     raw:
@@ -85,7 +86,6 @@ workflow:
                   - {name: model_src, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
                   - {name: model_dest, value: "crispcoco_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
                   - {name: class_weight, value: "[0.1, 0.7, 1.0, 1.0]"}
-                  - {name: description, value: '{"author":"Brad Larson","description":"CRISP segment minimize cross entropy loss {{workflow.parameters.target_structure}}"}'}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.normalized-train.outputs.artifacts.results}}"
@@ -270,6 +270,7 @@ workflow:
             - python3
           args:
             - networks/network2d.py
+            - -model_class={{workflow.parameters.model_class}}
             - -dataset={{workflow.parameters.dataset}}
             - -height={{workflow.parameters.height}}
             - -width={{workflow.parameters.width}}
@@ -308,7 +309,7 @@ workflow:
             - -tensorboard_dir={{workflow.parameters.tb_logs}}/crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_tb
             - -tb_dest=crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_tb
             - -num_workers={{workflow.parameters.num_workers}}
-            
+
           ports:
             - name: debug
               containerPort: 3000

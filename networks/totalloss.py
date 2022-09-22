@@ -55,10 +55,11 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
         dims = []
         depths = []
 
-        architecture_weights, total_trainable_weights, cell_weights = network.ArchitectureWeights()
-        sigmoid_scale = torch.zeros(1, device=architecture_weights.device)
-        prune_loss = torch.zeros(1, device=architecture_weights.device)
         if self.search_structure:
+            architecture_weights, total_trainable_weights, cell_weights = network.ArchitectureWeights()
+            sigmoid_scale = torch.zeros(1, device=architecture_weights.device)
+            prune_loss = torch.zeros(1, device=architecture_weights.device)
+
             if self.total_weights and self.total_weights > 0.0:
                 architecture_reduction = architecture_weights/self.total_weights
             else:
@@ -89,6 +90,8 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
 
             total_loss = cross_entropy_loss + architecture_loss + prune_loss
         else:
+            sigmoid_scale = torch.zeros(1)
+            cell_weights = torch.zeros(1)
             architecture_loss = torch.zeros(1)
             architecture_reduction = torch.zeros(1)
             prune_loss = torch.zeros(1)

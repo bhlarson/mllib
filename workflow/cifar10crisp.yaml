@@ -19,8 +19,14 @@ workflow:
           value: '{"author":"Brad Larson","description":"Crisp cifar10 classification"}'
         - name: target_structure
           value: 0.0
+        - name: model_class
+          value: CIFAR10
         - name: dataset
           value: cifar10
+        - name: width
+          value: 64
+        - name: height
+          value: 64
           # Start step to test/recover failed runs
         - name: start
           value: 0
@@ -191,20 +197,20 @@ workflow:
             - {name: onnx, value: false}
             - {name: search_structure, value: true}
             - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-            - {name: epochs, value: 2}
+            - {name: epochs, value: 100}
             - {name: start_epoch, value: 0}
             - {name: ejector, value: 'prune_basis'}
-            - {name: ejector_start, value: 59}
-            - {name: ejector_full, value: 60}
+            - {name: ejector_start, value: 75}
+            - {name: ejector_full, value: 80}
             - {name: ejector_max, value: 1.0}
             - {name: model_src, value: ""}
             - {name: model_dest, value: "crispcifar10_{{workflow.parameters.output_name}}"}
             - {name: k_accuracy, value: 1.0}
-            - {name: k_structure, value: 0.1}
-            - {name: k_prune_basis, value: 0.2}
+            - {name: k_structure, value: 0.5}
+            - {name: k_prune_basis, value: 1.0}
             - {name: learning_rate, value: 1e-1}
             - {name: learning_rate_decay, value: 0.1}
-            - {name: rate_schedule, value: "[80, 90, 95]"}
+            - {name: rate_schedule, value: "[90, 95, 97]"}
             - {name: description, value: "{{workflow.parameters.description}}"}
             - {name: resultspath, value: "/app/results.yaml"}
             - {name: prevresultspath, value: "/app/prevresults.yaml"}
@@ -247,7 +253,10 @@ workflow:
             - python3
           args:
             - networks/cell2d.py
+            - -model_class={{workflow.parameters.model_class}}
             - -dataset={{workflow.parameters.dataset}}
+            - -height={{workflow.parameters.height}} 
+            - -width={{workflow.parameters.width}}
             - -prune={{inputs.parameters.prune}}
             - -train={{inputs.parameters.train}}
             - -profile={{workflow.parameters.profile}}

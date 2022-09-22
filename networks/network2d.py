@@ -33,7 +33,7 @@ import pymlutil.version as pymlutil_version
 
 from torchdatasetutil.cocostore import CreateCocoLoaders
 from torchdatasetutil.imstore import  CreateImageLoaders
-from torchdatasetutil.cityscapes import  CreateCityscapesLoaders
+from torchdatasetutil.cityscapesstore import CreateCityscapesLoaders
 import torchdatasetutil.version as  torchdatasetutil_version
 
 from ptflops import get_model_complexity_info
@@ -363,19 +363,19 @@ def parse_arguments():
 
     parser.add_argument('-imStatistics', type=str2bool, default=False, help='Record individual image statistics')
 
-    parser.add_argument('-dataset', type=str, default='cityscapes', choices=['coco', 'lit', 'cityscapes'], help='Dataset')
-    parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
+    parser.add_argument('-dataset', type=str, default='coco', choices=['coco', 'lit', 'cityscapes'], help='Dataset')
+    parser.add_argument('-dataset_path', type=str, default='/data', help='Local dataset path')
 
     parser.add_argument('-lit_dataset', type=str, default='data/lit/dataset.yaml', help='Image dataset file')
     parser.add_argument('-lit_class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
     parser.add_argument('-coco_class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
-    parser.add_argument('-cityscapes_data', type=str, default='data/dataset', help='Image dataset file')
+    parser.add_argument('-cityscapes_data', type=str, default='data/cityscapes', help='Image dataset file')
     parser.add_argument('-cityscapes_class_dict', type=str, default='model/cityscapes/cityscapes.json', help='Model class definition file.')
 
     parser.add_argument('-learning_rate', type=float, default=2.0e-4, help='Adam learning rate')
-    parser.add_argument('-batch_size', type=int, default=20, help='Training batch size')
+    parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
     parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
@@ -390,8 +390,8 @@ def parse_arguments():
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
-    parser.add_argument('-height', type=int, default=512, help='Batch image height')
-    parser.add_argument('-width', type=int, default=480, help='Batch image width')
+    parser.add_argument('-height', type=int, default=768, help='Batch image height')
+    parser.add_argument('-width', type=int, default=512, help='Batch image width')
     parser.add_argument('-unet_depth', type=int, default=5, help='number of encoder/decoder levels to search/minimize')
     parser.add_argument('-max_cell_steps', type=int, default=3, help='maximum number of convolution cells in layer to search/minimize')
     parser.add_argument('-channel_multiple', type=float, default=2, help='maximum number of layers to grow per level')
@@ -427,7 +427,7 @@ def parse_arguments():
     parser.add_argument('-resultspath', type=str, default='results.yaml')
     parser.add_argument('-prevresultspath', type=str, default=None)
     parser.add_argument('-test_dir', type=str, default=None)
-    parser.add_argument('-tensorboard_dir', type=str, default='./tb_logs', 
+    parser.add_argument('-tensorboard_dir', type=str, default='/tb_logs', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
     #parser.add_argument('-class_weight', type=json.loads, default='[0.02, 1.0]', help='Loss class weight ')
     parser.add_argument('-class_weight', type=json.loads, default=None, help='Loss class weight ')
@@ -539,7 +539,7 @@ def DisplayImgAn(image, label, segmentation, trainingset, mean, stdev):
 def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, writer, profile=None):
 
     trainloader = next(filter(lambda d: d.get('set') == 'train', loaders), None)
-    testloader = next(filter(lambda d: d.get('set') == 'test', loaders), None)
+    testloader = next(filter(lambda d: d.get('set') == 'test' or d.get('set') == 'val', loaders), None)
 
     if trainloader is None:
         raise ValueError('{} {} failed to load trainloader {}'.format(__file__, __name__, args.dataset)) 
@@ -755,7 +755,8 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
             
                 if profile is not None:
                     profile.step()
-            except:
+            #except:
+            except NameError:
                 print ("Unhandled error in train loop.  Continuing")
 
             results['batches'] += 1
@@ -960,16 +961,9 @@ def main(args):
 
     # Load dataset
     class_dictionary = None
-    if args.dataset=='coco':
-        class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.coco_class_dict)
-    elif args.dataset=='lit':
-        class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.lit_class_dict)
-
-    if not class_dictionary:
-        raise ValueError('{} {} unsupported dataset {}'.format(__file__, __name__, args.dataset))
-
     dataset_bucket = s3def['sets']['dataset']['bucket']
     if args.dataset=='coco':
+        class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.coco_class_dict)
         loaders = CreateCocoLoaders(s3, dataset_bucket, 
             class_dict=args.coco_class_dict, 
             batch_size=args.batch_size,
@@ -979,6 +973,7 @@ def main(args):
             width = args.width,
         )
     elif args.dataset=='lit':
+        class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.lit_class_dict)
         loaders = CreateImageLoaders(s3, dataset_bucket, 
             dataset_dfn=args.lit_dataset,
             class_dict=args.lit_class_dict, 
@@ -989,19 +984,17 @@ def main(args):
             width = args.width,
         )
     elif args.dataset=='cityscapes':
+        class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.cityscapes_class_dict)
         loaders = CreateCityscapesLoaders(s3, s3def, 
-            bucket = s3def['sets']['dataset']['bucket'], 
             src = args.cityscapes_data,
             dest = args.dataset_path+'/cityscapes',
-            class_dictionary = args.cityscapes_class_dict,
+            class_dictionary = class_dictionary,
             batch_size = args.batch_size, 
             num_workers=args.num_workers,
             height=args.height,
             width=args.width, 
         )
 
-    parser.add_argument('-cityscapes_data', type=str, default='data/dataset', help='Image dataset file')
-    parser.add_argument('-cityscapes_class_dict', type=str, default='model/cityscapes/cityscapes.json', help='Model class definition file.')
     else:
         raise ValueError("Unupported dataset {}".format(args.dataset))
 

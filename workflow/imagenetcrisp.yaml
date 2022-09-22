@@ -19,6 +19,8 @@ workflow:
           value: '{"author":"Brad Larson","description":"Crisp imagenet classification"}'
         - name: target_structure
           value: 0.0
+        - name: model_class
+          value: imagenet
         - name: dataset
           value: imagenet
         - name: width
@@ -47,6 +49,8 @@ workflow:
           value: 101
         - name: num_workers
           value: 5
+        - name: optimizer
+          value: adam
 
     entrypoint: train-crisp
     priority: 1
@@ -204,7 +208,7 @@ workflow:
             - {name: k_accuracy, value: 1.0}
             - {name: k_structure, value: 0.1}
             - {name: k_prune_basis, value: 0.2}
-            - {name: learning_rate, value: 1e-1}
+            - {name: learning_rate, value: 1e-2}
             - {name: learning_rate_decay, value: 0.25}
             - {name: rate_schedule, value: "[20, 23, 24]"}
             - {name: description, value: "{{workflow.parameters.description}}"}
@@ -249,6 +253,7 @@ workflow:
             - python3
           args:
             - networks/cell2d.py
+            - -model_class={{workflow.parameters.model_class}}
             - -dataset={{workflow.parameters.dataset}}
             - -height={{workflow.parameters.height}} 
             - -width={{workflow.parameters.width}}
@@ -263,6 +268,7 @@ workflow:
             - -target_structure={{inputs.parameters.target_structure}}
             - -k_accuracy={{inputs.parameters.k_accuracy}}
             - -k_structure={{inputs.parameters.k_structure}}
+            - -optimizer={{workflow.parameters.optimizer}} 
             - -learning_rate={{inputs.parameters.learning_rate}}
             - -learning_rate_decay={{inputs.parameters.learning_rate_decay}}
             - -rate_schedule={{inputs.parameters.rate_schedule}}

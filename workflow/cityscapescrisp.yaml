@@ -1,7 +1,7 @@
 # yamllint disable-line rule:line-length
 workflow:
   metadata:
-    generateName: crisplit-
+    generateName: cityscapescrisp-
   annotations:
     workflows.ml.argoproj.io/description: |
       Perform a training sequence
@@ -12,21 +12,21 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: batch_size
-          value: 8
+          value: 20
         - name: output_name
           value: 20220520i
         - name: description
-          value: '{"author":"Brad Larson","description":"Crisp LIT segmentation"}'
+          value: '{"author":"Brad Larson","description":"Crisp cityscapes segmentation"}'
         - name: target_structure
           value: 0.0
         - name: model_class
-          value: crisplit
+          value: cityscapes
         - name: dataset
-          value: lit
+          value: cityscapes
         - name: width
-          value: 640
+          value: 768
         - name: height
-          value: 640
+          value: 512
           # Start step to test/recover failed runs
         - name: start
           value: 0
@@ -65,8 +65,7 @@ workflow:
                   - {name: learning_rate, value: 1e-4}
                   - {name: epochs, value: 3}
                   - {name: model_src, value: ""}
-                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
-                  - {name: class_weight, value: "[0.01, 1.0]"}
+                  - {name: model_dest, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
                 artifacts:
                   - name: prev_results
                     raw:
@@ -82,9 +81,9 @@ workflow:
                   - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
-                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
-                  - {name: class_weight, value: "[1.0, 1.0]"}
+                  - {name: epochs, value: 3}
+                  - {name: model_src, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
+                  - {name: model_dest, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.normalized-train.outputs.artifacts.results}}"
@@ -99,8 +98,8 @@ workflow:
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
                   - {name: ejector, value: 'prune_basis'}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
-                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00"}
+                  - {name: model_src, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
+                  - {name: model_dest, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00"}
                   - {name: convMaskThreshold, value: 0.02}
                 artifacts:
                   - name: prev_results
@@ -116,8 +115,8 @@ workflow:
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
                   - {name: ejector, value: 'prune_basis'}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00"}
-                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01"}
+                  - {name: model_src, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00"}
+                  - {name: model_dest, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01"}
                   - {name: convMaskThreshold, value: 0.02}
                 artifacts:
                   - name: prev_results
@@ -133,8 +132,8 @@ workflow:
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
                   - {name: ejector, value: 'prune_basis'}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01"}
-                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02"}
+                  - {name: model_src, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01"}
+                  - {name: model_dest, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02"}
                   - {name: convMaskThreshold, value: 0.02}
                 artifacts:
                   - name: prev_results
@@ -149,8 +148,8 @@ workflow:
                   - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02"}
-                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_03"}
+                  - {name: model_src, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02"}
+                  - {name: model_dest, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_03"}
                   - {name: convMaskThreshold, value: 0.02}
                 artifacts:
                   - name: prev_results
@@ -165,8 +164,8 @@ workflow:
                   - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_03"}
-                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_04"}
+                  - {name: model_src, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_03"}
+                  - {name: model_dest, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_04"}
                   - {name: convMaskThreshold, value: 0.02}
                 artifacts:
                   - name: prev_results
@@ -181,8 +180,8 @@ workflow:
                   - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_04"}
-                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_05"}
+                  - {name: model_src, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_04"}
+                  - {name: model_dest, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_05"}
                   - {name: convMaskThreshold, value: 0.02}
                 artifacts:
                   - name: prev_results
@@ -197,9 +196,8 @@ workflow:
                   - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: false}
-                  - {name: epochs, value: 20}
-                  - {name: model_src, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_05"}
-                  - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}"}
+                  - {name: model_src, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_05"}
+                  - {name: model_dest, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}"}
                   - {name: convMaskThreshold, value: 0.5}
                 artifacts:
                   - name: prev_results
@@ -222,12 +220,12 @@ workflow:
             - {name: ejector_full, value: 10}
             - {name: ejector_max, value: 1.0}
             - {name: model_src, value: ""}
-            - {name: model_dest, value: "crisplit_{{workflow.parameters.output_name}}"}
+            - {name: model_dest, value: "crispcityscapes_{{workflow.parameters.output_name}}"}
             - {name: k_accuracy, value: 5.0}
             - {name: k_structure, value: 0.1}
             - {name: k_prune_basis, value: 0.2}
             - {name: learning_rate, value: 2e-4}
-            - {name: class_weight, value: "[1.0, 1.0]"}
+            - {name: class_weight, value: "[1.0, 1.0, 1.0, 1.0]"}
             - {name: description, value: "{{workflow.parameters.description}}"}
             - {name: resultspath, value: "/app/results.yaml"}
             - {name: prevresultspath, value: "/app/prevresults.yaml"}
@@ -302,8 +300,6 @@ workflow:
             - -ejector_max={{inputs.parameters.ejector_max}}
             - -debug={{workflow.parameters.debug}}
             - -minimum={{workflow.parameters.min}}
-            - -lit_dataset=data/lit/dataset.yaml
-            - -lit_class_dict=model/crisplit/lit.json
             - -k_prune_sigma={{inputs.parameters.k_prune_sigma}}
             - -convMaskThreshold={{inputs.parameters.convMaskThreshold}}
             - -search_flops={{workflow.parameters.search_flops}}

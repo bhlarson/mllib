@@ -13,11 +13,13 @@ from pymlutil.jsonutil import ReadDict, Dict2Json
 
 # paraemters is a dictionary of parameters to set
 def set_parameters(workflow, new_parameters, template_name='train'):
-    parameters = workflow['workflow']['spec']['arguments']['parameters']
-    for parameter in parameters:
-        for key, value in new_parameters.items():
-            if key == parameter['name']:
-                parameter['value'] = value
+    if 'arguments' in workflow['workflow']['spec']:
+        if 'parameters' in workflow['workflow']['spec']['arguments']:
+            parameters = workflow['workflow']['spec']['arguments']['parameters']
+            for parameter in parameters:
+                for key, value in new_parameters.items():
+                    if key == parameter['name']:
+                        parameter['value'] = value
 
 
 def run(workflow, argocreds):
@@ -51,7 +53,7 @@ def parse_arguments():
 
     parser.add_argument('--server', '-s', type=str, default='hiocnn', help='Argo Server.')
 
-    parser.add_argument('--run', '-r', type=str, default='workflow/crisplit.yaml', help='Run workflow')
+    parser.add_argument('--run', '-r', type=str, default='workflow/litcrisp.yaml', help='Run workflow')
     parser.add_argument('--params', '-p', type=json.loads, default=None, help='Parameters parsed by set_parameters  e.g.: -p "{"description": {"author": "Brad Larson","description":"Crisp LIT segmentation"}, "target_structure": 0.0, "batch_size": 2, "debug": "true"}" ')
 
     args = parser.parse_args()

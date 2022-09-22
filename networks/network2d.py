@@ -33,6 +33,7 @@ import pymlutil.version as pymlutil_version
 
 from torchdatasetutil.cocostore import CreateCocoLoaders
 from torchdatasetutil.imstore import  CreateImageLoaders
+from torchdatasetutil.cityscapes import  CreateCityscapesLoaders
 import torchdatasetutil.version as  torchdatasetutil_version
 
 from ptflops import get_model_complexity_info
@@ -362,13 +363,16 @@ def parse_arguments():
 
     parser.add_argument('-imStatistics', type=str2bool, default=False, help='Record individual image statistics')
 
-    parser.add_argument('-dataset', type=str, default='coco', choices=['coco', 'lit'], help='Dataset')
+    parser.add_argument('-dataset', type=str, default='cityscapes', choices=['coco', 'lit', 'cityscapes'], help='Dataset')
     parser.add_argument('-dataset_path', type=str, default='./dataset', help='Local dataset path')
 
     parser.add_argument('-lit_dataset', type=str, default='data/lit/dataset.yaml', help='Image dataset file')
     parser.add_argument('-lit_class_dict', type=str, default='model/crisplit/lit.json', help='Model class definition file.')
 
     parser.add_argument('-coco_class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
+
+    parser.add_argument('-cityscapes_data', type=str, default='data/dataset', help='Image dataset file')
+    parser.add_argument('-cityscapes_class_dict', type=str, default='model/cityscapes/cityscapes.json', help='Model class definition file.')
 
     parser.add_argument('-learning_rate', type=float, default=2.0e-4, help='Adam learning rate')
     parser.add_argument('-batch_size', type=int, default=20, help='Training batch size')
@@ -984,6 +988,22 @@ def main(args):
             height = args.height,
             width = args.width,
         )
+    elif args.dataset=='cityscapes':
+        loaders = CreateCityscapesLoaders(s3, s3def, 
+            bucket = s3def['sets']['dataset']['bucket'], 
+            src = args.cityscapes_data,
+            dest = args.dataset_path+'/cityscapes',
+            class_dictionary = args.cityscapes_class_dict,
+            batch_size = args.batch_size, 
+            num_workers=args.num_workers,
+            height=args.height,
+            width=args.width, 
+        )
+
+    parser.add_argument('-cityscapes_data', type=str, default='data/dataset', help='Image dataset file')
+    parser.add_argument('-cityscapes_class_dict', type=str, default='model/cityscapes/cityscapes.json', help='Model class definition file.')
+    else:
+        raise ValueError("Unupported dataset {}".format(args.dataset))
 
     # Load number of previous batches to continue tensorboard from previous training
     prevresultspath = None

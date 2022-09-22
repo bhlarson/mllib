@@ -1915,6 +1915,8 @@ def main(args):
                                         batch_size=args.batch_size, 
                                         num_workers=args.num_workers,
                                         cuda = args.cuda)
+    else:
+        raise ValueError("Unupported dataset {}".format(args.dataset))
 
 
     # Load number of previous batches to continue tensorboard from previous training

@@ -383,10 +383,8 @@ def parse_arguments():
     parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
     parser.add_argument('-model_class', type=str,  default='cityscapes')
-    parser.add_argument('-model_src', type=str,  default=None)
-    #parser.add_argument('-model_src', type=str,  default='crisplit_20220910_161625_hiocnn0_search_structure_00')
-    #parser.add_argument('-model_src', type=str,  default='crisplit_20220909_061234_hiocnn0_search_structure_05')
-    parser.add_argument('-model_dest', type=str, default=None)
+    parser.add_argument('-model_src', type=str,  default='crispcityscapes_20220922_204203_ipc0010_search_structure_05')
+    parser.add_argument('-model_dest', type=str, default='crispcityscapes_20220922_204203_ipc0010_search_structure_06')
     parser.add_argument('-tb_dest', type=str, default='crisplit_20220909_061234_hiocnn_tb_01')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
@@ -408,7 +406,7 @@ def parse_arguments():
     parser.add_argument('-weight_gain', type=float, default=5.0, help='Channel convolution norm tanh weight gain')
     parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convolution channels weights')
     parser.add_argument('-feature_threshold', type=float, default=0.0, help='cell tanh pruning threshold')
-    parser.add_argument('-convMaskThreshold', type=float, default=0.1, help='convolution channel sigmoid level to prune convolution channels')
+    parser.add_argument('-convMaskThreshold', type=float, default=0.5, help='convolution channel sigmoid level to prune convolution channels')
     parser.add_argument('-residual', type=str2bool, default=False, help='Residual convolution functions')
     parser.add_argument('-ejector', type=FenceSitterEjectors, default=FenceSitterEjectors.prune_basis, choices=list(FenceSitterEjectors))
     parser.add_argument('-ejector_start', type=float, default=4, help='Ejector start epoch')
@@ -418,7 +416,7 @@ def parse_arguments():
     parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-test', type=str2bool, default=True)
-    parser.add_argument('-search_structure', type=str2bool, default=True)
+    parser.add_argument('-search_structure', type=str2bool, default=False)
     parser.add_argument('-search_flops', type=str2bool, default=True)
     parser.add_argument('-profile', type=str2bool, default=True)
     parser.add_argument('-time_trial', type=str2bool, default=False)
@@ -672,10 +670,11 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
 
                 if i % test_freq == test_freq-1:    # Save image and run test
                     if writer is not None:
-                        imprune_weights = plotsearch.plot(cell_weights)
-                        if imprune_weights.size > 0:
-                            im_class_weights = cv2.cvtColor(imprune_weights, cv2.COLOR_BGR2RGB)
-                            writer.add_image('network/prune_weights', im_class_weights, 0,dataformats='HWC')
+                        if cell_weights is not None:
+                            imprune_weights = plotsearch.plot(cell_weights)
+                            if imprune_weights.size > 0:
+                                im_class_weights = cv2.cvtColor(imprune_weights, cv2.COLOR_BGR2RGB)
+                                writer.add_image('network/prune_weights', im_class_weights, 0,dataformats='HWC')
 
                         imgrad = plotgrads.plot(model)
                         if imgrad.size > 0:
@@ -739,12 +738,14 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
 
                 iSave = 1000
                 if i % iSave == iSave-1:    # print every iSave mini-batches
-                    img = plotsearch.plot(cell_weights)
-                    if img.size > 0:
-                        is_success, buffer = cv2.imencode(".png", img, compression_params)
-                        img_enc = io.BytesIO(buffer).read()
-                        filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-                        s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+                    if cell_weights is not None:
+                        img = plotsearch.plot(cell_weights)
+                        if img.size > 0:
+                            is_success, buffer = cv2.imencode(".png", img, compression_params)
+                            img_enc = io.BytesIO(buffer).read()
+                            filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                            s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+
                     imgrad = plotgrads.plot(model)
                     if imgrad.size > 0:
                         is_success, buffer = cv2.imencode(".png", imgrad)  
@@ -766,13 +767,13 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
                 break
 
         try:
-
-            img = plotsearch.plot(cell_weights)
-            if img.size > 0:
-                is_success, buffer = cv2.imencode(".png", img, compression_params)
-                img_enc = io.BytesIO(buffer).read()
-                filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-                s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+            if cell_weights is not None:
+                img = plotsearch.plot(cell_weights)
+                if img.size > 0:
+                    is_success, buffer = cv2.imencode(".png", img, compression_params)
+                    img_enc = io.BytesIO(buffer).read()
+                    filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                    s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
 
             # Plot gradients before saving which clears the gradients
             imgrad = plotgrads.plot(model)
@@ -809,7 +810,7 @@ def Test(args, s3, s3def, class_dictionary, model, loaders, device, results, wri
     date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
     test_summary = {'date':date_time}
 
-    testloader = next(filter(lambda d: d.get('set') == 'test', loaders), None)
+    testloader = next(filter(lambda d: d.get('set') == 'test' or d.get('set') == 'val', loaders), None)
     if testloader is None:
         raise ValueError('{} {} failed to load testloader {}'.format(__file__, __name__, args.dataset)) 
 

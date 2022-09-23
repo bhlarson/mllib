@@ -91,7 +91,7 @@ class TotalLoss(torch.nn.modules.loss._WeightedLoss):
             total_loss = cross_entropy_loss + architecture_loss + prune_loss
         else:
             sigmoid_scale = torch.zeros(1)
-            cell_weights = torch.zeros(1)
+            cell_weights = None
             architecture_loss = torch.zeros(1)
             architecture_reduction = torch.zeros(1)
             prune_loss = torch.zeros(1)

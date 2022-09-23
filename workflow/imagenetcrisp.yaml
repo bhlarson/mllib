@@ -37,7 +37,7 @@ workflow:
           value: false
           # Perform minimum run to test code execution
         - name: min
-          value: false
+          value: true
         - name: search_flops
           value: true
         - name: dataset_path

@@ -1254,10 +1254,12 @@ class PlotSearch():
     def plot(self, weights, index = None):
         height = 0
         width = 0
-        for i,  cell, in enumerate(weights):
-            for j, step in enumerate(cell['cell_weight']):
-                width += self.lenght
-                height = max(height, self.thickness*len(step))
+        if len(weights) > 0:
+            for i,  cell, in enumerate(weights):
+                if len(cell['cell_weight']) > 0:
+                    for j, step in enumerate(cell['cell_weight']):
+                        width += self.lenght
+                        height = max(height, self.thickness*len(step))
 
 
         img = np.zeros([height,width,3]).astype(np.uint8)

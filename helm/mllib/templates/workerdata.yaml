@@ -30,18 +30,17 @@ spec:
   resources:
     # This is the request for storage. Should be available in the cluster.
     requests:
-      storage: {{.Values.objectstore.size | quote}}
+      storage: {{.Values.workerdata.size | quote}}
   storageClassName: workerstorage
 
 ---
 
----
 apiVersion: v1
 kind: PersistentVolume
 metadata:
   name: {{.Values.tblogs.name}}
 spec:
-  storageClassName: workerstorage
+  storageClassName: tbstorage
   capacity:
     storage: {{.Values.tblogs.size | quote}}
   accessModes:
@@ -59,7 +58,7 @@ metadata:
   name: {{.Values.tblogs.name}}
   namespace: {{.Release.Namespace}}
   labels:
-    app: workerstorage-claim
+    app: tbstorage-claim
 spec:
   # Read more about access modes here: http://kubernetes.io/docs/user-guide/persistent-volumes/#access-modes
   accessModes:
@@ -68,6 +67,6 @@ spec:
     # This is the request for storage. Should be available in the cluster.
     requests:
       storage: {{.Values.tblogs.size | quote}}
-  storageClassName: workerstorage
+  storageClassName: tbstorage
 
 ---

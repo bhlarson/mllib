@@ -1,14 +1,12 @@
 objectstore:
   url: 192.168.0.163
 
-  workerdata:
-  name: workerstorage
+workerdata:
   size: 900Gi
   hostPath:
-    path: /store/mlstore/mllib/data
+    path: /store/Datasets
 
 tblogs:
-  name: tblogs
   size: 100Gi
   hostPath:
     path: /store/tb_logs

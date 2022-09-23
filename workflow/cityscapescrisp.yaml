@@ -12,7 +12,7 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: batch_size
-          value: 20
+          value: 4
         - name: output_name
           value: 20220520i
         - name: description
@@ -53,26 +53,7 @@ workflow:
       - name: train-crisp
         dag:
           tasks:
-            - name: normalized-train
-              template: train
-              when: "{{workflow.parameters.start}} < 1"
-              arguments:
-                parameters:
-                  - {name: prune, value: false}
-                  - {name: train, value: true}
-                  - {name: test, value: false}
-                  - {name: search_structure, value: true}
-                  - {name: learning_rate, value: 1e-4}
-                  - {name: epochs, value: 3}
-                  - {name: model_src, value: ""}
-                  - {name: model_dest, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
-                artifacts:
-                  - name: prev_results
-                    raw:
-                      data: |
-                        batches: 0
             - name: train
-              dependencies: [normalized-train]
               template: train
               when: "{{workflow.parameters.start}} < 2"
               arguments:
@@ -81,12 +62,13 @@ workflow:
                   - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: epochs, value: 3}
-                  - {name: model_src, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_normalized-train"}
+                  - {name: model_src, value: ""}
                   - {name: model_dest, value: "crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_train"}
                 artifacts:
                   - name: prev_results
-                    from: "{{tasks.normalized-train.outputs.artifacts.results}}"
+                    raw:
+                      data: |
+                        batches: 0
             - name: search-structure-00
               dependencies: [train]
               template: train
@@ -225,7 +207,6 @@ workflow:
             - {name: k_structure, value: 0.1}
             - {name: k_prune_basis, value: 0.2}
             - {name: learning_rate, value: 2e-4}
-            - {name: class_weight, value: "[1.0, 1.0, 1.0, 1.0]"}
             - {name: description, value: "{{workflow.parameters.description}}"}
             - {name: resultspath, value: "/app/results.yaml"}
             - {name: prevresultspath, value: "/app/prevresults.yaml"}
@@ -290,7 +271,6 @@ workflow:
             - -resultspath={{inputs.parameters.resultspath}}
             - -prevresultspath={{inputs.parameters.prevresultspath}}
             - -batch_size={{inputs.parameters.batch_size}}
-            - -class_weight={{inputs.parameters.class_weight}}
             - -batch_norm=false
             - -job
             - -k_prune_basis={{inputs.parameters.k_prune_basis}}

@@ -30,6 +30,7 @@ from pymlutil.s3 import s3store, Connect
 from pymlutil.functions import Exponential
 from pymlutil.metrics import DatasetResults
 import pymlutil.version as pymlutil_version
+from pymlutil.imutil import ImUtil, ImTransform
 
 from torchdatasetutil.cocostore import CreateCocoLoaders
 from torchdatasetutil.imstore import  CreateImageLoaders
@@ -363,7 +364,7 @@ def parse_arguments():
 
     parser.add_argument('-imStatistics', type=str2bool, default=False, help='Record individual image statistics')
 
-    parser.add_argument('-dataset', type=str, default='coco', choices=['coco', 'lit', 'cityscapes'], help='Dataset')
+    parser.add_argument('-dataset', type=str, default='cityscapes', choices=['coco', 'lit', 'cityscapes'], help='Dataset')
     parser.add_argument('-dataset_path', type=str, default='/data', help='Local dataset path')
 
     parser.add_argument('-lit_dataset', type=str, default='data/lit/dataset.yaml', help='Image dataset file')
@@ -381,7 +382,7 @@ def parse_arguments():
 
     parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
-    parser.add_argument('-model_class', type=str,  default='crisplit')
+    parser.add_argument('-model_class', type=str,  default='cityscapes')
     parser.add_argument('-model_src', type=str,  default=None)
     #parser.add_argument('-model_src', type=str,  default='crisplit_20220910_161625_hiocnn0_search_structure_00')
     #parser.add_argument('-model_src', type=str,  default='crisplit_20220909_061234_hiocnn0_search_structure_05')
@@ -522,12 +523,12 @@ def MakeNetwork(class_dictionary, args):
 
 
 
-def DisplayImgAn(image, label, segmentation, trainingset, mean, stdev):
+def DisplayImgAn(imUtil, image, label, segmentation, trainingset, mean, stdev):
     image = np.squeeze(image)
     label = np.squeeze(label)
     segmentation = np.squeeze(segmentation)
-    iman = trainingset.dataset.store.MergeIman(image, label, mean.item(), stdev.item())
-    imseg = trainingset.dataset.store.MergeIman(image, segmentation, mean.item(), stdev.item())
+    iman = imUtil.MergeIman(image, label, mean.item(), stdev.item())
+    imseg = imUtil.MergeIman(image, segmentation, mean.item(), stdev.item())
 
     iman = cv2.putText(iman, 'Annotation',(10,25), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1,(255,255,255),1,cv2.LINE_AA)
     imseg = cv2.putText(imseg, 'Segmentation',(10,25), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1,(255,255,255),1,cv2.LINE_AA)
@@ -562,6 +563,7 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
     # Define a Loss function and optimizer
     target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32, device=device)
 
+    imUtil = ImUtil(trainloader['dataset_dfn'], class_dictionary)
 
     if args.search_flops:
         total_weights= results['initial_flops'] 
@@ -689,7 +691,7 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
                             writer.add_graph(model, inputs)
                             write_graph = True
                         for j in range(1):
-                            imanseg = DisplayImgAn(images[j], labels[j], segmentations[j], trainloader['dataloader'], mean[j], stdev[j])      
+                            imanseg = DisplayImgAn(imUtil, images[j], labels[j], segmentations[j], trainloader['dataloader'], mean[j], stdev[j])      
                             writer.add_image('segmentation/train', imanseg, 0,dataformats='HWC')
 
                     with torch.no_grad():
@@ -732,7 +734,7 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
 
                     if writer is not None:
                         for j in range(1):
-                            imanseg = DisplayImgAn(images[j], labels[j], segmentations[j], trainloader['dataloader'], mean[j], stdev[j])      
+                            imanseg = DisplayImgAn(imUtil,images[j], labels[j], segmentations[j], trainloader['dataloader'], mean[j], stdev[j])      
                             writer.add_image('segmentation/test', imanseg, 0,dataformats='HWC')
 
                 iSave = 1000

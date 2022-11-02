@@ -1,0 +1,286 @@
+workflow:
+  metadata:
+    generateName: cityscapescrisp-
+  annotations:
+    workflows.ml.argoproj.io/description: 'Perform a training sequence
+
+      Find parameter optimized network
+
+      '
+  spec:
+    arguments:
+      parameters:
+      - name: train_image
+        value: localhost:32000/crisptrain:0.1.148
+      - name: batch_size
+        value: 20
+      - name: output_name
+        value: 20221101_191519_hiocnn
+      - name: description
+        value: '{"author": "Brad Larson", "description": "k_structure from 0.5 to
+          0.1 because prune_weights almost completely blue.  Raise k_prune_basis from
+          0.25 to 1.0 for same reason "}'
+      - name: target_structure
+        value: 0.0
+      - name: model_class
+        value: cityscapes
+      - name: dataset
+        value: cityscapes
+      - name: width
+        value: 512
+      - name: height
+        value: 512
+      - name: start
+        value: 0
+      - name: debug
+        value: false
+      - name: profile
+        value: false
+      - name: min
+        value: false
+      - name: search_flops
+        value: true
+      - name: dataset_path
+        value: /data
+      - name: tb_logs
+        value: /tb_logs
+      - name: num_workers
+        value: 5
+      - name: cityscapes_class_dict
+        value: model/cityscapes/cityscapes8.json
+    entrypoint: train-crisp
+    priority: 1
+    templates:
+    - name: train-crisp
+      dag:
+        tasks:
+        - name: search-structure-00
+          template: train
+          when: '{{workflow.parameters.start}} < 2'
+          arguments:
+            parameters:
+            - name: prune
+              value: false
+            - name: model_src
+              value: ''
+            - name: model_dest
+              value: crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00
+            artifacts:
+            - name: prev_results
+              raw:
+                data: 'batches: 0
+
+                  '
+        - name: search-structure-01
+          dependencies:
+          - search-structure-00
+          template: train
+          when: '{{workflow.parameters.start}} < 3'
+          arguments:
+            parameters:
+            - name: model_src
+              value: crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_00
+            - name: model_dest
+              value: crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01
+            - name: convMaskThreshold
+              value: 0.01
+            artifacts:
+            - name: prev_results
+              from: '{{tasks.search-structure-00.outputs.artifacts.results}}'
+        - name: search-structure-02
+          dependencies:
+          - search-structure-01
+          template: train
+          when: '{{workflow.parameters.start}} < 4'
+          arguments:
+            parameters:
+            - name: model_src
+              value: crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_01
+            - name: model_dest
+              value: crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02
+            - name: convMaskThreshold
+              value: 0.03
+            artifacts:
+            - name: prev_results
+              from: '{{tasks.search-structure-01.outputs.artifacts.results}}'
+        - name: search-structure-03
+          dependencies:
+          - search-structure-02
+          template: train
+          when: '{{workflow.parameters.start}} < 5'
+          arguments:
+            parameters:
+            - name: model_src
+              value: crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_02
+            - name: model_dest
+              value: crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_03
+            - name: convMaskThreshold
+              value: 0.1
+            artifacts:
+            - name: prev_results
+              from: '{{tasks.search-structure-02.outputs.artifacts.results}}'
+        - name: search-structure-04
+          dependencies:
+          - search-structure-03
+          template: train
+          when: '{{workflow.parameters.start}} < 6'
+          arguments:
+            parameters:
+            - name: model_src
+              value: crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_03
+            - name: model_dest
+              value: crispcityscapes_{{workflow.parameters.output_name}}{{workflow.parameters.target_structure}}_search_structure_04
+            - name: convMaskThreshold
+              value: 0.2
+            - name: k_structure
+              value: 0.0
+            - name: k_prune_basis
+              value: 0.0
+            - name: epochs
+              value: 80
+            artifacts:
+            - name: prev_results
+              from: '{{tasks.search-structure-03.outputs.artifacts.results}}'
+    - name: train
+      inputs:
+        parameters:
+        - name: batch_size
+          value: '{{workflow.parameters.batch_size}}'
+        - name: prune
+          value: true
+        - name: train
+          value: true
+        - name: test
+          value: true
+        - name: onnx
+          value: false
+        - name: search_structure
+          value: true
+        - name: target_structure
+          value: '{{workflow.parameters.target_structure}}'
+        - name: epochs
+          value: 40
+        - name: start_epoch
+          value: 0
+        - name: ejector
+          value: prune_basis
+        - name: ejector_start
+          value: 19
+        - name: ejector_full
+          value: 20
+        - name: ejector_max
+          value: 1.0
+        - name: model_src
+          value: ''
+        - name: model_dest
+          value: crispcityscapes_{{workflow.parameters.output_name}}
+        - name: k_accuracy
+          value: 1.0
+        - name: k_structure
+          value: 0.1
+        - name: k_prune_basis
+          value: 1.0
+        - name: learning_rate
+          value: 2e-3
+        - name: class_weight
+          value: '[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]'
+        - name: description
+          value: '{{workflow.parameters.description}}'
+        - name: resultspath
+          value: /app/results.yaml
+        - name: prevresultspath
+          value: /app/prevresults.yaml
+        - name: k_prune_sigma
+          value: 1.0
+        - name: convMaskThreshold
+          value: 0.1
+        - name: test_sparsity
+          value: 1
+        artifacts:
+        - name: prev_results
+          path: '{{inputs.parameters.prevresultspath}}'
+      outputs:
+        parameters:
+        - name: results
+          valueFrom:
+            path: '{{inputs.parameters.resultspath}}'
+        artifacts:
+        - name: results
+          path: '{{inputs.parameters.resultspath}}'
+      volumes:
+      - name: dshm
+        emptyDir:
+          medium: Memory
+      - name: workerstorage
+        persistentVolumeClaim:
+          claimName: workerstorage
+      - name: tblogs
+        persistentVolumeClaim:
+          claimName: tblogs
+      container:
+        image: '{{workflow.parameters.train_image}}'
+        volumeMounts:
+        - mountPath: /dev/shm
+          name: dshm
+        - name: workerstorage
+          mountPath: '{{workflow.parameters.dataset_path}}'
+        - name: tblogs
+          mountPath: '{{workflow.parameters.tb_logs}}'
+        command:
+        - python3
+        args:
+        - networks/network2d.py
+        - -model_class={{workflow.parameters.model_class}}
+        - -dataset={{workflow.parameters.dataset}}
+        - -height={{workflow.parameters.height}}
+        - -width={{workflow.parameters.width}}
+        - -prune={{inputs.parameters.prune}}
+        - -train={{inputs.parameters.train}}
+        - -profile={{workflow.parameters.profile}}
+        - -epochs={{inputs.parameters.epochs}}
+        - -start_epoch={{inputs.parameters.start_epoch}}
+        - -test={{inputs.parameters.test}}
+        - -onnx={{inputs.parameters.onnx}}
+        - -search_structure={{inputs.parameters.search_structure}}
+        - -target_structure={{inputs.parameters.target_structure}}
+        - -k_accuracy={{inputs.parameters.k_accuracy}}
+        - -k_structure={{inputs.parameters.k_structure}}
+        - -learning_rate={{inputs.parameters.learning_rate}}
+        - -model_src={{inputs.parameters.model_src}}
+        - -model_dest={{inputs.parameters.model_dest}}
+        - -description={{inputs.parameters.description}}
+        - -resultspath={{inputs.parameters.resultspath}}
+        - -prevresultspath={{inputs.parameters.prevresultspath}}
+        - -batch_size={{inputs.parameters.batch_size}}
+        - -class_weight={{inputs.parameters.class_weight}}
+        - -batch_norm=false
+        - -job
+        - -k_prune_basis={{inputs.parameters.k_prune_basis}}
+        - -ejector={{inputs.parameters.ejector}}
+        - -ejector_start={{inputs.parameters.ejector_start}}
+        - -ejector_full={{inputs.parameters.ejector_full}}
+        - -ejector_max={{inputs.parameters.ejector_max}}
+        - -debug={{workflow.parameters.debug}}
+        - -minimum={{workflow.parameters.min}}
+        - -k_prune_sigma={{inputs.parameters.k_prune_sigma}}
+        - -convMaskThreshold={{inputs.parameters.convMaskThreshold}}
+        - -search_flops={{workflow.parameters.search_flops}}
+        - -dataset_path={{workflow.parameters.dataset_path}}
+        - -tensorboard_dir={{workflow.parameters.tb_logs}}/crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_tb
+        - -tb_dest=crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_tb
+        - -num_workers={{workflow.parameters.num_workers}}
+        - -cityscapes_class_dict={{workflow.parameters.cityscapes_class_dict}}
+        - -test_sparsity={{inputs.parameters.test_sparsity}}
+        ports:
+        - name: debug
+          containerPort: 3000
+        resources:
+          requests:
+            ephemeral-storage: 40Gi
+            nvidia.com/gpu: '1'
+          limits:
+            ephemeral-storage: 40Gi
+            nvidia.com/gpu: '1'
+        retryStrategy:
+          limit: '3'
+          retryPolicy: Always

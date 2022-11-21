@@ -20,7 +20,7 @@ workflow:
         - name: target_structure
           value: 0.0
         - name: model_class
-          value: segmin
+          value: ImgSegmentPrune
         - name: dataset
           value: coco
         - name: width
@@ -306,8 +306,8 @@ workflow:
             - -convMaskThreshold={{inputs.parameters.convMaskThreshold}}
             - -search_flops={{workflow.parameters.search_flops}}
             - -dataset_path={{workflow.parameters.dataset_path}}
-            - -tensorboard_dir={{workflow.parameters.tb_logs}}/crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_tb
-            - -tb_dest=crisp{{workflow.parameters.dataset}}_{{workflow.parameters.output_name}}_tb
+            - -tensorboard_dir={{workflow.parameters.tb_logs}}/{{workflow.parameters.output_name}}_tb
+            - -tb_dest={{workflow.parameters.output_name}}_tb
             - -num_workers={{workflow.parameters.num_workers}}
 
           ports:

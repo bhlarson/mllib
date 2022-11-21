@@ -1,42 +1,52 @@
-FROM tensorflow/tensorflow:2.3.1-gpu
-#FROM tensorflow/tensorflow:2.4.1-gpu
+ARG IMAGE
+
+FROM ${IMAGE}
 LABEL maintainer="Brad Larson"
 
-RUN echo 'alias py=python' >> ~/.bashrc
+#USER root
 
-RUN apt-get update
-RUN apt-get install -y libgl1-mesa-glx # for opencv-python
-RUN apt-get install -y wget unzip
+# RUN --mount=type=cache,target=/var/cache/apt \ 
+#     apt-get update -y && apt-get install -y --no-install-recommends \
+#         openssh-server \
+#         autofs \
+#         net-tools \
+#         iproute2 \
+#         pciutils \
+#         sudo \
+#         tzdata \
+#         rsync \
+#         tree \
+#         htop \
+#         git \
+#         unzip \
+#         expect \
+#         apt-utils \
+#         software-properties-common \
+#         nano \
+#         ca-certificates \
+#         curl \
+#         gnupg \
+#         lsb-release \
+#         apt-transport-https \
+#         daemonize \
+#         dbus-user-session \
+#         fontconfig && \
+#     rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --upgrade pip
-RUN pip3 --no-cache-dir install \
-        opencv-python==4.5.1.48 \
-        matplotlib==3.3.4\
-        minio==7.0.2 \
-        tqdm==4.58.0 \
-        natsort==7.1.1 \
-        ptvsd==4.3.2 \
-        debugpy \
-        tfds-nightly \
-        tensorflow-addons==0.12.1 \
-        flask==1.1.2 \
-        pycocotools==2.0.2 \
-        shutils==0.1.0 \
-        tf2onnx==1.8.3
+COPY requirements.txt .
+RUN --mount=type=cache,target=/var/cache/apt \
+    pip3 install -r requirements.txt
 
-RUN pip3 install https://dl.google.com/coral/python/tflite_runtime-2.1.0.post1-cp36-cp36m-linux_x86_64.whl
 
-WORKDIR /app
-ENV LANG C.UTF-8
+# RUN mkdir /var/run/sshd
+# RUN echo 'root:AD-fgy65r' | chpasswd
 
-# jupyter port
-EXPOSE 8888 
-# tensorboard port
-EXPOSE 6006
-# debugger port
-EXPOSE 3000 
-# flask port
-EXPOSE 5000 
+# Enable SSH login to root
+#RUN sed -i "s/.*PermitRootLogin prohibit-password/PermitRootLogin yes/g" /etc/ssh/sshd_config
 
-# Launch shell script
-RUN ["/bin/bash"]
+EXPOSE 22 3000 5000 6006 8888
+
+# Launch container
+#CMD ["/bin/bash"]
+CMD ["/usr/sbin/sshd", "-D"]
+#CMD ["./run.sh"]

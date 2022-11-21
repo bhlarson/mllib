@@ -1,7 +1,7 @@
 # yamllint disable-line rule:line-length
 workflow:
   metadata:
-    generateName: cityscapescrisp-
+    generateName: resnet-imagenet
   annotations:
     workflows.ml.argoproj.io/description: |
       Perform a training sequence
@@ -12,21 +12,21 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: batch_size
-          value: 20
+          value: 300
         - name: output_name
           value: 20220520i
         - name: description
-          value: '{"author":"Brad Larson","description":"Crisp cityscapes segmentation"}'
+          value: '{"author":"Brad Larson","description":"Crisp imagenet classification"}'
         - name: target_structure
           value: 0.0
         - name: model_class
-          value: ImgSegmentPrune
+          value: ImClassify
         - name: dataset
-          value: cityscapes
+          value: imagenet
         - name: width
-          value: 512
+          value: 224
         - name: height
-          value: 512
+          value: 224
           # Start step to test/recover failed runs
         - name: start
           value: 0
@@ -39,33 +39,37 @@ workflow:
         - name: min
           value: false
         - name: search_flops
-          value: false
+          value: true
         - name: dataset_path
           value: /data
         - name: tb_logs
           value: /tb_logs
+        # cell2d.py -resnet_len for supported lenghts
+        - name: resnet_len
+          value: 18
         - name: num_workers
-          value: 5
-        - name: cityscapes_class_dict
-          value: model/cityscapes/cityscapes8.json
-
+          value: 25
+        - name: optimizer
+          value: adam
+        - name: s3_name
+          value: store
+          
     entrypoint: train-crisp
     priority: 1
     templates:
       - name: train-crisp
         dag:
           tasks:
-            - name: search-structure-00
+            - name: test
               template: train
-              when: "{{workflow.parameters.start}} < 2"
+              when: "{{workflow.parameters.start}} < 1"
               arguments:
                 parameters:
                   - {name: prune, value: false}
+                  - {name: train, value: false}
+                  - {name: test, value: true}
                   - {name: model_src, value: ""}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_00"}
-                  - {name: epochs, value: 100}
-                  - {name: k_structure, value: 0.001}
-                  - {name: k_prune_basis, value: 0.001}
+                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_test"}
                 artifacts:
                   - name: prev_results
                     raw:
@@ -74,85 +78,53 @@ workflow:
             - name: search-structure-01
               dependencies: [search-structure-00]
               template: train
-              when: "{{workflow.parameters.start}} < 3"
+              when: "{{workflow.parameters.start}} < 2"
               arguments:
                 parameters:
-                  - {name: model_src, value:  "{{workflow.parameters.output_name}}_search_structure_00"}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_01"}
-                  - {name: convMaskThreshold, value: 0.01}
+                  - {name: model_src, value: "{{workflow.parameters.output_name}}_test"}
+                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_train"}
                 artifacts:
                   - name: prev_results
-                    from: "{{tasks.search-structure-00.outputs.artifacts.results}}"
-            - name: search-structure-02
-              dependencies: [search-structure-01]
-              template: train
-              when: "{{workflow.parameters.start}} < 4"
-              arguments:
-                parameters:
-                  - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_01"}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_02"}
-                  - {name: convMaskThreshold, value: 0.02}
-                artifacts:
-                  - name: prev_results
-                    from: "{{tasks.search-structure-01.outputs.artifacts.results}}"
-            - name: search-structure-03
-              dependencies: [search-structure-02]
-              template: train
-              when: "{{workflow.parameters.start}} < 5"
-              arguments:
-                parameters:
-                  - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_02"}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_03"}
-                  - {name: convMaskThreshold, value: 0.04}
-                artifacts:
-                  - name: prev_results
-                    from: "{{tasks.search-structure-02.outputs.artifacts.results}}"
-            - name: search-structure-04
-              dependencies: [search-structure-03]
-              template: train
-              when: "{{workflow.parameters.start}} < 6"
-              arguments:
-                parameters:
-                  - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_03"}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_04"}
-                  - {name: convMaskThreshold, value: 0.05}
-                  - {name: k_structure, value: 0.0}
-                  - {name: k_prune_basis, value: 0.0}
-                  - {name: epochs, value: 80}
-                artifacts:
-                  - name: prev_results
-                    from: "{{tasks.search-structure-03.outputs.artifacts.results}}"
-
+                    from: "{{tasks.test.outputs.artifacts.results}}"
 
       - name: train
         inputs:
           parameters:
             - {name: batch_size, value: "{{workflow.parameters.batch_size}}"}
-            - {name: prune, value: true}
+            - {name: prune, value: false}
             - {name: train, value: true}
             - {name: test, value: true}
             - {name: onnx, value: false}
-            - {name: search_structure, value: true}
+            - {name: search_structure, value: false}
             - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-            - {name: epochs, value: 60}
+            - {name: epochs, value: 40}
             - {name: start_epoch, value: 0}
             - {name: ejector, value: 'prune_basis'}
-            - {name: ejector_start, value: 29}
-            - {name: ejector_full, value: 30}
+            - {name: ejector_start, value: 0}
+            - {name: ejector_full, value: 1}
             - {name: ejector_max, value: 1.0}
             - {name: model_src, value: ""}
-            - {name: model_dest, value: "{{workflow.parameters.output_name}}"}
+            - {name: model_dest, value: "crispimagenet_{{workflow.parameters.output_name}}"}
             - {name: k_accuracy, value: 1.0}
-            - {name: k_structure, value: 0.5}
-            - {name: k_prune_basis, value: 1.0}
-            - {name: learning_rate, value: 2e-3}
-            - {name: class_weight, value: "[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]"}
+            - {name: k_structure, value: 0.3}
+            - {name: k_prune_basis, value: 0.5}
+            - {name: learning_rate, value: 2e-2}
+            - {name: learning_rate_decay, value: 0.9}
+            - {name: rate_schedule, value: "[10, 20, 30]"}
             - {name: description, value: "{{workflow.parameters.description}}"}
             - {name: resultspath, value: "/app/results.yaml"}
             - {name: prevresultspath, value: "/app/prevresults.yaml"}
             - {name: k_prune_sigma, value: 1.0}
             - {name: convMaskThreshold, value: 0.1}
-            - {name: test_sparsity, value: 1 }
+            - {name: augment_rotation, value: 0 }
+            - {name: augment_scale_min, value: 1 }
+            - {name: augment_scale_max, value: 1 }
+            - {name: augment_translate_x, value: 0 }
+            - {name: augment_translate_y, value: 0 }
+            - {name: augment_noise, value: 0 }
+            - {name: dropout, value: false }
+            - {name: dropout_rate, value: 0.0 }
+            - {name: test_sparsity, value: 3 }
 
           artifacts:
             - name: prev_results
@@ -189,10 +161,10 @@ workflow:
           command:
             - python3
           args:
-            - networks/network2d.py
+            - networks/cell2d.py
             - -model_class={{workflow.parameters.model_class}}
             - -dataset={{workflow.parameters.dataset}}
-            - -height={{workflow.parameters.height}}
+            - -height={{workflow.parameters.height}} 
             - -width={{workflow.parameters.width}}
             - -prune={{inputs.parameters.prune}}
             - -train={{inputs.parameters.train}}
@@ -205,15 +177,17 @@ workflow:
             - -target_structure={{inputs.parameters.target_structure}}
             - -k_accuracy={{inputs.parameters.k_accuracy}}
             - -k_structure={{inputs.parameters.k_structure}}
+            - -optimizer={{workflow.parameters.optimizer}} 
             - -learning_rate={{inputs.parameters.learning_rate}}
+            - -learning_rate_decay={{inputs.parameters.learning_rate_decay}}
+            - -rate_schedule={{inputs.parameters.rate_schedule}}
             - -model_src={{inputs.parameters.model_src}}
             - -model_dest={{inputs.parameters.model_dest}}
             - -description={{inputs.parameters.description}}
             - -resultspath={{inputs.parameters.resultspath}}
             - -prevresultspath={{inputs.parameters.prevresultspath}}
             - -batch_size={{inputs.parameters.batch_size}}
-            - -class_weight={{inputs.parameters.class_weight}}
-            - -batch_norm=false
+            - -batch_norm=true
             - -job
             - -k_prune_basis={{inputs.parameters.k_prune_basis}}
             - -ejector={{inputs.parameters.ejector}}
@@ -228,9 +202,19 @@ workflow:
             - -dataset_path={{workflow.parameters.dataset_path}}
             - -tensorboard_dir={{workflow.parameters.tb_logs}}/{{workflow.parameters.output_name}}_tb
             - -tb_dest={{workflow.parameters.output_name}}_tb
+            - -resnet_len={{workflow.parameters.resnet_len}}
             - -num_workers={{workflow.parameters.num_workers}}
-            - -cityscapes_class_dict={{workflow.parameters.cityscapes_class_dict}}
+            - -augment_rotation={{inputs.parameters.augment_rotation}}
+            - -augment_scale_min={{inputs.parameters.augment_scale_min}}
+            - -augment_scale_max={{inputs.parameters.augment_scale_max}}
+            - -augment_translate_x={{inputs.parameters.augment_translate_x}}
+            - -augment_translate_y={{inputs.parameters.augment_translate_y}}
+            - -augment_noise={{inputs.parameters.augment_noise}}
             - -test_sparsity={{inputs.parameters.test_sparsity}}
+            - -useConv1=True
+            - -dropout={{inputs.parameters.dropout}}
+            - -dropout_rate={{inputs.parameters.dropout_rate}}
+            - -s3_name={{workflow.parameters.s3_name}}
 
           ports:
             - name: debug

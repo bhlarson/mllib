@@ -77,130 +77,130 @@ workflow:
                   - {name: description, value: '{"author":"Brad Larson","description":"Crisp segment class normalized train target size target {{workflow.parameters.target_structure}}"}'}
                   - {name: k_structure, value: 0.0001}
                   - {name: k_prune_basis, value: 0.0001}
-                  - {name: epochs, value: 50}
-                  - {name: rate_schedule, value: "[10, 20, 30, 40]"}
+                  - {name: epochs, value: 30}
+                  - {name: rate_schedule, value: "[10, 20, 30]"}
 
                 artifacts:
                   - name: prev_results
                     raw:
                       data: |
                         batches: 0
-            - name: search-structure-00
-              dependencies: [init-00]
-              template: train
-              when: "{{workflow.parameters.start}} < 2"
-              arguments:
-                parameters:
-                  - {name: prune, value: false}
-                  - {name: train, value: true}
-                  - {name: test, value: true}
-                  - {name: search_structure, value: true}
-                  - {name: model_src, value: "{{workflow.parameters.output_name}}_init-00"}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_00"}
-                  - {name: convMaskThreshold, value: 0.02}
-                artifacts:
-                  - name: prev_results
-                    from: "{{tasks.init-00.outputs.artifacts.results}}"
-            - name: search-structure-01
-              dependencies: [search-structure-00]
-              template: train
-              when: "{{workflow.parameters.start}} < 3"
-              arguments:
-                parameters:
-                  - {name: prune, value: true}
-                  - {name: train, value: true}
-                  - {name: test, value: true}
-                  - {name: search_structure, value: true}
-                  - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_00"}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_01"}
-                  - {name: convMaskThreshold, value: 0.02}
-                artifacts:
-                  - name: prev_results
-                    from: "{{tasks.search-structure-00.outputs.artifacts.results}}"
-            - name: search-structure-02
-              dependencies: [search-structure-01]
-              template: train
-              when: "{{workflow.parameters.start}} < 4"
-              arguments:
-                parameters:
-                  - {name: prune, value: true}
-                  - {name: train, value: true}
-                  - {name: test, value: true}
-                  - {name: search_structure, value: true}
-                  - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_01"}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_02"}
-                  - {name: convMaskThreshold, value: 0.03}
-                artifacts:
-                  - name: prev_results
-                    from: "{{tasks.search-structure-01.outputs.artifacts.results}}"
-            - name: search-structure-03
-              dependencies: [search-structure-02]
-              template: train
-              when: "{{workflow.parameters.start}} < 5"
-              arguments:
-                parameters:
-                  - {name: prune, value: true}
-                  - {name: train, value: true}
-                  - {name: test, value: true}
-                  - {name: search_structure, value: true}
-                  - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_02"}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_03"}
-                  - {name: convMaskThreshold, value: 0.05}
-                artifacts:
-                  - name: prev_results
-                    from: "{{tasks.search-structure-02.outputs.artifacts.results}}"
-            - name: search-structure-04
-              dependencies: [search-structure-03]
-              template: train
-              when: "{{workflow.parameters.start}} < 6"
-              arguments:
-                parameters:
-                  - {name: prune, value: true}
-                  - {name: train, value: true}
-                  - {name: test, value: true}
-                  - {name: search_structure, value: true}
-                  - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_03"}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_04"}
-                  - {name: convMaskThreshold, value: 0.1}
-                artifacts:
-                  - name: prev_results
-                    from: "{{tasks.search-structure-03.outputs.artifacts.results}}"
-            - name: search-structure-05
-              dependencies: [search-structure-04]
-              template: train
-              when: "{{workflow.parameters.start}} < 7"
-              arguments:
-                parameters:
-                  - {name: prune, value: true}
-                  - {name: train, value: true}
-                  - {name: test, value: true}
-                  - {name: search_structure, value: true}
-                  - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_04"}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_05"}
-                  - {name: convMaskThreshold, value: 0.20}
-                artifacts:
-                  - name: prev_results
-                    from: "{{tasks.search-structure-04.outputs.artifacts.results}}"
-            - name: search-structure-06
-              dependencies: [search-structure-05]
-              template: train
-              when: "{{workflow.parameters.start}} < 7"
-              arguments:
-                parameters:
-                  - {name: prune, value: true}
-                  - {name: train, value: true}
-                  - {name: test, value: true}
-                  - {name: search_structure, value: false}
-                  - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_05"}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_06"}
-                  - {name: convMaskThreshold, value: 0.25}
-                  - {name: k_structure, value: 0.0}
-                  - {name: k_prune_basis, value: 0.0}
-                  - {name: epochs, value: 80}
-                  - {name: rate_schedule, value: "[40, 60, 70, 75]"}
-                artifacts:
-                  - name: prev_results
-                    from: "{{tasks.search-structure-05.outputs.artifacts.results}}"
+            # - name: search-structure-00
+            #   dependencies: [init-00]
+            #   template: train
+            #   when: "{{workflow.parameters.start}} < 2"
+            #   arguments:
+            #     parameters:
+            #       - {name: prune, value: false}
+            #       - {name: train, value: true}
+            #       - {name: test, value: true}
+            #       - {name: search_structure, value: true}
+            #       - {name: model_src, value: "{{workflow.parameters.output_name}}_init-00"}
+            #       - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_00"}
+            #       - {name: convMaskThreshold, value: 0.02}
+            #     artifacts:
+            #       - name: prev_results
+            #         from: "{{tasks.init-00.outputs.artifacts.results}}"
+            # - name: search-structure-01
+            #   dependencies: [search-structure-00]
+            #   template: train
+            #   when: "{{workflow.parameters.start}} < 3"
+            #   arguments:
+            #     parameters:
+            #       - {name: prune, value: true}
+            #       - {name: train, value: true}
+            #       - {name: test, value: true}
+            #       - {name: search_structure, value: true}
+            #       - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_00"}
+            #       - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_01"}
+            #       - {name: convMaskThreshold, value: 0.02}
+            #     artifacts:
+            #       - name: prev_results
+            #         from: "{{tasks.search-structure-00.outputs.artifacts.results}}"
+            # - name: search-structure-02
+            #   dependencies: [search-structure-01]
+            #   template: train
+            #   when: "{{workflow.parameters.start}} < 4"
+            #   arguments:
+            #     parameters:
+            #       - {name: prune, value: true}
+            #       - {name: train, value: true}
+            #       - {name: test, value: true}
+            #       - {name: search_structure, value: true}
+            #       - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_01"}
+            #       - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_02"}
+            #       - {name: convMaskThreshold, value: 0.03}
+            #     artifacts:
+            #       - name: prev_results
+            #         from: "{{tasks.search-structure-01.outputs.artifacts.results}}"
+            # - name: search-structure-03
+            #   dependencies: [search-structure-02]
+            #   template: train
+            #   when: "{{workflow.parameters.start}} < 5"
+            #   arguments:
+            #     parameters:
+            #       - {name: prune, value: true}
+            #       - {name: train, value: true}
+            #       - {name: test, value: true}
+            #       - {name: search_structure, value: true}
+            #       - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_02"}
+            #       - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_03"}
+            #       - {name: convMaskThreshold, value: 0.05}
+            #     artifacts:
+            #       - name: prev_results
+            #         from: "{{tasks.search-structure-02.outputs.artifacts.results}}"
+            # - name: search-structure-04
+            #   dependencies: [search-structure-03]
+            #   template: train
+            #   when: "{{workflow.parameters.start}} < 6"
+            #   arguments:
+            #     parameters:
+            #       - {name: prune, value: true}
+            #       - {name: train, value: true}
+            #       - {name: test, value: true}
+            #       - {name: search_structure, value: true}
+            #       - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_03"}
+            #       - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_04"}
+            #       - {name: convMaskThreshold, value: 0.1}
+            #     artifacts:
+            #       - name: prev_results
+            #         from: "{{tasks.search-structure-03.outputs.artifacts.results}}"
+            # - name: search-structure-05
+            #   dependencies: [search-structure-04]
+            #   template: train
+            #   when: "{{workflow.parameters.start}} < 7"
+            #   arguments:
+            #     parameters:
+            #       - {name: prune, value: true}
+            #       - {name: train, value: true}
+            #       - {name: test, value: true}
+            #       - {name: search_structure, value: true}
+            #       - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_04"}
+            #       - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_05"}
+            #       - {name: convMaskThreshold, value: 0.20}
+            #     artifacts:
+            #       - name: prev_results
+            #         from: "{{tasks.search-structure-04.outputs.artifacts.results}}"
+            # - name: search-structure-06
+            #   dependencies: [search-structure-05]
+            #   template: train
+            #   when: "{{workflow.parameters.start}} < 7"
+            #   arguments:
+            #     parameters:
+            #       - {name: prune, value: true}
+            #       - {name: train, value: true}
+            #       - {name: test, value: true}
+            #       - {name: search_structure, value: false}
+            #       - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_05"}
+            #       - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_06"}
+            #       - {name: convMaskThreshold, value: 0.25}
+            #       - {name: k_structure, value: 0.0}
+            #       - {name: k_prune_basis, value: 0.0}
+            #       - {name: epochs, value: 80}
+            #       - {name: rate_schedule, value: "[40, 60, 70, 75]"}
+            #     artifacts:
+            #       - name: prev_results
+            #         from: "{{tasks.search-structure-05.outputs.artifacts.results}}"
 
       - name: train
         inputs:
@@ -224,7 +224,7 @@ workflow:
             - {name: k_structure, value: 0.5}
             - {name: k_prune_basis, value: 1.0}
             - {name: learning_rate, value: 1e-3}
-            - {name: learning_rate_decay, value: 0.25}
+            - {name: learning_rate_decay, value: 0.50}
             - {name: rate_schedule, value: "[20, 30, 40, 45, 48]"}
             - {name: description, value: "{{workflow.parameters.description}}"}
             - {name: resultspath, value: "/app/results.yaml"}

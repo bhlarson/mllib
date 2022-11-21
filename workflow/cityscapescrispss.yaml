@@ -39,7 +39,7 @@ workflow:
         - name: min
           value: false
         - name: search_flops
-          value: false
+          value: true
         - name: dataset_path
           value: /data
         - name: tb_logs
@@ -55,15 +55,14 @@ workflow:
       - name: train-crisp
         dag:
           tasks:
-            - name: search-structure-00
+            - name: init-00
               template: train
               when: "{{workflow.parameters.start}} < 2"
               arguments:
                 parameters:
                   - {name: prune, value: false}
                   - {name: model_src, value: ""}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_00"}
-                  - {name: epochs, value: 100}
+                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_init-00"}
                   - {name: k_structure, value: 0.001}
                   - {name: k_prune_basis, value: 0.001}
                 artifacts:
@@ -71,80 +70,57 @@ workflow:
                     raw:
                       data: |
                         batches: 0
-            - name: search-structure-01
-              dependencies: [search-structure-00]
+            - name: search-structure-00
+              dependencies: [init-00]
               template: train
               when: "{{workflow.parameters.start}} < 3"
               arguments:
                 parameters:
-                  - {name: model_src, value:  "{{workflow.parameters.output_name}}_search_structure_00"}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_01"}
-                  - {name: convMaskThreshold, value: 0.01}
+                  - {name: model_src, value: ImgSegmentPrune_cityscapes_20221107_192909_hiocnn_init-00}
+                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search-structure-00"}
+                  - {name: k_accuracy, value: 1.0}
+                  - {name: k_structure, value: 0.5}
+                  - {name: k_prune_basis, value: 1.0}
+                  - {name: ejector_start, value: 59}
+                  - {name: ejector_full, value: 60}
                 artifacts:
                   - name: prev_results
-                    from: "{{tasks.search-structure-00.outputs.artifacts.results}}"
-            - name: search-structure-02
-              dependencies: [search-structure-01]
+                    from: "{{tasks.init-00.outputs.artifacts.results}}"
+            - name: search-structure-01
+              dependencies: [search-structure-00]
               template: train
               when: "{{workflow.parameters.start}} < 4"
               arguments:
                 parameters:
-                  - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_01"}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_02"}
-                  - {name: convMaskThreshold, value: 0.02}
+                  - {name: prune, value: true}
+                  - {name: convMaskThreshold, value: 0.1}
+                  - {name: model_src, value: "{{workflow.parameters.output_name}}_search-structure-00"}
+                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search-structure-01"}
                 artifacts:
                   - name: prev_results
-                    from: "{{tasks.search-structure-01.outputs.artifacts.results}}"
-            - name: search-structure-03
-              dependencies: [search-structure-02]
-              template: train
-              when: "{{workflow.parameters.start}} < 5"
-              arguments:
-                parameters:
-                  - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_02"}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_03"}
-                  - {name: convMaskThreshold, value: 0.04}
-                artifacts:
-                  - name: prev_results
-                    from: "{{tasks.search-structure-02.outputs.artifacts.results}}"
-            - name: search-structure-04
-              dependencies: [search-structure-03]
-              template: train
-              when: "{{workflow.parameters.start}} < 6"
-              arguments:
-                parameters:
-                  - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_03"}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_04"}
-                  - {name: convMaskThreshold, value: 0.05}
-                  - {name: k_structure, value: 0.0}
-                  - {name: k_prune_basis, value: 0.0}
-                  - {name: epochs, value: 80}
-                artifacts:
-                  - name: prev_results
-                    from: "{{tasks.search-structure-03.outputs.artifacts.results}}"
-
+                    from: "{{tasks.search-structure-00.outputs.artifacts.results}}"
 
       - name: train
         inputs:
           parameters:
             - {name: batch_size, value: "{{workflow.parameters.batch_size}}"}
-            - {name: prune, value: true}
+            - {name: prune, value: false}
             - {name: train, value: true}
             - {name: test, value: true}
             - {name: onnx, value: false}
             - {name: search_structure, value: true}
             - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-            - {name: epochs, value: 60}
+            - {name: epochs, value: 120}
             - {name: start_epoch, value: 0}
             - {name: ejector, value: 'prune_basis'}
-            - {name: ejector_start, value: 29}
-            - {name: ejector_full, value: 30}
+            - {name: ejector_start, value: -1}
+            - {name: ejector_full, value: 0}
             - {name: ejector_max, value: 1.0}
             - {name: model_src, value: ""}
-            - {name: model_dest, value: "{{workflow.parameters.output_name}}"}
+            - {name: model_dest, value: "crispcityscapes_{{workflow.parameters.output_name}}"}
             - {name: k_accuracy, value: 1.0}
-            - {name: k_structure, value: 0.5}
-            - {name: k_prune_basis, value: 1.0}
+            - {name: k_structure, value: 0.0}
+            - {name: k_prune_basis, value: 0.0}
             - {name: learning_rate, value: 2e-3}
             - {name: class_weight, value: "[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]"}
             - {name: description, value: "{{workflow.parameters.description}}"}

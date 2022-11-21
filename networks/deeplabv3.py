@@ -1,478 +1,1284 @@
-# -*- coding: utf-8 -*-
+import enum
+import math
+import os
+import sys
+import math
+import io
+import json
+import platform
+from enum import Enum
+from copy import deepcopy
+import torch
+from torch._C import parse_ir
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+import torch.profiler
+from torch.utils.tensorboard import SummaryWriter
+from collections import namedtuple
+from collections import OrderedDict
+from typing import Callable, Optional
+from tqdm import tqdm
+import numpy as np
+import matplotlib.pyplot as plt
+import cv2
+#from mlflow import log_metric, log_param, log_artifacts
 
-""" Deeplabv3+ model for Keras.
-This model is based on TF repo:
-https://github.com/tensorflow/models/tree/master/research/deeplab
-On Pascal VOC, original model gets to 84.56% mIOU
-MobileNetv2 backbone is based on this repo:
-https://github.com/JonathanCMitchell/mobilenet_v2_keras
-# Reference
-- [Encoder-Decoder with Atrous Separable Convolution
-    for Semantic Image Segmentation](https://arxiv.org/pdf/1802.02611.pdf)
-- [Xception: Deep Learning with Depthwise Separable Convolutions]
-    (https://arxiv.org/abs/1610.02357)
-- [Inverted Residuals and Linear Bottlenecks: Mobile Networks for
-    Classification, Detection and Segmentation](https://arxiv.org/abs/1801.04381)
-"""
+sys.path.insert(0, os.path.abspath(''))
+from pymlutil.torch_util import count_parameters, model_stats, model_weights
+from pymlutil.jsonutil import ReadDictJson, WriteDictJson, str2bool
+from pymlutil.s3 import s3store, Connect
+from pymlutil.functions import GaussianBasis, NormGausBasis
+from networks.totalloss import TotalLoss
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+# Inner neural architecture cell repetition structure
+# Process: Con2d, optional batch norm, optional ReLu
+import torchvision
+from torchvision.utils import save_image
+import torchvision.transforms as transforms
+from torchdatasetutil.cocostore import CreateCocoLoaders
+from torchdatasetutil.imstore import  CreateImageLoaders
 
-import tensorflow as tf
-
-from tensorflow.python.keras.models import Model
-from tensorflow.python.keras import layers
-from tensorflow.python.keras.layers import Input
-from tensorflow.python.keras.layers import Lambda
-from tensorflow.python.keras.layers import Activation
-from tensorflow.python.keras.layers import Concatenate
-from tensorflow.python.keras.layers import Add
-from tensorflow.python.keras.layers import Dropout
-from tensorflow.python.keras.layers import BatchNormalization
-from tensorflow.python.keras.layers import Conv2D
-from tensorflow.python.keras.layers import DepthwiseConv2D
-from tensorflow.python.keras.layers import ZeroPadding2D
-from tensorflow.python.keras.layers import GlobalAveragePooling2D
-from tensorflow.python.keras.utils.layer_utils import get_source_inputs
-from tensorflow.python.keras.utils.data_utils import get_file
-from tensorflow.python.keras import backend as K
-from tensorflow.python.keras.applications.imagenet_utils import preprocess_input
-
-WEIGHTS_PATH_X = "https://github.com/bonlime/keras-deeplab-v3-plus/releases/download/1.1/deeplabv3_xception_tf_dim_ordering_tf_kernels.h5"
-WEIGHTS_PATH_MOBILE = "https://github.com/bonlime/keras-deeplab-v3-plus/releases/download/1.1/deeplabv3_mobilenetv2_tf_dim_ordering_tf_kernels.h5"
-WEIGHTS_PATH_X_CS = "https://github.com/bonlime/keras-deeplab-v3-plus/releases/download/1.2/deeplabv3_xception_tf_dim_ordering_tf_kernels_cityscapes.h5"
-WEIGHTS_PATH_MOBILE_CS = "https://github.com/bonlime/keras-deeplab-v3-plus/releases/download/1.2/deeplabv3_mobilenetv2_tf_dim_ordering_tf_kernels_cityscapes.h5"
+from networks.cell2d import Cell, PlotSearch, PlotGradients
+from networks.network2d import DisplayImgAn, parse_arguments
 
 
-def SepConv_BN(x, filters, prefix, stride=1, kernel_size=3, rate=1, depth_activation=False, epsilon=1e-3):
-    """ SepConv with BN between depthwise & pointwise. Optionally add activation after BN
-        Implements right "same" padding for even kernel sizes
-        Args:
-            x: input tensor
-            filters: num of filters in pointwise convolution
-            prefix: prefix before name
-            stride: stride at depthwise conv
-            kernel_size: kernel size for depthwise convolution
-            rate: atrous rate for depthwise convolution
-            depth_activation: flag to use activation between depthwise & poinwise convs
-            epsilon: epsilon to use in BN layer
-    """
-
-    if stride == 1:
-        depth_padding = 'same'
-    else:
-        kernel_size_effective = kernel_size + (kernel_size - 1) * (rate - 1)
-        pad_total = kernel_size_effective - 1
-        pad_beg = pad_total // 2
-        pad_end = pad_total - pad_beg
-        x = ZeroPadding2D((pad_beg, pad_end))(x)
-        depth_padding = 'valid'
-
-    if not depth_activation:
-        x = Activation(tf.nn.relu)(x)
-    x = DepthwiseConv2D((kernel_size, kernel_size), strides=(stride, stride), dilation_rate=(rate, rate),
-                        padding=depth_padding, use_bias=False, name=prefix + '_depthwise')(x)
-    x = BatchNormalization(name=prefix + '_depthwise_BN', epsilon=epsilon)(x)
-    if depth_activation:
-        x = Activation(tf.nn.relu)(x)
-    x = Conv2D(filters, (1, 1), padding='same',
-               use_bias=False, name=prefix + '_pointwise')(x)
-    x = BatchNormalization(name=prefix + '_pointwise_BN', epsilon=epsilon)(x)
-    if depth_activation:
-        x = Activation(tf.nn.relu)(x)
-
-    return x
+from tensorboard import program
 
 
-def _conv2d_same(x, filters, prefix, stride=1, kernel_size=3, rate=1):
-    """Implements right 'same' padding for even kernel sizes
-        Without this there is a 1 pixel drift when stride = 2
-        Args:
-            x: input tensor
-            filters: num of filters in pointwise convolution
-            prefix: prefix before name
-            stride: stride at depthwise conv
-            kernel_size: kernel size for depthwise convolution
-            rate: atrous rate for depthwise convolution
-    """
-    if stride == 1:
-        return Conv2D(filters,
-                      (kernel_size, kernel_size),
-                      strides=(stride, stride),
-                      padding='same', use_bias=False,
-                      dilation_rate=(rate, rate),
-                      name=prefix)(x)
-    else:
-        kernel_size_effective = kernel_size + (kernel_size - 1) * (rate - 1)
-        pad_total = kernel_size_effective - 1
-        pad_beg = pad_total // 2
-        pad_end = pad_total - pad_beg
-        x = ZeroPadding2D((pad_beg, pad_end))(x)
-        return Conv2D(filters,
-                      (kernel_size, kernel_size),
-                      strides=(stride, stride),
-                      padding='valid', use_bias=False,
-                      dilation_rate=(rate, rate),
-                      name=prefix)(x)
+class ConvBR(nn.Module):
+    def __init__(self, 
+                 in_channels, 
+                 out_channels,
+                 batch_norm=True, 
+                 relu=True,
+                 kernel_size=3, 
+                 stride=1,
+                 dilation=1, 
+                 groups=1, 
+                 bias=True, 
+                 padding_mode='zeros',
+                 weight_gain = 11.0,
+                 convMaskThreshold=0.5,
+                 dropout_rate=0.2,
+                 sigmoid_scale = 5.0, # Channel sigmoid scale factor
+                 search_structure=True,
+                 residual = False,
+                 dropout=False,
+                 conv_transpose=False, # https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html
+                 k_prune_sigma=0.33,
+                 device=torch.device("cpu"),
+                 ):
+        super(ConvBR, self).__init__()
+        self.in_channels = in_channels
+        if out_channels < 1:
+            raise ValueError("out_channels must be > 0")
+        self.out_channels = out_channels
+        self.batch_norm = batch_norm
+        self.relu = relu
+        self.weight_gain = abs(weight_gain)
+        self.convMaskThreshold = convMaskThreshold
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.dilation = dilation
+        self.groups = groups
+        self.bias = bias
+        self.padding_mode = padding_mode
+        self.dropout_rate = dropout_rate
+        self.sigmoid_scale = sigmoid_scale
+        self.search_structure = search_structure
+        self.residual = residual
+        self.use_dropout = dropout
+        self.conv_transpose = conv_transpose
+        self.k_prune_sigma=k_prune_sigma
+        self.device = device
 
+        self.channel_scale = nn.Parameter(torch.zeros(self.out_channels, dtype=torch.float, device=self.device))
 
-def _xception_block(inputs, depth_list, prefix, skip_connection_type, stride,
-                    rate=1, depth_activation=False, return_skip=False):
-    """ Basic building block of modified Xception network
-        Args:
-            inputs: input tensor
-            depth_list: number of filters in each SepConv layer. len(depth_list) == 3
-            prefix: prefix before name
-            skip_connection_type: one of {'conv','sum','none'}
-            stride: stride at last depthwise conv
-            rate: atrous rate for depthwise convolution
-            depth_activation: flag to use activation between depthwise & pointwise convs
-            return_skip: flag to return additional tensor after 2 SepConvs for decoder
-            """
-    residual = inputs
-    for i in range(3):
-        residual = SepConv_BN(residual,
-                              depth_list[i],
-                              prefix + '_separable_conv{}'.format(i + 1),
-                              stride=stride if i == 2 else 1,
-                              rate=rate,
-                              depth_activation=depth_activation)
-        if i == 1:
-            skip = residual
-    if skip_connection_type == 'conv':
-        shortcut = _conv2d_same(inputs, depth_list[-1], prefix + '_shortcut',
-                                kernel_size=1,
-                                stride=stride)
-        shortcut = BatchNormalization(name=prefix + '_shortcut_BN')(shortcut)
-        outputs = layers.add([residual, shortcut])
-    elif skip_connection_type == 'sum':
-        outputs = layers.add([residual, inputs])
-    elif skip_connection_type == 'none':
-        outputs = residual
-    if return_skip:
-        return outputs, skip
-    else:
-        return outputs
-
-
-def _make_divisible(v, divisor, min_value=None):
-    if min_value is None:
-        min_value = divisor
-    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
-    # Make sure that round down does not go down by more than 10%.
-    if new_v < 0.9 * v:
-        new_v += divisor
-    return new_v
-
-
-def _inverted_res_block(inputs, expansion, stride, alpha, filters, block_id, skip_connection, rate=1):
-    in_channels = inputs.shape[-1]  # inputs._keras_shape[-1]
-    pointwise_conv_filters = int(filters * alpha)
-    pointwise_filters = _make_divisible(pointwise_conv_filters, 8)
-    x = inputs
-    prefix = 'expanded_conv_{}_'.format(block_id)
-    if block_id:
-        # Expand
-
-        x = Conv2D(expansion * in_channels, kernel_size=1, padding='same',
-                   use_bias=False, activation=None,
-                   name=prefix + 'expand')(x)
-        x = BatchNormalization(epsilon=1e-3, momentum=0.999,
-                               name=prefix + 'expand_BN')(x)
-        x = Activation(tf.nn.relu6, name=prefix + 'expand_relu')(x)
-    else:
-        prefix = 'expanded_conv_'
-    # Depthwise
-    x = DepthwiseConv2D(kernel_size=3, strides=stride, activation=None,
-                        use_bias=False, padding='same', dilation_rate=(rate, rate),
-                        name=prefix + 'depthwise')(x)
-    x = BatchNormalization(epsilon=1e-3, momentum=0.999,
-                           name=prefix + 'depthwise_BN')(x)
-
-    x = Activation(tf.nn.relu6, name=prefix + 'depthwise_relu')(x)
-
-    # Project
-    x = Conv2D(pointwise_filters,
-               kernel_size=1, padding='same', use_bias=False, activation=None,
-               name=prefix + 'project')(x)
-    x = BatchNormalization(epsilon=1e-3, momentum=0.999,
-                           name=prefix + 'project_BN')(x)
-
-    if skip_connection:
-        return Add(name=prefix + 'add')([inputs, x])
-
-    # if in_channels == pointwise_filters and stride == 1:
-    #    return Add(name='res_connect_' + str(block_id))([inputs, x])
-
-    return x
-
-
-def Deeplabv3(weights='pascal_voc', input_tensor=None, input_shape=(512, 512, 3), classes=21, backbone='mobilenetv2',
-              OS=16, alpha=1., activation=None):
-    """ Instantiates the Deeplabv3+ architecture
-    Optionally loads weights pre-trained
-    on PASCAL VOC or Cityscapes. This model is available for TensorFlow only.
-    # Arguments
-        weights: one of 'pascal_voc' (pre-trained on pascal voc),
-            'cityscapes' (pre-trained on cityscape) or None (random initialization)
-        input_tensor: optional Keras tensor (i.e. output of `layers.Input()`)
-            to use as image input for the model.
-        input_shape: shape of input image. format HxWxC
-            PASCAL VOC model was trained on (512,512,3) images. None is allowed as shape/width
-        classes: number of desired classes. PASCAL VOC has 21 classes, Cityscapes has 19 classes.
-            If number of classes not aligned with the weights used, last layer is initialized randomly
-        backbone: backbone to use. one of {'xception','mobilenetv2'}
-        activation: optional activation to add to the top of the network.
-            One of 'softmax', 'sigmoid' or None
-        OS: determines input_shape/feature_extractor_output ratio. One of {8,16}.
-            Used only for xception backbone.
-        alpha: controls the width of the MobileNetV2 network. This is known as the
-            width multiplier in the MobileNetV2 paper.
-                - If `alpha` < 1.0, proportionally decreases the number
-                    of filters in each layer.
-                - If `alpha` > 1.0, proportionally increases the number
-                    of filters in each layer.
-                - If `alpha` = 1, default number of filters from the paper
-                    are used at each layer.
-            Used only for mobilenetv2 backbone. Pretrained is only available for alpha=1.
-    # Returns
-        A Keras model instance.
-    # Raises
-        RuntimeError: If attempting to run this model with a
-            backend that does not support separable convolutions.
-        ValueError: in case of invalid argument for `weights` or `backbone`
-    """
-
-    if not (weights in {'pascal_voc', 'cityscapes', None}):
-        raise ValueError('The `weights` argument should be either '
-                         '`None` (random initialization), `pascal_voc`, or `cityscapes` '
-                         '(pre-trained on PASCAL VOC)')
-
-    if not (backbone in {'xception', 'mobilenetv2'}):
-        raise ValueError('The `backbone` argument should be either '
-                         '`xception`  or `mobilenetv2` ')
-
-    if input_tensor is None:
-        img_input = Input(shape=input_shape)
-    else:
-        img_input = input_tensor
-
-    if backbone == 'xception':
-        if OS == 8:
-            entry_block3_stride = 1
-            middle_block_rate = 2  # ! Not mentioned in paper, but required
-            exit_block_rates = (2, 4)
-            atrous_rates = (12, 24, 36)
+        if type(kernel_size) == int:
+            padding = kernel_size // 2 # dynamic add padding based on the kernel_size
         else:
-            entry_block3_stride = 2
-            middle_block_rate = 1
-            exit_block_rates = (1, 2)
-            atrous_rates = (6, 12, 18)
+            padding = kernel_size // 2
 
-        x = Conv2D(32, (3, 3), strides=(2, 2),
-                   name='entry_flow_conv1_1', use_bias=False, padding='same')(img_input)
-        x = BatchNormalization(name='entry_flow_conv1_1_BN')(x)
-        x = Activation(tf.nn.relu)(x)
-
-        x = _conv2d_same(x, 64, 'entry_flow_conv1_2', kernel_size=3, stride=1)
-        x = BatchNormalization(name='entry_flow_conv1_2_BN')(x)
-        x = Activation(tf.nn.relu)(x)
-
-        x = _xception_block(x, [128, 128, 128], 'entry_flow_block1',
-                            skip_connection_type='conv', stride=2,
-                            depth_activation=False)
-        x, skip1 = _xception_block(x, [256, 256, 256], 'entry_flow_block2',
-                                   skip_connection_type='conv', stride=2,
-                                   depth_activation=False, return_skip=True)
-
-        x = _xception_block(x, [728, 728, 728], 'entry_flow_block3',
-                            skip_connection_type='conv', stride=entry_block3_stride,
-                            depth_activation=False)
-        for i in range(16):
-            x = _xception_block(x, [728, 728, 728], 'middle_flow_unit_{}'.format(i + 1),
-                                skip_connection_type='sum', stride=1, rate=middle_block_rate,
-                                depth_activation=False)
-
-        x = _xception_block(x, [728, 1024, 1024], 'exit_flow_block1',
-                            skip_connection_type='conv', stride=1, rate=exit_block_rates[0],
-                            depth_activation=False)
-        x = _xception_block(x, [1536, 1536, 2048], 'exit_flow_block2',
-                            skip_connection_type='none', stride=1, rate=exit_block_rates[1],
-                            depth_activation=True)
-
-    else:
-        OS = 8
-        first_block_filters = _make_divisible(32 * alpha, 8)
-        x = Conv2D(first_block_filters,
-                   kernel_size=3,
-                   strides=(2, 2), padding='same',
-                   use_bias=False, name='Conv')(img_input)
-        x = BatchNormalization(
-            epsilon=1e-3, momentum=0.999, name='Conv_BN')(x)
-        x = Activation(tf.nn.relu6, name='Conv_Relu6')(x)
-
-        x = _inverted_res_block(x, filters=16, alpha=alpha, stride=1,
-                                expansion=1, block_id=0, skip_connection=False)
-
-        x = _inverted_res_block(x, filters=24, alpha=alpha, stride=2,
-                                expansion=6, block_id=1, skip_connection=False)
-        x = _inverted_res_block(x, filters=24, alpha=alpha, stride=1,
-                                expansion=6, block_id=2, skip_connection=True)
-
-        x = _inverted_res_block(x, filters=32, alpha=alpha, stride=2,
-                                expansion=6, block_id=3, skip_connection=False)
-        x = _inverted_res_block(x, filters=32, alpha=alpha, stride=1,
-                                expansion=6, block_id=4, skip_connection=True)
-        x = _inverted_res_block(x, filters=32, alpha=alpha, stride=1,
-                                expansion=6, block_id=5, skip_connection=True)
-
-        # stride in block 6 changed from 2 -> 1, so we need to use rate = 2
-        x = _inverted_res_block(x, filters=64, alpha=alpha, stride=1,  # 1!
-                                expansion=6, block_id=6, skip_connection=False)
-        x = _inverted_res_block(x, filters=64, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=7, skip_connection=True)
-        x = _inverted_res_block(x, filters=64, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=8, skip_connection=True)
-        x = _inverted_res_block(x, filters=64, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=9, skip_connection=True)
-
-        x = _inverted_res_block(x, filters=96, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=10, skip_connection=False)
-        x = _inverted_res_block(x, filters=96, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=11, skip_connection=True)
-        x = _inverted_res_block(x, filters=96, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=12, skip_connection=True)
-
-        x = _inverted_res_block(x, filters=160, alpha=alpha, stride=1, rate=2,  # 1!
-                                expansion=6, block_id=13, skip_connection=False)
-        x = _inverted_res_block(x, filters=160, alpha=alpha, stride=1, rate=4,
-                                expansion=6, block_id=14, skip_connection=True)
-        x = _inverted_res_block(x, filters=160, alpha=alpha, stride=1, rate=4,
-                                expansion=6, block_id=15, skip_connection=True)
-
-        x = _inverted_res_block(x, filters=320, alpha=alpha, stride=1, rate=4,
-                                expansion=6, block_id=16, skip_connection=False)
-
-    # end of feature extractor
-
-    # branching for Atrous Spatial Pyramid Pooling
-
-    # Image Feature branch
-    shape_before = tf.shape(x)
-    b4 = GlobalAveragePooling2D()(x)
-    # from (b_size, channels)->(b_size, 1, 1, channels)
-    b4 = Lambda(lambda x: K.expand_dims(x, 1))(b4)
-    b4 = Lambda(lambda x: K.expand_dims(x, 1))(b4)
-    b4 = Conv2D(256, (1, 1), padding='same',
-                use_bias=False, name='image_pooling')(b4)
-    b4 = BatchNormalization(name='image_pooling_BN', epsilon=1e-5)(b4)
-    b4 = Activation(tf.nn.relu)(b4)
-    # upsample. have to use compat because of the option alisgn_corners
-    size_before = tf.keras.backend.int_shape(x)
-    b4 = Lambda(lambda x: tf.compat.v1.image.resize(x, size_before[1:3], method='bilinear', align_corners=True))(b4)
-    # simple 1x1
-    b0 = Conv2D(256, (1, 1), padding='same', use_bias=False, name='aspp0')(x)
-    b0 = BatchNormalization(name='aspp0_BN', epsilon=1e-5)(b0)
-    b0 = Activation(tf.nn.relu, name='aspp0_activation')(b0)
-
-    # there are only 2 branches in mobilenetV2. not sure why
-    if backbone == 'xception':
-        # rate = 6 (12)
-        b1 = SepConv_BN(x, 256, 'aspp1',
-                        rate=atrous_rates[0], depth_activation=True, epsilon=1e-5)
-        # rate = 12 (24)
-        b2 = SepConv_BN(x, 256, 'aspp2',
-                        rate=atrous_rates[1], depth_activation=True, epsilon=1e-5)
-        # rate = 18 (36)
-        b3 = SepConv_BN(x, 256, 'aspp3',
-                        rate=atrous_rates[2], depth_activation=True, epsilon=1e-5)
-
-        # concatenate ASPP branches & project
-        x = Concatenate()([b4, b0, b1, b2, b3])
-    else:
-        x = Concatenate()([b4, b0])
-
-    x = Conv2D(256, (1, 1), padding='same',
-               use_bias=False, name='concat_projection')(x)
-    x = BatchNormalization(name='concat_projection_BN', epsilon=1e-5)(x)
-    x = Activation(tf.nn.relu)(x)
-    x = Dropout(0.1)(x)
-    # DeepLab v.3+ decoder
-
-    if backbone == 'xception':
-        # Feature projection
-        # x4 (x2) block
-        skip_size = tf.keras.backend.int_shape(skip1)
-        x = Lambda(lambda xx: tf.compat.v1.image.resize(xx,
-                                                        skip_size[1:3],
-                                                        method='bilinear', align_corners=True))(x)
-
-        dec_skip1 = Conv2D(48, (1, 1), padding='same',
-                           use_bias=False, name='feature_projection0')(skip1)
-        dec_skip1 = BatchNormalization(
-            name='feature_projection0_BN', epsilon=1e-5)(dec_skip1)
-        dec_skip1 = Activation(tf.nn.relu)(dec_skip1)
-        x = Concatenate()([x, dec_skip1])
-        x = SepConv_BN(x, 256, 'decoder_conv0',
-                       depth_activation=True, epsilon=1e-5)
-        x = SepConv_BN(x, 256, 'decoder_conv1',
-                       depth_activation=True, epsilon=1e-5)
-
-    # you can use it with arbitary number of classes
-    if (weights == 'pascal_voc' and classes == 21) or (weights == 'cityscapes' and classes == 19):
-        last_layer_name = 'logits_semantic'
-    else:
-        last_layer_name = 'custom_logits_semantic'
-
-    x = Conv2D(classes, (1, 1), padding='same', name=last_layer_name)(x)
-    size_before3 = tf.keras.backend.int_shape(img_input)
-    x = Lambda(lambda xx: tf.compat.v1.image.resize(xx,
-                                                    size_before3[1:3],
-                                                    method='bilinear', align_corners=True))(x)
-
-    # Ensure that the model takes into account
-    # any potential predecessors of `input_tensor`.
-    if input_tensor is not None:
-        inputs = get_source_inputs(input_tensor)
-    else:
-        inputs = img_input
-
-    if activation in {'softmax', 'sigmoid'}:
-        x = tf.keras.layers.Activation(activation)(x)
-
-    model = Model(inputs, x, name='deeplabv3plus')
-
-    # load weights
-
-    if weights == 'pascal_voc':
-        if backbone == 'xception':
-            weights_path = get_file('deeplabv3_xception_tf_dim_ordering_tf_kernels.h5',
-                                    WEIGHTS_PATH_X,
-                                    cache_subdir='models')
+        if not self.conv_transpose:
+            self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode)
         else:
-            weights_path = get_file('deeplabv3_mobilenetv2_tf_dim_ordering_tf_kernels.h5',
-                                    WEIGHTS_PATH_MOBILE,
-                                    cache_subdir='models')
-        model.load_weights(weights_path, by_name=True)
-    elif weights == 'cityscapes':
-        if backbone == 'xception':
-            weights_path = get_file('deeplabv3_xception_tf_dim_ordering_tf_kernels_cityscapes.h5',
-                                    WEIGHTS_PATH_X_CS,
-                                    cache_subdir='models')
+            self.conv = nn.ConvTranspose2d( in_channels=in_channels, 
+                                            out_channels=out_channels, 
+                                            kernel_size=kernel_size, 
+                                            stride=stride, 
+                                            groups=groups, 
+                                            bias=bias, 
+                                            dilation=dilation, 
+                                            padding_mode=padding_mode)
+
+        if self.batch_norm:
+            self.batchnorm2d = nn.BatchNorm2d(out_channels)
+
+        self.sigmoid = nn.Sigmoid()
+        self.total_trainable_weights = model_weights(self)
+        if self.use_dropout:
+            self.dropout = nn.Dropout(p=self.dropout_rate)
         else:
-            weights_path = get_file('deeplabv3_mobilenetv2_tf_dim_ordering_tf_kernels_cityscapes.h5',
-                                    WEIGHTS_PATH_MOBILE_CS,
-                                    cache_subdir='models')
-        model.load_weights(weights_path, by_name=True)
+            self.dropout = None
 
-    return model
+        if self.relu:
+            self.activation = nn.ReLU()
+        else:
+            self.activation = None
 
-def preprocess_input(x):
-    """Preprocesses a numpy array encoding a batch of images.
-    # Arguments
-        x: a 4D numpy array consists of RGB values within [0, 255].
-    # Returns
-        Input array scaled to [-1.,1.]
-    """
-    return preprocess_input(x, mode='tf')
+            
+
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        #nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
+        nn.init.ones_(self.channel_scale)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                #nn.init.normal_(m.weight)
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif self.batch_norm and self.batchnorm2d and isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+    def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None,
+                        sigmoid_scale=None, weight_gain=None):
+        if search_structure is not None:
+            if self.search_structure == False and search_structure == True:
+                #nn.init.normal_(self.channel_scale, mean=0.5,std=0.33)
+                nn.init.ones_(self.channel_scale)
+            self.search_structure = search_structure
+        if convMaskThreshold is not None:
+            self.convMaskThreshold = convMaskThreshold
+        if dropout is not None:
+            self.use_dropout = dropout
+        if sigmoid_scale is not None:
+            self.sigmoid_scale = sigmoid_scale
+        if weight_gain is not None:
+            self.weight_gain = weight_gain
+
+
+    def forward(self, x):
+        if self.out_channels > 0:
+            if self.use_dropout:
+                x = self.dropout(x)
+                
+            x = self.conv(x)
+  
+            if self.batch_norm:
+                x = self.batchnorm2d(x)
+
+            if self.search_structure: #scale channels based on self.channel_scale
+                    weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)[None,:,None,None]
+                    x *= weight_scale  
+
+            if self.activation:
+                x = self.activation(x)
+        else :
+            print("Failed to prune zero size convolution")
+
+        return x
+
+    def ArchitectureWeights(self):
+        if self.search_structure:
+            weight_scale = self.sigmoid(self.sigmoid_scale*self.channel_scale)
+            conv_weights = weight_scale
+
+        else:
+            conv_weights = torch.ones_like(self.channel_scale, device=self.device)
+
+        cell_weights = model_weights(self)
+
+        if self.out_channels > 0:
+            # Keep sum as [1] tensor so subsequent concatenation works
+            architecture_weights = (cell_weights/ self.out_channels) * conv_weights.sum_to_size((1))
+        else:
+            architecture_weights = conv_weights.sum_to_size((1))
+
+        return architecture_weights, cell_weights, conv_weights
+
+    # Remove specific network dimensions
+    # remove dimension where inDimensions and outDimensions arrays are 0 for channels to be removed
+    def ApplyStructure(self, in_channel_mask=None, out_channel_mask=None, msg=None):
+        if msg is None:
+            prefix = "ConvBR::ApplyStructure"
+        else:
+            prefix = "ConvBR::ApplyStructure {}".format(msg)
+
+        # Adjust in_channel size based on in_channel_mask
+        if in_channel_mask is not None:
+            if len(in_channel_mask) == self.in_channels:
+                if self.conv_transpose:
+                    self.conv.weight.data = self.conv.weight[in_channel_mask!=0, :]
+                else:
+                    self.conv.weight.data = self.conv.weight[:, in_channel_mask!=0]
+                self.in_channels = len(in_channel_mask[in_channel_mask!=0])
+            else:
+                raise ValueError("{} len(in_channel_mask)={} must be equal to self.in_channels={}".format(prefix, len(in_channel_mask), self.in_channels))
+
+        # Convolution norm gain mask
+        if self.in_channels ==0: # No output if no input
+            conv_mask = torch.zeros((self.out_channels), dtype=torch.bool, device=self.device)
+        elif self.search_structure:
+            conv_mask = self.sigmoid(self.sigmoid_scale*self.channel_scale)
+
+            conv_mask = conv_mask > self.convMaskThreshold
+        else:
+            conv_mask = self.channel_scale > float('-inf') # Always true if self.search_structure == False
+
+        if out_channel_mask is not None:
+            if len(out_channel_mask) == self.out_channels:
+                # If either mask is false, then the convolution is removed (not nand)
+                conv_mask = torch.logical_not(torch.logical_or(torch.logical_not(conv_mask), torch.logical_not(out_channel_mask)))
+                
+            else:
+                raise ValueError("len(out_channel_mask)={} must be equal to self.out_channels={}".format(len(out_channel_mask), self.out_channels))
+
+        prev_convolutions = len(conv_mask)
+        pruned_convolutions = len(conv_mask[conv_mask==False])
+
+        if self.search_structure:
+            if self.residual and prev_convolutions==pruned_convolutions: # Pruning full convolution 
+                conv_mask = ~conv_mask # Residual connection becomes a straight through connection
+            else:
+                self.conv.bias.data = self.conv.bias[conv_mask!=0]
+                if self.conv_transpose:
+                    self.conv.weight.data = self.conv.weight[:, conv_mask!=0]
+                else:
+                    self.conv.weight.data = self.conv.weight[conv_mask!=0]
+
+                self.channel_scale.data = self.channel_scale.data[conv_mask!=0]
+
+                if self.batch_norm:
+                    self.batchnorm2d.bias.data = self.batchnorm2d.bias.data[conv_mask!=0]
+                    self.batchnorm2d.weight.data = self.batchnorm2d.weight.data[conv_mask!=0]
+                    self.batchnorm2d.running_mean = self.batchnorm2d.running_mean[conv_mask!=0]
+                    self.batchnorm2d.running_var = self.batchnorm2d.running_var[conv_mask!=0]
+
+            self.out_channels = len(conv_mask[conv_mask!=0])
+
+        print("{} {}={}/{} in_channels={} out_channels={}".format(prefix, pruned_convolutions/prev_convolutions, pruned_convolutions, prev_convolutions, self.in_channels, self.out_channels))
+
+        return conv_mask
+
+
+DefaultMaxDepth = 1
+class Cell(nn.Module):
+    def __init__(self,
+                 in1_channels, 
+                 in2_channels = 0,
+                 batch_norm=False, 
+                 relu=True,
+                 kernel_size=3, 
+                 padding=0, 
+                 dilation=1, 
+                 groups=1,
+                 bias=True, 
+                 padding_mode='zeros',
+                 residual=True,
+                 dropout=False,
+                 device=torch.device("cpu"),
+                 feature_threshold=0.5,
+                 cell_convolution=DefaultMaxDepth,
+                 weight_gain = 11.0,
+                 convMaskThreshold=0.5,
+                 search_structure=True, 
+                 convolutions=[{'out_channels':64, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True, 'conv_transpose':False}],
+                 dropout_rate = 0.2,
+                 sigmoid_scale = 5.0,
+                 k_prune_sigma=0.33
+                 ):
+                
+        super(Cell, self).__init__()
+
+        self.in1_channels = in1_channels
+        self.in2_channels = in2_channels
+        self.batch_norm = batch_norm
+        self.relu = relu
+        self.kernel_size = kernel_size
+        self.padding = padding
+        self.dilation = dilation
+        self.groups = groups
+        self.bias = bias
+        self.padding_mode = padding_mode
+        self.residual = residual
+        self.dropout = dropout
+        self.device = device
+        self.feature_threshold = feature_threshold
+        self.search_structure = search_structure
+        self.cell_convolution = nn.Parameter(torch.tensor(cell_convolution, dtype=torch.float, device=self.device))
+        self.weight_gain = weight_gain
+        self.convMaskThreshold = convMaskThreshold
+        self.convolutions = deepcopy(convolutions)
+        self.dropout_rate = dropout_rate
+        self.sigmoid_scale=sigmoid_scale
+        self.k_prune_sigma=k_prune_sigma
+
+
+        self.cnn = torch.nn.ModuleList()
+
+        # First convolution uses in1_channels+in2_channels is input chanels. 
+        # Remaining convolutions uses out_channels as chanels
+
+        src_channels = in_chanels = self.in1_channels+self.in2_channels
+
+        totalStride = 1
+        totalDilation = 1
+
+        for i, convdev in enumerate(convolutions):
+            conv_transpose = False
+            if 'conv_transpose' in convdev and convdev['conv_transpose']:
+                conv_transpose = True
+
+            conv = ConvBR(src_channels, convdev['out_channels'], 
+                batch_norm=self.batch_norm, 
+                relu=self.relu, 
+                kernel_size=convdev['kernel_size'], 
+                stride=convdev['stride'], 
+                dilation=convdev['dilation'],
+                groups=self.groups, 
+                bias=self.bias, 
+                padding_mode=self.padding_mode,
+                weight_gain=self.weight_gain,
+                convMaskThreshold=self.convMaskThreshold, 
+                dropout_rate=self.dropout_rate,
+                search_structure=convdev['search_structure'] and self.search_structure ,
+                sigmoid_scale = self.sigmoid_scale,
+                residual=False, 
+                dropout=self.dropout,
+                conv_transpose=conv_transpose,
+                k_prune_sigma=self.k_prune_sigma,
+                device=self.device)
+            self.cnn.append(conv)
+
+            src_channels = convdev['out_channels']
+            totalStride *= convdev['stride']
+            totalDilation *= convdev['dilation']
+ 
+        if self.residual and (in_chanels != self.convolutions[-1]['out_channels'] or totalStride != 1 or totalDilation != 1):
+            self.conv_residual = ConvBR(in_chanels, self.convolutions[-1]['out_channels'], 
+                batch_norm=self.batch_norm, 
+                relu=self.relu, 
+                kernel_size=1, 
+                stride=totalStride, 
+                dilation=totalDilation, 
+                groups=self.groups, 
+                bias=self.bias, 
+                padding_mode=self.padding_mode,
+                weight_gain=self.weight_gain,
+                convMaskThreshold=self.convMaskThreshold, 
+                dropout_rate=self.dropout_rate,
+                search_structure=False,
+                residual=True,
+                dropout=self.dropout,
+                k_prune_sigma=self.k_prune_sigma,
+                device=self.device)
+        else:
+            self.conv_residual = None
+
+
+        self._initialize_weights()
+        self.total_trainable_weights = model_weights(self)
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+    def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None,
+                        weight_gain=None, sigmoid_scale=None, feature_threshold=None,
+                        k_prune_sigma=None): # Apply a parameter change
+        if search_structure is not None:
+            self.search_structure = search_structure
+
+        if convMaskThreshold is not None:
+            self.convMaskThreshold = convMaskThreshold
+
+        if dropout is not None:
+            self.use_dropout = dropout
+
+        if weight_gain is not None:
+            self.weight_gain = weight_gain
+        if sigmoid_scale is not None:
+            self.sigmoid_scale = sigmoid_scale
+        if feature_threshold is not None:
+            self.feature_threshold = feature_threshold
+
+        if k_prune_sigma is not None:
+            self.k_prune_sigma = k_prune_sigma
+
+        if self.cnn is not None and len(self.cnn) > 0:
+            for conv in self.cnn:
+                conv.ApplyParameters(search_structure=search_structure, convMaskThreshold=convMaskThreshold, dropout=dropout,
+                                     weight_gain=weight_gain, sigmoid_scale=sigmoid_scale)
+
+    def ArchitectureWeights(self):
+        architecture_weights = []
+        layer_weights = []
+        conv_weights = []
+        norm_conv_weight = []
+        search_structure = []
+        unallocated_weights  = torch.zeros((1), device=self.device)
+        if self.cnn is not None:
+            for i, l in enumerate(self.cnn): 
+                layer_weight, cnn_weight, conv_weight = l.ArchitectureWeights()
+                conv_weights.append(conv_weight)
+
+                if self.convolutions[i]['search_structure']:
+                    architecture_weights.append(layer_weight)
+                    norm_conv_weight.append(layer_weight/cnn_weight)
+                else:
+                    unallocated_weights += cnn_weight
+
+            if len(architecture_weights) > 0:
+                architecture_weights = torch.cat(architecture_weights)
+                architecture_weights = architecture_weights.sum_to_size((1))
+                num_conv_weights = len(norm_conv_weight)
+                if num_conv_weights > 0:
+                    # Allocate remaining weights if pruning full channel
+                    prune_weight = torch.cat(norm_conv_weight).min()
+                    prune_weight = torch.tanh(self.weight_gain*prune_weight)
+                    architecture_weights += unallocated_weights*prune_weight
+            else: # Nothing to prune here
+                architecture_weights = unallocated_weights
+                prune_weight = torch.tensor(1.0, device=self.device)
+            prune_weight = torch.tensor(1.0, device=self.device) # Disable prune weight from ConvBR weights
+
+        else:
+            architecture_weights = torch.zeros((1), device=self.device)
+            prune_weight = torch.tensor(1.0, device=self.device)
+
+        cell_weights = {'prune_weight':prune_weight, 'cell_weight':conv_weights}
+
+        return architecture_weights, model_weights(self), cell_weights
+
+    def ApplyStructure(self, in1_channel_mask=None, in2_channel_mask=None, msg=None, prune=None):
+
+        # Reduce channels
+        in_channel_mask = None
+        out_channels = 0
+        if in1_channel_mask is not None or in2_channel_mask is not None:
+
+            if in1_channel_mask is not None:
+                if len(in1_channel_mask) == self.in1_channels:
+                    self.in1_channels = len(in1_channel_mask[in1_channel_mask!=0])
+                else:
+                    raise ValueError("ApplyStructure len(in1_channel_mask)={} must be = self.in1_channels {}".format(len(in1_channel_mask), self.in1_channels))
+
+                in_channel_mask = in1_channel_mask
+
+            if in2_channel_mask is not None:
+                if len(in2_channel_mask) == self.in2_channels:
+                    self.in2_channels = len(in2_channel_mask[in2_channel_mask!=0])
+                else:
+                    raise ValueError("ApplyStructure len(in2_channel_mask)={} must be = self.in2_channels {}".format(len(in2_channel_mask), self.in2_channels))
+                
+                if in1_channel_mask is not None:
+                    in_channel_mask = torch.cat((in1_channel_mask, in2_channel_mask))
+
+        else: # Do not reduce input channels.  
+            in_channel_mask = torch.ones((self.in1_channels+self.in2_channels), dtype=torch.bool, device=self.device)
+        
+        if self.cnn is not None:
+            out_channel_mask = in_channel_mask
+
+            _, _, conv_weight  = self.ArchitectureWeights()
+            if (prune is not None and prune) or conv_weight['prune_weight'].item() < self.feature_threshold: # Prune convolutions prune_weight is < feature_threshold
+                out_channels = self.cnn[-1].out_channels
+                out_channel_mask = torch.zeros((out_channels), dtype=np.bool, device=self.device)
+                self.cnn = None
+                layermsg = "Prune cell because prune_weight {} < feature_threshold {}".format(conv_weight['prune_weight'], self.feature_threshold)
+                if msg is not None:
+                    layermsg = "{} {} ".format(msg, layermsg)
+                print(layermsg)
+            else:
+                for i, cnn in enumerate(self.cnn):
+                    layermsg = "convolution {}/{} search_structure={}".format(i, len(self.cnn), cnn.search_structure)
+
+                    if msg is not None:
+                        layermsg = "{} {}".format(msg, layermsg)
+                        
+                    out_channel_mask = cnn.ApplyStructure(in_channel_mask=out_channel_mask, msg=layermsg)
+                    out_channels = cnn.out_channels
+                    if out_channels == 0: # Prune convolutions if any convolution has no more outputs
+                        if i != len(self.cnn)-1: # Make mask the size of the cell output with all values 0
+                            out_channel_mask = torch.zeros(self.cnn[-1].out_channels, dtype=np.bool, device=self.device)
+     
+                        self.cnn = None
+                        out_channels = 0
+
+                        layermsg = "Prune cell because convolution {} out_channels == {}".format(i, out_channels)
+                        if msg is not None:
+                            layermsg = "{} {} ".format(msg, layermsg)
+                        print(layermsg)
+                        break
+        else:
+            out_channel_mask = None
+            out_channels = 0
+
+        if self.conv_residual is not None:
+            layermsg = "cell residual search_structure={}".format(self.conv_residual.search_structure)
+            if msg is not None:
+                layermsg = "{} {} ".format(msg, layermsg)
+            
+            out_channel_mask = self.conv_residual.ApplyStructure(in_channel_mask=in_channel_mask, out_channel_mask=out_channel_mask, msg=layermsg)
+            out_channels = self.conv_residual.out_channels
+
+
+        layermsg = "cell summary: weights={} in1_channels={} in2_channels={} out_channels={} residual={} search_structure={}".format(
+            self.total_trainable_weights, 
+            self.in1_channels, 
+            self.in2_channels, 
+            out_channels,
+            self.residual,
+            self.search_structure)
+        if msg is not None:
+            layermsg = "{} {} ".format(msg, layermsg)
+        print(layermsg)
+
+        return out_channel_mask
+
+
+    def forward(self, in1, in2 = None, isTraining=False):
+        if in1 is not None and in2 is not None:
+            u = torch.cat((in1, in2), dim=1)
+        elif in1 is not None:
+            u = in1
+        elif in2 is not None:
+            u = in2
+        else:
+            return None
+
+        # Resizing convolution
+        if self.residual:
+            if self.conv_residual and u is not None:
+                residual = self.conv_residual(u)
+            else:
+                residual = u
+        else:
+            residual = None
+
+        if self.cnn is not None:
+            x = u
+            for i, l in enumerate(self.cnn):
+                x = self.cnn[i](x)
+
+            if self.residual:
+                y = x + residual
+            else:
+                y = x
+        else:
+            y = residual
+
+        return y
+
+class FC(nn.Module):
+    def __init__(self, 
+                 in_channels, 
+                 out_channels,
+                 device
+                 ):
+        super(FC, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.device=device
+
+        self.fc = nn.Linear(in_channels, self.out_channels)
+        self.total_trainable_weights = model_weights(self)
+
+    def forward(self, x):
+        y = self.fc(x)
+        return y
+
+    def ArchitectureWeights(self):
+        architecture_weights = model_weights(self)
+
+        return architecture_weights, self.total_trainable_weights
+
+    # Remove specific network dimensions
+    # remove dimension where inDimensions and outDimensions arrays are 0 for channels to be removed
+    def ApplyStructure(self, in_channel_mask=None, out_channel_mask=None, msg=None):
+        if in_channel_mask is not None:
+            if len(in_channel_mask) != self.in_channels:
+                raise ValueError("len(in_channel_mask)={} must be equal to self.in_channels={}".format(len(in_channel_mask), self.in_channels))
+        else: # Do not reduce input channels.  
+            in_channel_mask = torch.ones(self.in_channels, dtype=torch.int32, device=self.device)
+
+        if out_channel_mask is not None:
+            if len(out_channel_mask) != self.out_channels:
+                  raise ValueError("len(out_channel_mask)={} must be equal to self.out_channels={}".format(len(out_channel_mask), self.out_channels))
+        else: # Do not reduce input channels.  
+            out_channel_mask = torch.ones(self.out_channels, dtype=torch.int32, device=self.device)
+
+        pruned_convolutions = len(out_channel_mask[out_channel_mask==False])
+        if pruned_convolutions > 0:
+            numconvolutions = len(out_channel_mask)
+            print("Pruned {}={}/{} convolutional weights".format(pruned_convolutions/numconvolutions, pruned_convolutions, numconvolutions))
+
+        self.fc.weight.data = self.fc.weight.data[:,in_channel_mask!=0]
+
+        self.fc.bias.data = self.fc.bias.data[out_channel_mask!=0]
+        self.fc.weight.data = self.fc.weight.data[out_channel_mask!=0]
+
+        prev_in_convolutions = len(in_channel_mask)
+        self.in_channels = len(in_channel_mask[in_channel_mask!=0])
+
+        prev_out_convolutions = len(out_channel_mask)
+        self.out_channels = len(out_channel_mask[out_channel_mask!=0])
+
+        if msg is None:
+            prefix = "FC::ApplyStructure"
+        else:
+            prefix = "FC::ApplyStructure {}".format(msg)
+        print("{} in {}={}/{} out {}={}/{} convolutions in_channels={} out_channels={}".format(
+            prefix, 
+            (prev_in_convolutions-self.in_channels)/prev_in_convolutions, 
+            (prev_in_convolutions-self.in_channels),
+            prev_in_convolutions,
+            (prev_out_convolutions-self.out_channels)/prev_out_convolutions, 
+            (prev_out_convolutions-self.out_channels),
+            prev_out_convolutions,
+            self.in_channels, 
+            self.out_channels))
+
+
+
+        return out_channel_mask
+
+# Resenet definitions from https://www.cv-foundation.org/openaccess/content_cvpr_2016/papers/He_Deep_Residual_Learning_CVPR_2016_paper.pdf
+class Resnet(Enum):
+    layers_18 = 18
+    layers_34 = 34
+    layers_50 = 50
+    layers_101 = 101
+    layers_152 = 152
+    cifar_20 = 20
+    cifar_32 = 32
+    cifar_44 = 44
+    cifar_56 = 56
+    cifar_110 = 110
+
+
+def ResnetCells(size = Resnet.layers_50):
+    resnetCells = []
+    
+    sizes = {
+        'layers_18': [2, 2, 2, 2], 
+        'layers_34': [3, 4, 6, 3], 
+        'layers_50': [3, 4, 6, 3], 
+        'layers_101': [3, 4, 23, 3], 
+        'layers_152': [3, 8, 36, 3],
+        'cifar_20' : [7,6,6],
+        'cifar_32' : [11,10,10],
+        'cifar_44' : [15,14,14],
+        'cifar_56' : [19,18,18],
+        'cifar_110' : [37,36,36],
+        }
+    bottlenecks = {
+        'layers_18': False, 
+        'layers_34': False, 
+        'layers_50': True, 
+        'layers_101': True, 
+        'layers_152': True,
+        'cifar_20': False, 
+        'cifar_32': False, 
+        'cifar_44': False,
+        'cifar_56': False, 
+        'cifar_110': False
+        }
+
+    cifar_style = {
+        'layers_18': False, 
+        'layers_34': False, 
+        'layers_50': False, 
+        'layers_101': False, 
+        'layers_152': False,
+        'cifar_20': True, 
+        'cifar_32': True, 
+        'cifar_44': True,
+        'cifar_56': True, 
+        'cifar_110': True
+        }
+
+    resnet_cells = []
+    block_sizes = sizes[size.name]
+    bottleneck = bottlenecks[size.name]
+    is_cifar_style = cifar_style[size.name]
+
+    cell = []
+    if is_cifar_style:
+        network_channels = [32, 16, 8]
+        cell.append({'out_channels':network_channels[0], 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':False})
+    else:
+        network_channels = [64, 128, 256, 512]
+        cell.append({'out_channels':network_channels[0], 'kernel_size': 7, 'stride': 3, 'dilation': 1, 'search_structure':False})
+
+    resnetCells.append({'residual':False, 'cell':cell})
+
+    for i, layer_size in enumerate(block_sizes):
+        block_channels = network_channels[i]
+        for j in range(layer_size):
+            stride = 1
+            # Downsample by setting stride to 2 on the first layer of each block
+            if i != 0 and j == 0:
+                stride = 2
+            cell = []
+            if bottleneck:
+                # Bottleneck in torchvision places the stride for downsampling at 3x3 convolution(self.conv2)
+                # while original implementation places the stride at the first 1x1 convolution(self.conv1)
+                # according to "Deep residual learning for image recognition"https://arxiv.org/abs/1512.03385.
+                # This variant is also known as ResNet V1.5 and improves accuracy according to
+                # https://ngc.nvidia.com/catalog/model-scripts/nvidia:resnet_50_v1_5_for_pytorch.
+                cell.append({'out_channels':network_channels[i], 'kernel_size': 1, 'stride': 1, 'dilation': 1, 'search_structure':True})
+                cell.append({'out_channels':network_channels[i], 'kernel_size': 3, 'stride': stride, 'dilation': 1, 'search_structure':True})
+                cell.append({'out_channels':4*network_channels[i], 'kernel_size': 1, 'stride': 1, 'dilation': 1, 'search_structure':False})
+            else:
+                cell.append({'out_channels':network_channels[i], 'kernel_size': 3, 'stride': stride, 'dilation': 1, 'search_structure':True})
+                cell.append({'out_channels':network_channels[i], 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':False})
+            resnetCells.append({'residual':True, 'cell':cell})
+        
+    return resnetCells
+
+
+class Backbone(nn.Module):
+    def __init__(self, convolutions, 
+    device=torch.device("cpu"), source_channels = 1, out_channels = 10, initial_channels=16, 
+    batch_norm=True, weight_gain=11, convMaskThreshold=0.5, 
+    dropout_rate=0.2, search_structure = True, sigmoid_scale=5.0, feature_threshold=0.5):
+        super().__init__()
+        self.device = device
+        self.source_channels = source_channels
+        self.out_channels = out_channels
+        self.initial_channels = initial_channels
+        self.weight_gain = weight_gain
+        self.convMaskThreshold = convMaskThreshold
+        self.batch_norm = batch_norm
+        self.dropout_rate = dropout_rate
+        self.search_structure = search_structure
+        self.sigmoid_scale = sigmoid_scale
+        self.feature_threshold = feature_threshold
+                
+        self.cells = torch.nn.ModuleList()
+        in_channels = self.source_channels
+
+        for i, cell_convolutions in enumerate(convolutions):
+
+            convdfn = None
+
+            cell = Cell(in1_channels=in_channels, 
+                batch_norm=self.batch_norm,
+                device=self.device,  
+                weight_gain = self.weight_gain,
+                convMaskThreshold = self.convMaskThreshold,
+                residual=cell_convolutions['residual'],
+                convolutions=cell_convolutions['cell'],  
+                dropout_rate=self.dropout_rate, 
+                search_structure=self.search_structure, 
+                sigmoid_scale=self.sigmoid_scale, 
+                feature_threshold=self.feature_threshold)
+            in_channels = cell_convolutions['cell'][-1]['out_channels']
+            self.cells.append(cell)
+
+        self.maxpool = nn.MaxPool2d(2, 2)
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = FC(in_channels, self.out_channels, device)
+
+        self.total_trainable_weights = model_weights(self)
+
+        self.fc_weights = model_weights(self.fc)
+
+    def ApplyStructure(self):
+        layer_msg = 'Initial resize convolution'
+        #in_channel_mask = self.resnet_conv1.ApplyStructure(msg=layer_msg)
+        in_channel_mask = None
+        for i, cell in enumerate(self.cells):
+            layer_msg = 'Cell {}'.format(i)
+            out_channel_mask = cell.ApplyStructure(in1_channel_mask=in_channel_mask, msg=layer_msg)
+            in_channel_mask = out_channel_mask
+
+        self.fc.ApplyStructure(in_channel_mask=in_channel_mask)
+
+    def forward(self, x, isTraining=False):
+        #x = self.resnet_conv1(x)
+        for i, cell in enumerate(self.cells):
+            x = cell(x, isTraining=isTraining)
+        return x
+
+    def Cells(self):
+        return self.cells
+
+    def ArchitectureWeights(self):
+        architecture_weights = []
+        cell_weights = []
+
+        #cell_archatecture_weights, cell_total_trainable_weights, conv_weights = self.resnet_conv1.ArchitectureWeights()
+        #cell_weight = {'prune_weight':torch.tensor(1.0), 'cell_weight':[conv_weights]}
+        #cell_weights.append(cell_weight)
+        #architecture_weights.append(cell_archatecture_weights)
+
+        for in_cell in self.cells:
+            cell_archatecture_weights, cell_total_trainable_weights, cell_weight = in_cell.ArchitectureWeights()
+            cell_weights.append(cell_weight)
+            architecture_weights.append(cell_archatecture_weights)
+
+
+        architecture_weights = torch.cat(architecture_weights)
+        architecture_weights = torch.sum(architecture_weights)
+
+        # Not yet minimizing fully connected layer weights
+        # fc_archatecture_weights, fc_total_trainable_weights = self.fc.ArchitectureWeights()
+        #archatecture_weights += fc_archatecture_weights
+
+        return architecture_weights, self.total_trainable_weights, cell_weights
+
+    def Parameters(self):
+        current_weights = model_weights(self)
+        if self.total_trainable_weights > 0:
+            remnent =  model_weights(self)/self.total_trainable_weights
+        else:
+            remnent = None
+
+            
+        return current_weights, self.total_trainable_weights, remnent
+
+class ASPPConv(nn.Sequential):
+    def __init__(self, in_channels, out_channels, dilation) -> None:
+        modules = [
+            nn.Conv2d(in_channels, out_channels, 3, padding=dilation, dilation=dilation, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(),
+        ]
+        super().__init__(*modules)
+
+
+class ASPPPooling(nn.Sequential):
+    def __init__(self, in_channels, out_channels) -> None:
+        super().__init__(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(in_channels, out_channels, 1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        size = x.shape[-2:]
+        for mod in self:
+            x = mod(x)
+        return F.interpolate(x, size=size, mode="bilinear", align_corners=False)
+
+
+class ASPP(nn.Module):
+    def __init__(self, in_channels, atrous_rates= [12, 24, 36], out_channels = 256) -> None:
+        super().__init__()
+        modules = []
+        modules.append(
+            nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
+        )
+
+        rates = tuple(atrous_rates)
+        for rate in rates:
+            modules.append(ASPPConv(in_channels, out_channels, rate))
+
+        modules.append(ASPPPooling(in_channels, out_channels))
+
+        self.convs = nn.ModuleList(modules)
+
+        self.project = nn.Sequential(
+            nn.Conv2d(len(self.convs) * out_channels, out_channels, 1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        _res = []
+        for conv in self.convs:
+            _res.append(conv(x))
+        res = torch.cat(_res, dim=1)
+        return self.project(res)
+
+class Deeplabv3(nn.Module):
+
+    def __init__(self, backbone, classifier, aux_classifier=None):
+        super().__init__()
+        self.backbone = backbone
+        self.classifier = classifier
+        self.aux_classifier = aux_classifier
+
+    def ArchitectureWeights(self):
+        return self.backbone.ArchitectureWeights()
+
+    def forward(self, x, isTraining=False):
+        input_shape = x.shape[-2:]
+        # contract: features is a dict of tensors
+        features = self.backbone(x, isTraining)
+
+        result = OrderedDict()
+        x = features#["out"]
+        x = self.classifier(x)
+        x = F.interpolate(x, size=input_shape, mode="bilinear", align_corners=False)
+        result["out"] = x
+
+        if self.aux_classifier is not None:
+            x = features["aux"]
+            x = self.aux_classifier(x)
+            x = F.interpolate(x, size=input_shape, mode="bilinear", align_corners=False)
+            result["aux"] = x
+
+        return result['out']
+
+
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, int):
+        return not(v==0)
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
+def save(model, s3, s3def, args):
+    out_buffer = io.BytesIO()
+    model.zero_grad(set_to_none=True)
+    torch.save(model, out_buffer)
+    s3.PutObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), out_buffer)
+
+
+class AddGaussianNoise(object):
+    def __init__(self, mean=0., std=1.):
+        self.std = std
+        self.mean = mean
+        
+    def __call__(self, tensor):
+        return tensor + torch.randn(tensor.size()) * self.std + self.mean
+    
+    def __repr__(self):
+        return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
+
+# Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
+def Test(args):
+
+
+    test_results={}
+    test_results['system'] = {
+        'platform':platform.platform(),
+        'python':platform.python_version(),
+        'numpy': np.__version__,
+        'torch': torch.__version__,
+        'OpenCV': cv2.__version__,
+    }
+    print('Cell Test system={}'.format(test_results['system'] ))
+
+    test_results['args'] = {}
+    for arg in vars(args):
+        #log_param(arg, getattr(args, arg))
+        test_results['args'][arg]=getattr(args, arg)
+
+    print('arguments={}'.format(test_results['args']))
+
+    torch.autograd.set_detect_anomaly(True)
+
+    s3, _, s3def = Connect(args.credentails)
+
+    dataset_bucket = s3def['sets']['dataset']['bucket']
+    if args.dataset=='coco':
+        loaders = CreateCocoLoaders(s3, dataset_bucket, 
+            class_dict=args.coco_class_dict, 
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            cuda = args.cuda,
+            height = args.height,
+            width = args.width,
+        )
+    elif args.dataset=='lit':
+        loaders = CreateImageLoaders(s3, dataset_bucket, 
+            dataset_dfn=args.lit_dataset,
+            class_dict=args.lit_class_dict, 
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            cuda = args.cuda,
+            height = args.height,
+            width = args.width,
+        )
+
+    class_dictionary = None
+    if args.dataset=='coco':
+        class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.coco_class_dict)
+    elif args.dataset=='lit':
+        class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.lit_class_dict)
+
+    if not class_dictionary:
+        raise ValueError('{} {} unsupported dataset {}'.format(__file__, __name__, args.dataset))
+
+    trainloader = next(filter(lambda d: d.get('set') == 'train', loaders), None)
+    testloader = next(filter(lambda d: d.get('set') == 'test', loaders), None)
+
+    if trainloader is None:
+        raise ValueError('{} {} failed to load trainloader {}'.format(__file__, __name__, args.dataset)) 
+    if testloader is None:
+        raise ValueError('{} {} failed to load testloader {}'.format(__file__, __name__, args.dataset))
+
+    tb = None
+    #tensorboard setup
+    if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0):
+        os.makedirs(args.tensorboard_dir, exist_ok=True)
+
+        tb = program.TensorBoard()
+        tb.configure(('tensorboard', '--logdir', args.tensorboard_dir))
+        tb.flags.bind_all = True
+        tb.flags.port = 6006
+        url = tb.launch()
+        print(f"Tensorboard on {url}")
+        writer_path = '{}/{}'.format(args.tensorboard_dir, args.model_dest)
+        writer = SummaryWriter(writer_path)
+
+
+    dataset_bucket = s3def['sets']['dataset']['bucket']
+    
+
+    # Load dataset
+    device = torch.device("cpu")
+    pin_memory = False
+    if args.cuda:
+        device = torch.device("cuda")
+        pin_memory = True
+
+    # Create classifiers
+    # Create Default classifier
+    resnetCells = ResnetCells(Resnet(args.resnet_len))
+    classify = Backbone(convolutions=resnetCells, 
+                        device=device, 
+                        source_channels = class_dictionary['input_channels'],
+                        out_channels = class_dictionary['classes'],
+                        weight_gain=args.weight_gain, 
+                        dropout_rate=args.dropout_rate, 
+                        search_structure=args.search_structure, 
+                        sigmoid_scale=args.sigmoid_scale,
+                        batch_norm = args.batch_norm,
+                        feature_threshold = args.feature_threshold
+                        )
+
+    total_parameters = count_parameters(classify)
+
+    if(args.model_src and args.model_src != ''):
+        #modeldict = s3.GetDict(s3def['sets']['model']['bucket'], '{}/{}/{}.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
+        modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
+
+        if modelObj is not None:
+            classify = torch.load(io.BytesIO(modelObj))
+            #classify.load_state_dict(saved_model.model.state_dict())
+        else:
+            print('Failed to load model {}. Exiting.'.format(args.model_src))
+            return -1
+
+    if args.prune:
+        classify.ApplyStructure()
+        reduced_parameters = count_parameters(classify)
+        print('Reduced parameters {}/{} = {}'.format(reduced_parameters, total_parameters, reduced_parameters/total_parameters))
+        save(classify, s3, s3def, args)
+
+    # Enable multi-gpu processing
+    if torch.cuda.device_count() > 1:
+        print("Let's use", torch.cuda.device_count(), "GPUs!")
+        # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+        model = nn.DataParallel(classify)
+        classify = model.module
+    else:
+        model = classify
+
+    #specificy device for model
+    model = Deeplabv3(classify, ASPP(8, out_channels=2))
+    model.to(device)
+
+
+    class_weight = torch.tensor([0.05, 1]).cuda()
+    # Define a Loss function and optimizer
+    target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32)
+    criterion = TotalLoss(args.cuda,
+                             #k_accuracy=args.k_accuracy,
+                             #k_structure=args.k_structure, 
+                             #target_structure=target_structure, 
+                             class_weight=class_weight, 
+                             search_structure=args.search_structure, 
+                             #k_prune_basis=args.k_prune_basis, 
+                             #k_prune_exp=args.k_prune_exp,
+                             sigmoid_scale=args.sigmoid_scale,
+                             #ejector=args.ejector
+                             )
+
+    optimizer = optim.Adam(model.parameters(), lr= args.learning_rate)
+    plotsearch = PlotSearch()
+    plotgrads = PlotGradients()
+    iSample = 0
+
+
+
+    # Train
+    test_freq = args.test_sparsity*int(math.ceil(trainloader['batches']/testloader['batches']))
+
+    test_results['train'] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'architecture_reduction':[]}
+    test_results['test'] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'architecture_reduction':[]}
+    if args.train:
+        for epoch in tqdm(range(args.epochs), desc="Train epochs", disable=args.job):  # loop over the dataset multiple times
+            iTest = iter(testloader['dataloader'])
+
+            running_loss = 0.0
+
+            for i, data in tqdm(enumerate(trainloader['dataloader']), 
+                                bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}', 
+                                total=trainloader['batches'], desc="Train batches", disable=args.job):                # get the inputs; data is a list of [inputs, labels]
+                
+                inputs, labels, mean, stdev = data
+
+                if args.cuda:
+                    inputs = inputs.cuda()
+                    labels = labels.cuda()
+
+
+                # zero the parameter gradients
+                optimizer.zero_grad()
+                outputs = model(inputs, isTraining=True)
+
+
+                loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale  = criterion(outputs, labels, model)
+                loss.backward()
+                optimizer.step()
+
+                # print statistics
+                running_loss += loss.item()
+
+                if writer:
+                    writer.add_scalar('loss/train', loss, iSample)
+                    writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, iSample)
+                    writer.add_scalar('architecture_loss/train', architecture_loss, iSample)
+                    writer.add_scalar('architecture_reduction/train', architecture_reduction, iSample)
+                    writer.add_scalar('output_sum/train', torch.sum(outputs), iSample)
+
+
+                if i % test_freq == test_freq-1:    # Save image and run test
+
+
+                    data = next(iTest)
+                    inputs, labels, mean, stdev = data
+
+
+                    if args.cuda:
+                        inputs = inputs.cuda()
+                        labels = labels.cuda()
+
+                    #optimizer.zero_grad()
+                    outputs = model(inputs)
+
+                    loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale  = criterion(outputs, labels, model)
+
+                    running_loss /=test_freq
+                    
+
+                    msg = '[{:3}/{}, {:6d}/{}] loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test)'.format(
+                        epoch + 1,args.epochs, i + 1, 
+                        len(trainloader['dataloader']), 
+                        running_loss, 
+                        loss.item(), 
+                        architecture_reduction.item())
+                    
+                    if args.job is True:
+                        print(msg)
+                    else:
+                        tqdm.write(msg)
+    
+                    running_loss = 0.0
+
+                    if writer:
+                        writer.add_scalar('loss/test', loss, iSample)
+                        writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, iSample)
+                        writer.add_scalar('architecture_loss/test', architecture_loss, iSample)
+                        writer.add_scalar('architecture_reduction/train', architecture_reduction, iSample)
+                        writer.add_image('raw_data/input', inputs[0,0,:,:], dataformats='HW')
+                        writer.add_image('raw_data/output', outputs[0,0,:,:], dataformats='HW')
+                        writer.add_image('raw_data/target', labels[0,:,:], dataformats='HW')
+
+                        images = inputs.cpu().permute(0, 2, 3, 1).numpy()
+                        labels = np.around(labels.cpu().numpy()).astype('uint8')
+                        segmentations = torch.argmax(outputs, 1)
+                        segmentations = segmentations.cpu().numpy().astype('uint8')
+                        if writer is not None:
+                            writer.add_graph(model, inputs)
+                            for j in range(1):
+                                imanseg = DisplayImgAn(images[j], labels[j], segmentations[j], trainloader['dataloader'], mean[j], stdev[j])      
+                                writer.add_image('segmentation/train', imanseg, 0,dataformats='HWC')
+                        
+
+
+                iSample += 1
+
+            cv2.imwrite('class_weights.png', plotsearch.plot(cell_weights))
+            cv2.imwrite('gradient_norm.png', plotgrads.plot(classify))
+
+
+            compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
+            img = plotsearch.plot(cell_weights)
+            is_success, buffer = cv2.imencode(".png", img, compression_params)
+            img_enc = io.BytesIO(buffer).read()
+            filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+            s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+
+            # Plot gradients before saving which clears the gradients
+            img = plotgrads.plot(classify)
+            is_success, buffer = cv2.imencode(".png", img)  
+            img_enc = io.BytesIO(buffer).read()
+            filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+            s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+
+            save(classify, s3, s3def, args)
+
+        torch.cuda.empty_cache()
+        iTest = iter(testloader)
+        for i, data in tqdm(enumerate(testloader), total=len(testloader['dataloader']), desc="Test steps"):
+            inputs, labels = data
+
+            if args.cuda:
+                inputs = inputs.cuda()
+                labels = torch.unsqueeze(labels, dim=1)
+                labels = labels.cuda()
+
+            # zero the parameter gradients
+            with torch.no_grad():
+                outputs = classify(inputs)
+
+            classifications = torch.argmax(outputs, 1)
+            results = (classifications == labels).float()
+
+        #accuracy /= args.batch_size*int(testset.__len__()/args.batch_size)
+        #log_metric("test_accuracy", accuracy)
+        print("test_accuracy={}".format(accuracy))
+        test_results['test_accuracy'] = accuracy
+        test_results['current_weights'], test_results['original_weights'], test_results['remnent'] = classify.Parameters()
+
+        s3.PutDict(s3def['sets']['model']['bucket'], '{}/{}/{}_results.json'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest ), test_results)
+
+    if args.resultspath is not None and len(args.resultspath) > 0:
+        WriteDictJson(test_results, args.resultspath)
+
+    print('Finished {}  {}'.format(args.model_dest, test_results))
+    return 0
+
+if __name__ == '__main__':
+    args = parse_arguments()
+    args.resnet_len=56
+
+    if args.debug:
+        print("Wait for debugger attach")
+        import debugpy
+        debugpy.listen(address=(args.debug_address, args.debug_port))
+        debugpy.wait_for_client() # Pause the program until a remote debugger is attached
+        print("Debugger attached")
+
+    result = Test(args)
+    sys.exit(result)

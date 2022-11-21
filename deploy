@@ -18,6 +18,7 @@ def parse_arguments():
     parser.add_argument('-debug', '-d', action='store_true',help='Wait for debugee attach')   
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
     parser.add_argument('-debug_listen', type=str, default='0.0.0.0', help='Default, accept any client')
+    parser.add_argument('--verbose', '-v', action='store_true',help='Extended output') 
     
     parser.add_argument('-creds', type=str, default='creds.yaml', help='Credentials')
     parser.add_argument('-config', type=str, default='config/build.yaml', help='Configuration file')
@@ -51,42 +52,45 @@ def parse_arguments():
     return args
 
 def Archive(args, config):
-    result = 0
+    result=0
+    if not args.test:
+
+        cmdstr = 'git diff-index --quiet HEAD --;'
+        result, _, _ = cmd(cmdstr, check=False)
+        if result != 0:
+            print ('Changes in working tree.  Please commit before creating a versioned repository.  Run "git status" for more information.')
+            return result, config, None
+            
+
     config['version']['patch'] += 1
     version_str = VersionString(config)
     config['image_names'] = ImageNames(args, version_str)
     WriteDict(config, args.config)
     WriteEnvFile(args, config, version_str, config['image_names'])
 
-    cmdstr = 'git add {}'.format(args.config)
-    cmd(cmdstr)
+    if not args.test:
+        cmdstr = 'git add {}'.format(args.config)
+        cmd(cmdstr)
 
-    cmdstr = 'git add {}'.format(args.env)
-    cmd(cmdstr)
+        cmdstr = 'git add {}'.format(args.env)
+        cmd(cmdstr)
 
-    cmdstr = 'git commit -m "Tag version {}"'.format(version_str)
-    cmd(cmdstr)
+        cmdstr = 'git commit -m "Tag version {}"'.format(version_str)
+        cmd(cmdstr)
 
-    cmdstr = 'git diff-index --quiet HEAD --;'
-    result, _, _ = cmd(cmdstr, check=False)
-    if result != 0 and not args.test:
-        print ('Changes in working tree.  Please commit before creating a versioned repository.  Run "git status" for more information.')
-        return result, config, version_str
-    else:
-        result=0
-    
-    if args.message is None:
-        description = "{} version {}".format(config['name'], version_str)
-    else:
-        description = args.message
-    cmdstr = 'git tag -a {} -m "{}"'.format(version_str,description )
-    cmd(cmdstr)
+       
+        if args.message is None:
+            description = "{} version {}".format(config['name'], version_str)
+        else:
+            description = args.message
+        cmdstr = 'git tag -a {} -m "{}"'.format(version_str,description )
+        cmd(cmdstr)
 
-    cmdstr = 'git push origin {}'.format(version_str)
-    cmd(cmdstr)
+        cmdstr = 'git push origin {}'.format(version_str)
+        cmd(cmdstr)
 
-    cmdstr = 'git push'
-    cmd(cmdstr)
+        cmdstr = 'git push'
+        cmd(cmdstr)
     
     return result, config, version_str
 
@@ -154,6 +158,9 @@ def DockerBuild(args, image_names, version_str):
                         flags += ' --build-arg ' + buildarg['key']
                         if 'value' in buildarg:
                             flags += '=' + buildarg['value']
+            
+            if args.verbose:
+                flags += ' --progress=plain '
 
 
             dockercmd = 'docker build {} -f {} -t {} "{}"'.format(

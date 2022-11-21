@@ -31,6 +31,7 @@ from pymlutil.functions import Exponential
 from pymlutil.metrics import DatasetResults
 import pymlutil.version as pymlutil_version
 from pymlutil.imutil import ImUtil, ImTransform
+from pymlutil.version import VersionString
 
 from torchdatasetutil.cocostore import CreateCocoLoaders
 from torchdatasetutil.imstore import  CreateImageLoaders
@@ -41,7 +42,7 @@ from ptflops import get_model_complexity_info
 from fvcore.nn import FlopCountAnalysis
 
 sys.path.insert(0, os.path.abspath(''))
-from networks.cell2d import Cell, PlotSearch, PlotGradients
+from networks.cell2d import Cell, PlotSearch, PlotGradients, PlotConvMag, LogTest, WriteModelGraph
 from networks.totalloss import TotalLoss, FenceSitterEjectors
 
 class Network2d(nn.Module):
@@ -104,6 +105,8 @@ class Network2d(nn.Module):
             for convolution in convolutions:
                 convolution['out_channels'] = encoder_channels
 
+            prevent_collapse = True
+                
             prev_relaxation_array = []
             if prev_relaxation is not None:
                 prev_relaxation_array.append(prev_relaxation)
@@ -119,7 +122,8 @@ class Network2d(nn.Module):
                              sigmoid_scale=self.sigmoid_scale, 
                              feature_threshold=self.feature_threshold, 
                              k_prune_sigma=self.k_prune_sigma,
-                             search_flops = self.search_flops)
+                             search_flops = self.search_flops,
+                             prevent_collapse = prevent_collapse)
 
             prev_relaxation = cell.cnn[-1].relaxation
             feedforward_relaxation.append(prev_relaxation)
@@ -154,6 +158,8 @@ class Network2d(nn.Module):
             else:
                  search_structure = False
 
+            prevent_collapse = True
+
             prev_relaxation_array = [prev_relaxation, feedforward_relaxation[-i]]
 
             convolutions=[{'out_channels':encoder_channels, 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True},
@@ -173,7 +179,8 @@ class Network2d(nn.Module):
                              sigmoid_scale=self.sigmoid_scale, 
                              feature_threshold=self.feature_threshold,
                              k_prune_sigma=self.k_prune_sigma,
-                             search_flops = self.search_flops)
+                             search_flops = self.search_flops,
+                             prevent_collapse = prevent_collapse)
             self.cells.append(cell)
 
             prev_relaxation = cell.cnn[-1].relaxation
@@ -185,7 +192,7 @@ class Network2d(nn.Module):
 
     def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None, 
                         weight_gain=None, sigmoid_scale=None, feature_threshold=None,
-                        k_prune_sigma=None, search_flops=None): # Apply a parameter change
+                        k_prune_sigma=None, search_flops=None, batch_norm=None): # Apply a parameter change
         if search_structure is not None:
             self.search_structure = search_structure
         if dropout is not None:
@@ -202,10 +209,12 @@ class Network2d(nn.Module):
             self.k_prune_sigma = k_prune_sigma
         if search_flops is not None:
             self.search_flops = search_flops
+        if batch_norm is not None:
+            self.batch_norm = batch_norm
         for cell in self.cells:
             cell.ApplyParameters(search_structure=search_structure, dropout=dropout, convMaskThreshold=convMaskThreshold,
                                  weight_gain=weight_gain, sigmoid_scale=sigmoid_scale, feature_threshold=feature_threshold,
-                                 k_prune_sigma=k_prune_sigma, search_flops=search_flops)
+                                 k_prune_sigma=k_prune_sigma, search_flops=search_flops, batch_norm=batch_norm)
 
     def forward(self, x):
         feed_forward = []
@@ -313,7 +322,7 @@ class Network2d(nn.Module):
         search_structure = []
         model_weights_sum = 0
 
-        for l in self.cells:
+        for i, l in enumerate(self.cells):
             layer_weight, cnn_weight, conv_weight  = l.ArchitectureWeights()
             architecture_weights.append(layer_weight)
             model_weights_sum += cnn_weight
@@ -361,6 +370,7 @@ def parse_arguments():
     parser.add_argument('-minimum', type=str2bool, default=False, help='Minimum run with a few iterations to test execution')
 
     parser.add_argument('-credentails', type=str, default='creds.yaml', help='Credentials file.')
+    parser.add_argument('-s3_name', type=str, default='store', help='S3 name in credentials')
 
     parser.add_argument('-imStatistics', type=str2bool, default=False, help='Record individual image statistics')
 
@@ -373,21 +383,23 @@ def parse_arguments():
     parser.add_argument('-coco_class_dict', type=str, default='model/segmin/coco.json', help='Model class definition file.')
 
     parser.add_argument('-cityscapes_data', type=str, default='data/cityscapes', help='Image dataset file')
-    parser.add_argument('-cityscapes_class_dict', type=str, default='model/cityscapes/cityscapes.json', help='Model class definition file.')
+    parser.add_argument('-cityscapes_class_dict', type=str, default='model/cityscapes/cityscapes8.json', help='Model class definition file.')
+    parser.add_argument('-sampler', type=bool, default=False, help='Toggle to use WeightedRandomSampler')
+
 
     parser.add_argument('-learning_rate', type=float, default=2.0e-4, help='Adam learning rate')
     parser.add_argument('-batch_size', type=int, default=4, help='Training batch size')
-    parser.add_argument('-epochs', type=int, default=10, help='Training epochs')
+    parser.add_argument('-epochs', type=int, default=2, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
     parser.add_argument('-num_workers', type=int, default=1, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='segmentation')
-    parser.add_argument('-model_class', type=str,  default='cityscapes')
-    parser.add_argument('-model_src', type=str,  default='crispcityscapes_20220922_204203_ipc0010_search_structure_05')
-    parser.add_argument('-model_dest', type=str, default='crispcityscapes_20220922_204203_ipc0010_search_structure_06')
-    parser.add_argument('-tb_dest', type=str, default='crisplit_20220909_061234_hiocnn_tb_01')
+    parser.add_argument('-model_class', type=str,  default='ImgSegmentPrune')
+    parser.add_argument('-model_src', type=str,  default='ImgSegmentPrune_cityscapes_20221109_110214_hiocnn_search_structure_04')
+    parser.add_argument('-model_dest', type=str, default='ImgSegmentPrune_cityscapes_20221117_110214_hiocnn_plot')
+    parser.add_argument('-tb_dest', type=str, default='crisplit_20221018_184000_ai2_tb_01')
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
-    parser.add_argument('-test_results', type=str, default='test_results.json')
+    parser.add_argument('-test_results', type=str, default='cityscapes_test.json')
     parser.add_argument('-cuda', type=str2bool, default=True)
     parser.add_argument('-height', type=int, default=768, help='Batch image height')
     parser.add_argument('-width', type=int, default=512, help='Batch image width')
@@ -413,24 +425,25 @@ def parse_arguments():
     parser.add_argument('-ejector_full', type=float, default=5, help='Ejector full epoch')
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector max value')
     parser.add_argument('-ejector_exp', type=float, default=3.0, help='Ejector exponent')
-    parser.add_argument('-prune', type=str2bool, default=True)
+    parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-test', type=str2bool, default=True)
-    parser.add_argument('-search_structure', type=str2bool, default=False)
+    parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-search_flops', type=str2bool, default=True)
-    parser.add_argument('-profile', type=str2bool, default=True)
+    parser.add_argument('-profile', type=str2bool, default=False)
     parser.add_argument('-time_trial', type=str2bool, default=False)
     parser.add_argument('-onnx', type=str2bool, default=True)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
+    parser.add_argument('-test_name', type=str, default=None, help='Test name for test log' )
+    parser.add_argument('-test_path', type=str, default='test/tests.yaml', help='S3 path to test log')
     parser.add_argument('-resultspath', type=str, default='results.yaml')
     parser.add_argument('-prevresultspath', type=str, default=None)
-    parser.add_argument('-test_dir', type=str, default=None)
+    parser.add_argument('-test_dir', type=str, default='/tb_logs/inference')
     parser.add_argument('-tensorboard_dir', type=str, default='/tb_logs', 
         help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
-    #parser.add_argument('-class_weight', type=json.loads, default='[0.02, 1.0]', help='Loss class weight ')
     parser.add_argument('-class_weight', type=json.loads, default=None, help='Loss class weight ')
-
+    parser.add_argument('-config', type=str, default='config/build.yaml', help='Configuration file')
     parser.add_argument('-description', type=json.loads, default='{"description":"CRISP segmentation"}', help='Test description')
 
     args = parser.parse_args()
@@ -442,28 +455,31 @@ def parse_arguments():
 
     return args
 
-def ModelSize(args, model, results, class_dictionary):
+def ModelSize(args, model, class_dictionary):
+    device = torch.device("cpu")
+
+    # Initialize model sizes if needed
     device = torch.device("cpu")
     if args.cuda:
         device = torch.device("cuda")
     input = torch.zeros((1, class_dictionary['input_channels'], args.height, args.width), device=device)
 
-    # flops, params = get_model_complexity_info(deepcopy(model), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
-    #                                     print_per_layer_stat=True, verbose=False)
-    flops = FlopCountAnalysis(model, input)
-    parameters = count_parameters(model)
-    image_flops = flops.total()
+    model(input) # Initialize model sizes if not already
+    image_flops, parameters = get_model_complexity_info(deepcopy(model), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
+                                        print_per_layer_stat=False, verbose=False)
+
+    # flops = FlopCountAnalysis(model, input)
+    # parameters = count_parameters(model)
+    #image_flops = flops.total()
 
     print('parameters {} flops {}'.format(parameters, image_flops))
 
     return parameters, image_flops
 
 def load(s3, s3def, args, class_dictionary, loaders, results):
-    model = None
 
-    if 'initial_parameters' not in results or args.model_src is None or args.model_src == '':
-        model = MakeNetwork(class_dictionary, args)
-        results['initial_parameters'] , results['initial_flops'] = ModelSize(args, model, results, class_dictionary)
+    model = MakeNetwork(class_dictionary, args)
+    results['initial_parameters'] , results['initial_flops'] = ModelSize(args, model, class_dictionary)
 
     print('load initial_parameters = {} initial_flops = {}'.format(results['initial_parameters'], results['initial_flops']))
 
@@ -473,9 +489,12 @@ def load(s3, s3def, args, class_dictionary, loaders, results):
         if modelObj is not None:
             model = torch.load(io.BytesIO(modelObj))
 
-            results['model_parameters'] , results['model_flops'] = ModelSize(args, model, results, class_dictionary)
+            model_parameters, model_flops = ModelSize(args, model, class_dictionary)
+            if not args.model_dest in results['load']:
+                results['load'][args.model_dest] = {}
+            results['load'][args.model_dest]= {'model_parameters':model_parameters, 'model_flops':model_flops}
+            print('load model_parameters = {} model_flops = {}'.format(model_parameters, model_flops))
 
-            print('load model_parameters = {} model_flops = {}'.format(results['model_parameters'], results['model_flops']))
         else:
             print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
             return model
@@ -488,7 +507,16 @@ def save(model, s3, s3def, args, loc=''):
     #torch.save(model.state_dict(), out_buffer) # To save just state dictionary, need to determine pruned network from state dict
     torch.save(model, out_buffer)
     outname = '{}/{}/{}{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest,loc)
-    s3.PutObject(s3def['sets']['model']['bucket'], outname, out_buffer)
+
+    print('save {}/{}'.format(s3def['sets']['model']['bucket'], outname))
+    succeeded = s3.PutObject(s3def['sets']['model']['bucket'], outname, out_buffer)
+    print('s3.PutObject return {}'.format(succeeded))
+
+def save_file(model,outname):
+    out_buffer = io.BytesIO()
+    model.zero_grad(set_to_none=True)
+    torch.save(model, outname)
+
 
 def MakeNetwork(class_dictionary, args):
 
@@ -547,8 +575,15 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
 
     # Weight classes for training with heavy class inbalance
     if args.class_weight is not None:
-        if len(args.class_weight) == class_dictionary['classes']:
-            class_weight = torch.Tensor(args.class_weight).to(device)
+        class_weight = args.class_weight
+    elif 'class_weight' in class_dictionary.keys():
+        class_weight = class_dictionary['class_weights']
+    else:
+        class_weight = None
+
+    if class_weight is not None:
+        if len(class_weight) == class_dictionary['classes']:
+            class_weight = torch.Tensor(class_weight).to(device)
         else:
             print('Parameter error: class weight array length={} must equal number of classes {}.  Exiting'.format(len(args.class_weight), class_dictionary['classes']))
             return
@@ -557,6 +592,8 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
             class_weight = class_weight.cuda()
     else:
         class_weight = None
+
+
 
     # Define a Loss function and optimizer
     target_structure = torch.as_tensor([args.target_structure], dtype=torch.float32, device=device)
@@ -583,11 +620,13 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
     optimizer = optim.Adam(model.parameters(), lr= args.learning_rate)
     plotsearch = PlotSearch()
     plotgrads = PlotGradients()
+    plotconvmag = PlotConvMag()
 
     test_freq = args.test_sparsity*int(math.ceil(trainloader['batches']/testloader['batches']))
     tstart = None
     compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
 
+    results['train'][args.model_dest] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'architecture_reduction':[]}
     # Set up fence sitter ejectors
     ejector_exp = None
     if args.ejector == FenceSitterEjectors.dais or args.ejector == FenceSitterEjectors.dais.value:
@@ -674,12 +713,17 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
                             imprune_weights = plotsearch.plot(cell_weights)
                             if imprune_weights.size > 0:
                                 im_class_weights = cv2.cvtColor(imprune_weights, cv2.COLOR_BGR2RGB)
-                                writer.add_image('network/prune_weights', im_class_weights, 0,dataformats='HWC')
+                                writer.add_image('network/prune_weights', im_class_weights, results['batches'],dataformats='HWC')
 
                         imgrad = plotgrads.plot(model)
                         if imgrad.size > 0:
                             im_grad_norm = cv2.cvtColor(imgrad, cv2.COLOR_BGR2RGB)
-                            writer.add_image('network/gradient_norm', im_grad_norm, 0,dataformats='HWC')
+                            writer.add_image('network/gradient_norm', im_grad_norm, results['batches'],dataformats='HWC')
+
+                        convmag = plotconvmag.plot(model)
+                        if convmag.size > 0:
+                            convmag = cv2.cvtColor(convmag, cv2.COLOR_BGR2RGB)
+                            writer.add_image('network/conv_mag', convmag, results['batches'],dataformats='HWC')
 
                     images = inputs.cpu().permute(0, 2, 3, 1).numpy()
                     labels = np.around(labels.cpu().numpy()).astype('uint8')
@@ -709,7 +753,7 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
                         writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, results['batches'])
 
                     running_loss /=test_freq
-                    msg = '[{:3}/{}, {:6d}/{}]  loss: {:0.5e}|{:0.5e} cross-entropy loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test) step time: {:0.3f}'.format(
+                    msg = '[{:3}/{}, {:6d}/{}]  loss: {:0.5e}|{:0.5e} cross-entropy loss: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test) compute time: {:0.3f} cycle time: {:0.3f}'.format(
                         epoch + 1, 
                         args.epochs, 
                         i + 1, 
@@ -717,7 +761,8 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
                         running_loss, loss.item(),
                         training_cross_entropy_loss.item(), 
                         cross_entropy_loss.item(), 
-                        architecture_reduction.item(), 
+                        architecture_reduction.item(),
+                        dtCompute,
                         dtCycle
                     )
                     if args.job is True:
@@ -759,48 +804,70 @@ def Train(args, s3, s3def, class_dictionary, model, loaders, device, results, wr
                 if profile is not None:
                     profile.step()
             #except:
-            except NameError:
+            except AssertionError:
                 print ("Unhandled error in train loop.  Continuing")
 
             results['batches'] += 1
-            if args.minimum and i >= test_freq:
-                break
+
+        if args.minimum and i >= test_freq:
+            break
 
         try:
-            if cell_weights is not None:
-                img = plotsearch.plot(cell_weights)
-                if img.size > 0:
-                    is_success, buffer = cv2.imencode(".png", img, compression_params)
-                    img_enc = io.BytesIO(buffer).read()
-                    filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-                    s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+            if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
+                writer_path = '{}/{}'.format(args.tensorboard_dir, args.model_dest)
 
-            # Plot gradients before saving which clears the gradients
-            imgrad = plotgrads.plot(model)
-            if imgrad.size > 0:
-                is_success, buffer = cv2.imencode(".png", imgrad)  
-                img_enc = io.BytesIO(buffer).read()
-                filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-                s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+                if cell_weights is not None:
+                    img = plotsearch.plot(cell_weights)
+                    if img.size > 0:
+                        filename = '{}/{}{:04d}_cw.png'.format(writer_path,args.model_dest, epoch )
+                        cv2.imwrite(filename, img)
 
+                        # is_success, buffer = cv2.imencode(".png", img, compression_params)
+                        # img_enc = io.BytesIO(buffer).read()
+                        #filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                        #s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+
+
+                # Plot gradients before saving which clears the gradients
+                imgrad = plotgrads.plot(model)
+                if imgrad.size > 0:
+                    filename = '{}/{}{:04d}_gn.png'.format(writer_path,args.model_dest, epoch )
+                    cv2.imwrite(filename, imgrad)  
+
+                    # is_success, buffer = cv2.imencode(".png", imgrad)  
+                    # img_enc = io.BytesIO(buffer).read()
+                    # filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                    # s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+
+                convmag = plotconvmag.plot(model)
+                if convmag.size > 0:
+                    filename = '{}/{}{:04d}_cm.png'.format(writer_path,args.model_dest, epoch )
+                    cv2.imwrite(filename, convmag)  
+
+                filename = '{}/{}.pt'.format(writer_path,args.model_dest)
+                save_file(model, filename)
+
+                if args.minimum:
+                    break
+
+                print('{} training complete'.format(args.model_dest))
+                results['training'] = {}
+
+            if cross_entropy_loss: results['train'][args.model_dest]['cross_entropy_loss']=cross_entropy_loss.item()
+            if architecture_loss: results['train'][args.model_dest]['architecture_loss']=architecture_loss.item()
+            if prune_loss: results['train'][args.model_dest]['prune_loss']=prune_loss.item()
+            if loss: results['train'][args.model_dest]['loss']=loss.item()
+            if architecture_reduction: results['train'][args.model_dest]['architecture_reduction']=architecture_reduction.item()
             save(model, s3, s3def, args)
 
-            if args.minimum:
-                break
-
-            print('{} training complete'.format(args.model_dest))
-            results['training'] = {}
-            if cross_entropy_loss: results['training']['cross_entropy_loss']=cross_entropy_loss.item()
-            if architecture_loss: results['training']['architecture_loss']=architecture_loss.item()
-            if prune_loss: results['training']['prune_loss']=prune_loss.item()
-            if architecture_reduction: results['training']['architecture_reduction']=architecture_reduction.item()
-
-            if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
-                tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
-                s3.PutDir(s3def['sets']['test']['bucket'], args.tensorboard_dir, tb_path )
-
-        except:
+                # if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
+                #     tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
+                #     s3.PutDir(s3def['sets']['test']['bucket'], args.tensorboard_dir, tb_path )
+        #except:
+        except AssertionError:
             print ("Unhandled error in epoch reporting.  Continuing")
+
+    #save(model, s3, s3def, args)
 
     return results
 
@@ -815,12 +882,15 @@ def Test(args, s3, s3def, class_dictionary, model, loaders, device, results, wri
         raise ValueError('{} {} failed to load testloader {}'.format(__file__, __name__, args.dataset)) 
 
     if args.test_dir is not None:
-        outputdir = '{}/{}'.format(args.test_dir,args.model_class)
+        outputdir = '{}/{}/images'.format(args.tensorboard_dir, args.model_dest)
         os.makedirs(outputdir, exist_ok=True)
+        tqdm.write('Inference output directory {}'.format(outputdir))
+
     else:
         outputdir = None
 
     dsResults = DatasetResults(class_dictionary, args.batch_size, imStatistics=args.imStatistics, imgSave=outputdir)
+    tqdm.write(f'saving to {outputdir}')
     dtSum = 0.0
     inferTime = []
     for i, data in tqdm(enumerate(testloader['dataloader']), 
@@ -839,7 +909,7 @@ def Test(args, s3, s3def, class_dictionary, model, loaders, device, results, wri
         dt = (datetime.now()-initial).total_seconds()
         dtSum += dt
         inferTime.append(dt/args.batch_size)
-        tqdm.write('inferTime = {}'.format(inferTime[-1]))
+        #tqdm.write('inferTime = {}'.format(inferTime[-1]))
         writer.add_scalar('test/infer', inferTime[-1], results['batches'])
 
         if args.time_trial:
@@ -858,63 +928,82 @@ def Test(args, s3, s3def, class_dictionary, model, loaders, device, results, wri
             profile.step()
 
     if args.time_trial:
-        test_results = {
+        # test_results = {
+        #     'minimum time': float(np.min(inferTime)),
+        #     'average time': float(dtSum/testloader['length']),
+        #     'num images': testloader['length'],
+        # }
+        results['test'][args.model_dest] = {
             'minimum time': float(np.min(inferTime)),
             'average time': float(dtSum/testloader['length']),
             'num images': testloader['length'],
         }
     else:
-        test_results = dsResults.Results()
+        #test_results = dsResults.Results()
+        results['test'][args.model_dest] = dsResults.Results()
 
-    test_summary['objects'] = dsResults.objTypes
-    test_summary['object store'] =s3def
-    test_summary['results'] = test_results
-    test_summary['config'] = args.__dict__
-    if args.ejector is not None and type(args.ejector) != str:
-        test_summary['config']['ejector'] = args.ejector.value
-    test_summary['system'] = results['system']
-    test_summary['training_results'] = results
 
-    # If there is a way to lock this object between read and write, it would prevent the possability of loosing data
-    test_path = '{}/{}/{}'.format(s3def['sets']['test']['prefix'], args.model_type, args.test_results)
-    training_data = s3.GetDict(s3def['sets']['test']['bucket'], test_path)
-    if training_data is None or type(training_data) is not list:
-        training_data = []
-    training_data.append(test_summary)
-    s3.PutDict(s3def['sets']['test']['bucket'], test_path, training_data)
 
-    test_url = s3.GetUrl(s3def['sets']['test']['bucket'], test_path)
-    print("Test results {}".format(test_url))
 
-    results['test'] = test_summary['results']
+    # test_summary['objects'] = dsResults.objTypes
+    # test_summary['object store'] =s3def
+    # test_summary['results'] = test_results
+    # test_summary['config'] = args.__dict__
+    # if args.ejector is not None and type(args.ejector) != str:
+    #     test_summary['config']['ejector'] = args.ejector.value
+    # test_summary['system'] = results['system']
+    # test_summary['training_results'] = results
+
+    # # # If there is a way to lock this object between read and write, it would prevent the possability of loosing data
+    # test_path = '{}/{}/{}'.format(s3def['sets']['test']['prefix'], args.model_type, args.test_results)
+    # training_data = s3.GetDict(s3def['sets']['test']['bucket'], test_path)
+    # if training_data is None or type(training_data) is not list:
+    #     training_data = []
+    # training_data.append(test_summary)
+    # s3.PutDict(s3def['sets']['test']['bucket'], test_path, training_data)
+
+    # test_url = s3.GetUrl(s3def['sets']['test']['bucket'], test_path)
+    # print("Test results {}".format(test_url))
+
+    # if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
+    #     writer_path = '{}/{}/testresults.yaml'.format(args.tensorboard_dir, args.model_dest)
+    #     WriteDict(test_summary, writer_path)
+
+    #results['test'] = test_summary['results']
     return results
 
 
 def Prune(args, s3, s3def, model, class_dictionary, results):
-    initial_parameters = results['initial_parameters']
+    torch.cuda.empty_cache()
     model.ApplyStructure()
-    reduced_parameters = count_parameters(model)
 
-    results['parameters_after_prune'], results['flops_after_prune'] = ModelSize(args, model, results, class_dictionary)
+    parameters_after_prune, flops_after_prune = ModelSize(args, model, class_dictionary)
+
+    if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
+        writer_path = '{}/{}'.format(args.tensorboard_dir, args.model_dest)
+        filename = '{}/{}.pt'.format(writer_path,args.model_dest)
+        save_file(model, filename)
 
     save(model, s3, s3def, args)
-    results['prune'] = {'final parameters':reduced_parameters, 
-                        'initial parameters' : initial_parameters, 
-                        'remaining ratio':reduced_parameters/initial_parameters, 
-                        'final flops': results['flops_after_prune'], 
-                        'initial flops': results['initial_flops'], 
-                        'remaining flops':results['flops_after_prune']/results['initial_flops'] }
+    results['prune'][args.model_dest] = {
+                        'final parameters':parameters_after_prune, 
+                        'initial parameters' : results['initial_parameters'], 
+                        'final/intial params': parameters_after_prune/results['initial_parameters'], 
+                        'final FLOPS': flops_after_prune, 
+                        'initial FLOPS': results['initial_flops'], 
+                        'final/intial FLOPS':flops_after_prune/results['initial_flops'] }
     print('{} prune results {}'.format(args.model_dest, yaml.dump(results['prune'], default_flow_style=False)))
 
     return results
 
 def onnx(model, s3, s3def, args, input_channels):
+    torch.cuda.empty_cache()
     import torch.onnx as torch_onnx
 
     dummy_input = torch.randn(args.batch_size, input_channels, args.height, args.width, device='cuda')
     input_names = ["image"]
     output_names = ["segmentation"]
-    oudput_dir = '{}/{}'.format(args.test_dir,args.model_class)
+    oudput_dir = args.tensorboard_dir
     output_filename = '{}/{}.onnx'.format(oudput_dir, args.model_dest)
     dynamic_axes = {input_names[0] : {0 : 'batch_size'},    # variable length axes
                             output_names[0] : {0 : 'batch_size'}}
@@ -931,32 +1020,47 @@ def onnx(model, s3, s3def, args, input_channels):
                 opset_version=11)
 
     succeeded = s3.PutFile(s3def['sets']['model']['bucket'], output_filename, '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class) )
-    if succeeded:
-        os.remove(output_filename)
 
 def main(args): 
-    print('network2d test')
+    config = ReadDict(args.config)
+    version_str = VersionString(config)
+    print('{} version {}'.format(__file__, version_str))
 
-    results={}
-    results['config'] = args.__dict__
-    results['config']['ejector'] = args.ejector.value
-    results['system'] = {
+    versions = {
         'platform':str(platform.platform()),
         'python':str(platform.python_version()),
         'numpy': str(np.__version__),
         'torch': str(torch.__version__),
         'OpenCV': str(cv2.__version__),
         'pymlutil': str(pymlutil_version.__version__),
-        'torchdatasetutil':str(torchdatasetutil_version.__version__),
+        'network2d':version_str
     }
-    print('network2d system={}'.format(yaml.dump(results['system'], default_flow_style=False) ))
-    print('network2d config={}'.format(yaml.dump(results['config'], default_flow_style=False) ))
+
+    results = {
+            'batches': 0,
+            'initial_parameters': None,
+            'initial_flops': None,
+            'runs': {},
+            'load': {},
+            'prune': {},
+            'store': {},
+            'train': {},
+            'test': {},
+        }
+
+    results['runs'][args.model_dest] = {
+            'arguments': args.__dict__,
+            'versions': versions,
+        }
+
+    results['runs'][args.model_dest]['arguments']['ejector'] = args.ejector.value # Convert from enum to string
+    print('{}'.format(yaml.dump(results, default_flow_style=False) ))
 
     #torch.autograd.set_detect_anomaly(True)
 
-    s3, _, s3def = Connect(args.credentails)
+    s3, _, s3def = Connect(args.credentails, s3_name=args.s3_name)
 
-    results['store'] = s3def
+    results['runs'][args.model_dest]['store'] = s3def
 
     device = torch.device("cpu")
     if args.cuda:
@@ -988,6 +1092,14 @@ def main(args):
         )
     elif args.dataset=='cityscapes':
         class_dictionary = s3.GetDict(s3def['sets']['dataset']['bucket'],args.cityscapes_class_dict)
+
+        if 'sample_weights' in class_dictionary.keys() and args.sampler:
+            train_sampler_weights = class_dictionary['sample_weights']['weights']
+            upsampled_class = class_dictionary['sample_weights']['class']
+        else:
+            train_sampler_weights = None
+
+
         loaders = CreateCityscapesLoaders(s3, s3def, 
             src = args.cityscapes_data,
             dest = args.dataset_path+'/cityscapes',
@@ -996,8 +1108,8 @@ def main(args):
             num_workers=args.num_workers,
             height=args.height,
             width=args.width, 
-        )
-
+            train_sampler_weights=train_sampler_weights,
+            )
     else:
         raise ValueError("Unupported dataset {}".format(args.dataset))
 
@@ -1006,7 +1118,9 @@ def main(args):
     print('prevresultspath={}'.format(args.prevresultspath))
     if args.prevresultspath and len(args.prevresultspath) > 0:
         prevresults = ReadDict(args.prevresultspath)
+
         if prevresults is not None:
+            results.update(prevresults)
             if 'batches' in prevresults:
                 print('found prevresultspath={}'.format(yaml.dump(prevresults, default_flow_style=False)))
                 results['batches'] = prevresults['batches']
@@ -1022,7 +1136,9 @@ def main(args):
                             feature_threshold=args.feature_threshold,
                             search_structure=args.search_structure, 
                             convMaskThreshold=args.convMaskThreshold, 
-                            k_prune_sigma=args.k_prune_sigma,)
+                            k_prune_sigma=args.k_prune_sigma,
+                            search_flops=args.search_flops,
+                            batch_norm=args.batch_norm)
 
 
     # Enable multi-gpu processing
@@ -1055,11 +1171,8 @@ def main(args):
 
         print(f"To launch tensorboard server: tensorboard --bind_all --logdir {args.tensorboard_dir}") # https://stackoverflow.com/questions/47425882/tensorboard-logdir-with-s3-path
         writer = SummaryWriter(writer_path)
+        WriteModelGraph(args, writer, segment, loaders)
 
-    if 'batches' not in results:
-        results['batches'] = 0
-
-    # Train
     if args.prune:
         results = Prune(args, s3, s3def, segment, class_dictionary, results)
 
@@ -1093,8 +1206,18 @@ def main(args):
     if args.resultspath is not None and len(args.resultspath) > 0:
         WriteDict(results, args.resultspath)
 
-    print('Finished {}'.format(args.model_dest, yaml.dump(results, default_flow_style=False) ))
-    print(json.dumps(results, indent=2))
+    if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
+        results_path = '{}/results.yaml'.format(args.tensorboard_dir)
+        WriteDict(results, results_path)
+
+        tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
+        print('Write tensorboard to s3 {}/{}'.format(s3def['sets']['test']['bucket'], args.tensorboard_dir))
+        s3.PutDir(s3def['sets']['test']['bucket'], args.tensorboard_dir, tb_path )
+
+    LogTest(args, s3, s3def, results)
+
+    print('Finished {}'.format(args.model_dest ))
+    print(yaml.dump(results, default_flow_style=False))
     return 0
 
 if __name__ == '__main__':
@@ -1126,7 +1249,7 @@ if __name__ == '__main__':
         Launch application from console with -debug flag
         $ python3 train.py -debug
 
-        Connet to vscode "Python: Remote" configuration
+        Connect to vscode "Python: Remote" configuration
         '''
 
         debugpy.listen(address=(args.debug_address, args.debug_port)) # Pause the program until a remote debugger is attached

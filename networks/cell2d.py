@@ -6,6 +6,7 @@ import io
 import json
 import yaml
 import platform
+import re
 from enum import Enum
 import time
 from datetime import datetime
@@ -19,10 +20,12 @@ from tensorboard import program
 import torch.profiler
 from torch.profiler import profile, ProfilerActivity
 from torch.utils.tensorboard import SummaryWriter
+import torchvision
 from collections import namedtuple
 from collections import OrderedDict
 from typing import Callable, Optional
 from tqdm import tqdm
+import matplotlib
 import matplotlib.pyplot as plt
 import cv2
 
@@ -32,15 +35,92 @@ from pymlutil.s3 import s3store, Connect
 from pymlutil.functions import Exponential, GaussianBasis
 from pymlutil.metrics import DatasetResults
 import pymlutil.version as pymlutil_version
-import torchvision
-import torchvision.transforms as transforms
-from torch.utils.data.sampler import SubsetRandomSampler
+from pymlutil.version import VersionString
 
-from torchdatasetutil.imagenetstore import CreateImagesetLoaders
+from torchdatasetutil.imagenetstore import CreateImagenetLoaders
 from torchdatasetutil.cifar10store import CreateCifar10Loaders
+from torch.utils.data.dataloader import default_collate
+from torchvision.transforms.functional import InterpolationMode
 
 from ptflops import get_model_complexity_info
 from fvcore.nn import FlopCountAnalysis
+
+sys.path.insert(0, os.path.abspath(''))
+import train.presets as presets
+import train.transforms as transforms
+import train.utils as utils
+from train.sampler import RASampler
+
+# helper function to show an image
+# (used in the `plot_classes_preds` function below)
+def prep_img(img):
+    img = img.cpu().numpy()
+    if img.shape[1] == 1 or len(img.shape) < 3:
+        one_channel = True
+    else:
+        one_channel = False
+    if one_channel:
+        img = img.mean()
+    if img.max()-img.min() > 0:
+        scale = img.max()-img.min()
+    else:
+        scale = 1.0
+    img = 255* (img - img.min())/scale # unnormalize
+    img = img.astype('uint8')
+    if one_channel:
+        img = cv2.cvtColor(img,cv2.COLOR_GRAY2BGR)
+    else:
+        img = np.transpose(img, (1, 2, 0))
+
+    return img
+
+def plot_classes_preds(images, labels, preds, loader, imsize = 12, numimages = 4):
+    # plot the images in the batch, along with predicted and true labels
+    fig = plt.figure(figsize=(imsize, imsize*numimages))
+    classifications = torch.argmax(preds, 1)
+    probs = [F.softmax(el, dim=0)[i].item() for i, el in zip(classifications, preds)]
+
+    for idx in np.arange(numimages):
+        ax = fig.add_subplot(1, numimages, idx+1, xticks=[], yticks=[])
+        matplotlib_imshow(plt, images[idx])
+        ax.set_title("{0}, {1:.1f}%\n(label: {2})".format(
+            loader['classes'][classifications[idx]],
+            probs[idx] * 100.0,
+            loader['classes'][labels[idx].item()]),
+            color=("green" if classifications[idx]==labels[idx].item() else "red"))
+    return fig
+
+
+def PlotClassPredictions(images, labels, preds, loader, numimages = 4):
+
+    classifications = torch.argmax(preds, 1)
+    probabilities = [F.softmax(el, dim=0)[i].item() for i, el in zip(classifications, preds)]
+
+    #images = np.squeeze(images)
+    #labels = np.squeeze(labels)
+    if len(images) < numimages:
+        numimages = len(images)
+
+    plot_images = []
+    for idx in np.arange(numimages):
+        img = prep_img(images[idx])
+        classifications_txt = "{0} {1:.1f}%".format(
+            loader['classes'][classifications[idx]],
+            probabilities[idx] * 100.0,
+            loader['classes'][labels[idx].item()])
+        label_text = "{}".format(loader['classes'][labels[idx].item()])
+        color=((0,255,0) if classifications[idx]==labels[idx].item() else (255,0,0))
+        fontScale = 1
+        img = cv2.putText(img.astype(np.uint8).copy(), classifications_txt,(1,10), cv2.FONT_HERSHEY_COMPLEX_SMALL, fontScale,color,1,cv2.LINE_AA)
+        img = cv2.putText(img.astype(np.uint8).copy(), label_text,(1,20), cv2.FONT_HERSHEY_COMPLEX_SMALL, fontScale,color,1,cv2.LINE_AA)
+        plot_images.append(img)
+
+    plot_images = cv2.hconcat(plot_images)
+    #plot_images = cv2.cvtColor(plot_images, cv2.COLOR_BGR2RGB)
+
+    return plot_images
+
+
 
 sys.path.insert(0, os.path.abspath(''))
 from networks.totalloss import TotalLoss, FenceSitterEjectors
@@ -53,6 +133,11 @@ def relu_flops_counter_hook(module, shape, relaxation):
     flops_relaxed = flops_total
 
     if relaxation is not None:
+        # Evaluate new way to compute flops_relaxed
+        # shape_relaxed = shape
+        # shape_relaxed[1] = torch.sum(relaxation.weights())
+        # flops_relaxed = np.prod(shape_relaxed)
+
         channel_weight = relaxation.weights()
         num_channels = len(channel_weight)
         flops_relaxed *= torch.sum(channel_weight)/num_channels
@@ -112,12 +197,62 @@ def conv_flops_counter_hook(conv_module, in_relaxation, output_shape, out_relaxa
 
     return conv_flops_relaxed, conv_flops_total
 
+def bn_params_counter_hook(module, shape, relaxation):
+    params_total = model_weights(module)
+
+    if relaxation is not None:
+        params_relaxed = torch.sum(relaxation.weights())
+    else:
+        params_relaxed = params_total
+
+    return params_relaxed, params_total
+
+def conv_params_counter_hook(conv_module, in_relaxation, output_shape, out_relaxation):
+    # Can have multiple inputs, getting the first one
+    output_dims = list(output_shape)[2:]
+
+    kernel_dims = list(conv_module.kernel_size)
+    #in_channels = conv_module.in_channels
+    input_relaxation = []
+    if in_relaxation is not None and len(in_relaxation) > 0:
+        for in_relaxation_source in in_relaxation:
+            if in_relaxation_source is not None:
+                input_relaxation.append(in_relaxation_source.weights())
+
+    in_channels = conv_module.in_channels
+    out_channels = conv_module.out_channels
+    groups = conv_module.groups
+
+    if len(input_relaxation) > 0:
+        in_channel_weight = torch.sum(torch.cat(input_relaxation, 0))
+    else:
+        in_channel_weight = in_channels
+
+    if out_relaxation is not None:
+        out_channel_weight = torch.sum(out_relaxation.weights())
+    else:
+        out_channel_weight = out_channels
+
+    if conv_module.bias is not None:
+        bias_flops = out_channel_weight * out_channels
+    else:
+        bias_flops = 0
+
+    conv_base = int(np.prod(kernel_dims)) / groups
+    conv_params_relaxed = conv_base * in_channel_weight * out_channel_weight + bias_flops
+    conv_params_total = conv_base * in_channels * out_channels + bias_flops
+
+    return conv_params_relaxed, conv_params_total
+
 class RelaxChannels(nn.Module):
     def __init__(self,channels, 
                  device=torch.device("cpu"),
                  search_structure=True,
                  disable_search_structure = False,
                  sigmoid_scale = 5.0, # Channel sigmoid scale factor
+                 init_mean = 0.0, # 
+                 init_std = 0.01, # Variable initiation standard deviation
+                 prevent_collapse=False,
                 ):
         super(RelaxChannels, self).__init__()
         self.channels = channels
@@ -126,6 +261,9 @@ class RelaxChannels(nn.Module):
         self.disable_search_structure = disable_search_structure
         self.sigmoid_scale = sigmoid_scale
         self.channel_scale = nn.Parameter(torch.zeros(self.channels, dtype=torch.float, device=self.device))
+        self.init_mean = init_mean
+        self.init_std = init_std
+        self.prevent_collapse = prevent_collapse
 
         self.sigmoid = nn.Sigmoid()
 
@@ -133,6 +271,7 @@ class RelaxChannels(nn.Module):
 
     def _initialize_weights(self):
         nn.init.ones_(self.channel_scale)
+        #nn.init.normal_(self.channel_scale, mean=self.init_mean, std = self.init_std)
 
     def ApplyParameters(self, search_structure=None, sigmoid_scale=None):
         if search_structure is not None:
@@ -140,8 +279,15 @@ class RelaxChannels(nn.Module):
         if sigmoid_scale is not None:
             self.sigmoid_scale = sigmoid_scale
 
+    def scale(self):
+        return self.channel_scale
+
     def weights(self):
         conv_weights = self.sigmoid(self.sigmoid_scale*self.channel_scale)
+
+        if 'prevent_collapse' in self.__dict__ and self.prevent_collapse is not None and self.prevent_collapse:
+            conv_weights = conv_weights/conv_weights.max().item()
+        
         return conv_weights
 
     def forward(self, x):
@@ -159,8 +305,9 @@ class RelaxChannels(nn.Module):
             prefix = "RelaxChannels::ApplyStructure {}".format(msg)
 
         self.channel_scale.data = self.channel_scale.data[conv_mask!=0]
+        self.channels = len(self.channel_scale.data)
 
-        print("{} channel_scale.shape()={}".format(prefix, self.channel_scale.shape))
+        print("{} channels={}".format(prefix, self.channels))
 
         return conv_mask
 
@@ -169,6 +316,7 @@ class ConvBR(nn.Module):
                  in_channels, 
                  out_channels,
                  prev_relaxation = None,
+                 relaxation = None,
                  batch_norm=True, 
                  relu=True,
                  kernel_size=3, 
@@ -189,6 +337,11 @@ class ConvBR(nn.Module):
                  device=torch.device("cpu"),
                  disable_search_structure = False,
                  search_flops = False,
+                 max_pool = False,
+                 pool_kernel_size=3,
+                 pool_stride=2,
+                 pool_padding=1,
+                 prevent_collapse=False
                  ):
         super(ConvBR, self).__init__()
         self.in_channels = in_channels
@@ -196,6 +349,7 @@ class ConvBR(nn.Module):
             raise ValueError("out_channels must be > 0")
         self.out_channels = out_channels
         self.prev_relaxation = prev_relaxation
+        self.relaxation = relaxation
         self.batch_norm = batch_norm
         self.relu = relu
         self.weight_gain = abs(weight_gain)
@@ -218,6 +372,15 @@ class ConvBR(nn.Module):
         self.search_flops = search_flops
         self.input_shape = None
         self.output_shape = None
+        self.max_pool = max_pool
+        self.pool_kernel_size = pool_kernel_size
+        self.pool_stride = pool_stride
+        self.pool_padding = pool_padding
+        self.prevent_collapse = prevent_collapse
+
+
+        if prev_relaxation is not None:
+            assert type(prev_relaxation)== list
 
         #self.channel_scale = nn.Parameter(torch.zeros(self.out_channels, dtype=torch.float, device=self.device))
 
@@ -252,15 +415,22 @@ class ConvBR(nn.Module):
         else:
             self.activation = None
 
-        if self.search_structure:
-            self.relaxation = RelaxChannels(self.out_channels, 
-                                            device=self.device, 
-                                            search_structure=self.search_structure,
-                                            disable_search_structure=self.disable_search_structure,
-                                            sigmoid_scale=self.sigmoid_scale
-                                            )
+        if self.relaxation is None:
+            if self.search_structure:
+                self.relaxation = RelaxChannels(self.out_channels, 
+                                                device=self.device, 
+                                                search_structure=self.search_structure,
+                                                disable_search_structure=self.disable_search_structure,
+                                                sigmoid_scale=self.sigmoid_scale,
+                                                prevent_collapse=self.prevent_collapse,
+                                                )
+            else:
+                self.relaxation = None
+
+        if self.max_pool:
+                self.pool = nn.MaxPool2d(kernel_size=self.pool_kernel_size, stride=self.pool_stride, padding=self.pool_padding)
         else:
-            self.relaxation = None
+            self.pool = None
 
         self._initialize_weights()
 
@@ -277,7 +447,7 @@ class ConvBR(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None,
-                        sigmoid_scale=None, weight_gain=None, k_prune_sigma=None, search_flops=None):
+                        sigmoid_scale=None, weight_gain=None, k_prune_sigma=None, search_flops=None, batch_norm=None):
         if search_structure is not None:
             self.disable_search_structure = not search_structure
         if convMaskThreshold is not None:
@@ -292,9 +462,10 @@ class ConvBR(nn.Module):
             self.k_prune_sigma = k_prune_sigma
         if search_flops is not None:
             self.search_flops = search_flops
-
         if self.relaxation is not None:
             self.relaxation.ApplyParameters(search_structure, sigmoid_scale)
+        if batch_norm is not None:
+            self.batch_norm = batch_norm
 
     def forward(self, x):
 
@@ -316,6 +487,9 @@ class ConvBR(nn.Module):
             if self.activation:
                 x = self.activation(x)
 
+            if hasattr(self, 'pool') and self.pool is not None:
+                x = self.pool(x)
+
         else :
             print("Failed to prune zero size convolution")
 
@@ -327,7 +501,7 @@ class ConvBR(nn.Module):
     def ArchitectureWeights(self):
 
         if self.relaxation and self.search_structure and not self.disable_search_structure:
-            weight_basis = GaussianBasis(self.relaxation.weights(), sigma=self.k_prune_sigma)
+            weight_basis = GaussianBasis(self.relaxation.scale(), sigma=self.k_prune_sigma)
             conv_weights = self.relaxation.weights()
 
         else:
@@ -339,7 +513,7 @@ class ConvBR(nn.Module):
             architecture_weights = conv_weights.sum_to_size((1))
         else:
 
-            if self.search_structure and self.search_flops:
+            if self.search_flops:
                 architecture_weights, cell_weights = conv_flops_counter_hook(self.conv, self.prev_relaxation, self.output_shape, self.relaxation)
 
                 if self.activation:
@@ -357,8 +531,19 @@ class ConvBR(nn.Module):
                 architecture_weights = torch.reshape(architecture_weights,[-1]) # reshape to single element array to be the same format as not flops architecture_weights
 
             else:
-                cell_weights = model_weights(self)
+                architecture_weights, cell_weights = conv_params_counter_hook(self.conv, self.prev_relaxation, self.output_shape, self.relaxation)
 
+                if self.batch_norm:
+                    params_relaxed, params_total = bn_params_counter_hook(self.batchnorm2d, self.output_shape, self.relaxation)
+                    architecture_weights += params_relaxed
+                    cell_weights += params_total
+
+                if not torch.is_tensor(architecture_weights):
+                    architecture_weights = torch.tensor(architecture_weights, device = self.device)
+
+                architecture_weights = torch.reshape(architecture_weights,[-1]) # reshape to single element array to be the same format as not flops architecture_weights
+                
+                cell_weights = model_weights(self)
                 # Keep sum as [1] tensor so subsequent concatenation works
                 architecture_weights = (cell_weights/ self.out_channels) * conv_weights.sum_to_size((1))
 
@@ -388,29 +573,37 @@ class ConvBR(nn.Module):
         if self.in_channels ==0: # No output if no input
             conv_mask = torch.zeros((self.out_channels), dtype=torch.bool, device=self.device)
         elif self.relaxation and self.search_structure and not self.disable_search_structure:
-            conv_mask = self.relaxation.weights() > self.convMaskThreshold
+            conv_weights = self.relaxation.weights()
+            conv_mask = conv_weights > self.convMaskThreshold
         else:
             conv_mask = torch.ones((self.out_channels), dtype=torch.bool, device=self.device) # Always true if self.search_structure == False
 
+        shared_relaxation = False
         if out_channel_mask is not None:
-            if len(out_channel_mask) == self.out_channels:
+            if len(out_channel_mask) == len(conv_mask):
                 # If either mask is false, then the convolution is removed (not nand)
-                conv_mask = torch.logical_not(torch.logical_or(torch.logical_not(conv_mask), torch.logical_not(out_channel_mask)))
-                
+                conv_mask = torch.logical_not(torch.logical_or(torch.logical_not(conv_mask), torch.logical_not(out_channel_mask)))     
             else:
-                raise ValueError("len(out_channel_mask)={} must be equal to self.out_channels={}".format(len(out_channel_mask), self.out_channels))
+                conv_mask = out_channel_mask # Shared relaxation weights
+                shared_relaxation = True
+                
 
         prev_convolutions = len(conv_mask)
         pruned_convolutions = len(conv_mask[conv_mask==False])
 
         if self.residual and prev_convolutions==pruned_convolutions: # Pruning full convolution 
             conv_mask = ~conv_mask # Residual connection becomes a straight through connection
+            self.out_channels = 0
         else:
-            self.conv.bias.data = self.conv.bias[conv_mask!=0]
+            self.out_channels = len(conv_mask[conv_mask!=0])
+            if self.conv.bias is not None:
+                self.conv.bias.data = self.conv.bias[conv_mask!=0]
             if self.conv_transpose:
                 self.conv.weight.data = self.conv.weight[:, conv_mask!=0]
             else:
                 self.conv.weight.data = self.conv.weight[conv_mask!=0]
+            self.conv.in_channels = self.in_channels
+            self.conv.out_channels = self.out_channels
 
             #self.channel_scale.data = self.channel_scale.data[conv_mask!=0]
 
@@ -419,11 +612,10 @@ class ConvBR(nn.Module):
                 self.batchnorm2d.weight.data = self.batchnorm2d.weight.data[conv_mask!=0]
                 self.batchnorm2d.running_mean = self.batchnorm2d.running_mean[conv_mask!=0]
                 self.batchnorm2d.running_var = self.batchnorm2d.running_var[conv_mask!=0]
+                self.batchnorm2d.num_features = self.out_channels
 
-            if self.relaxation and self.search_structure and not self.disable_search_structure:
+            if not shared_relaxation and self.relaxation and self.search_structure and not self.disable_search_structure:
                 self.relaxation.ApplyStructure(conv_mask)
-
-            self.out_channels = len(conv_mask[conv_mask!=0])
 
         print("{} {}={}/{} in_channels={} out_channels={}".format(prefix, pruned_convolutions/prev_convolutions, pruned_convolutions, prev_convolutions, self.in_channels, self.out_channels))
 
@@ -436,6 +628,8 @@ class Cell(nn.Module):
                  in1_channels, 
                  in2_channels = 0,
                  prev_relaxation = None,
+                 relaxation = None,
+                 residual_relaxation = None,
                  batch_norm=False, 
                  relu=True,
                  kernel_size=3, 
@@ -457,6 +651,7 @@ class Cell(nn.Module):
                  sigmoid_scale = 5.0,
                  k_prune_sigma=0.33,
                  search_flops = False,
+                 prevent_collapse = None
                  ):
                 
         super(Cell, self).__init__()
@@ -464,6 +659,8 @@ class Cell(nn.Module):
         self.in1_channels = in1_channels
         self.in2_channels = in2_channels
         self.prev_relaxation = prev_relaxation
+        self.relaxation = relaxation
+        self.residual_relaxation = residual_relaxation
         self.batch_norm = batch_norm
         self.relu = relu
         self.kernel_size = kernel_size
@@ -485,6 +682,7 @@ class Cell(nn.Module):
         self.sigmoid_scale=sigmoid_scale
         self.k_prune_sigma=k_prune_sigma
         self.search_flops = search_flops
+        self.prevent_collapse = prevent_collapse
 
 
         self.cnn = torch.nn.ModuleList()
@@ -497,16 +695,92 @@ class Cell(nn.Module):
         totalStride = 1
         totalDilation = 1
         prev_relaxation = self.prev_relaxation
+        relaxation = self.relaxation
+        self.activation = None
+
+        if self.residual and (in_chanels != self.convolutions[-1]['out_channels'] or totalStride != 1 or totalDilation != 1):
+            for i, convdev in enumerate(convolutions):
+                totalStride *= convdev['stride']
+                totalDilation *= convdev['dilation']
+
+            self.conv_residual = ConvBR(in_chanels, self.convolutions[-1]['out_channels'],
+                prev_relaxation = prev_relaxation,
+                relaxation = relaxation,
+                batch_norm=self.batch_norm, 
+                relu=False, 
+                kernel_size=1, 
+                stride=totalStride, 
+                dilation=totalDilation, 
+                groups=self.groups, 
+                bias=self.bias, 
+                padding_mode=self.padding_mode,
+                weight_gain=self.weight_gain,
+                convMaskThreshold=self.convMaskThreshold, 
+                dropout_rate=self.dropout_rate,
+                search_structure=self.search_structure,
+                residual=True,
+                dropout=self.dropout,
+                k_prune_sigma=self.k_prune_sigma,
+                device=self.device,
+                prevent_collapse = True)
+
+            self.residual_relaxation = self.conv_residual.relaxation
+
+        else:
+            self.conv_residual = None
+
+        if self.residual and self.relu:
+            self.activation = nn.ReLU()
 
         for i, convdev in enumerate(convolutions):
             conv_transpose = False
             if 'conv_transpose' in convdev and convdev['conv_transpose']:
                 conv_transpose = True
 
+            relu = self.relu
+            if 'relu' in convdev:
+                relu = convdev['relu']
+
+            batch_norm = self.batch_norm
+            if 'batch_norm' in convdev:
+                batch_norm = convdev['batch_norm']
+
+            max_pool = False
+            if 'max_pool' in convdev:
+                max_pool = convdev['max_pool']
+
+            pool_kernel_size = 3
+            if 'pool_kernel_size' in convdev:
+                pool_kernel_size = convdev['pool_kernel_size']
+
+            pool_stride = 2
+            if 'pool_stride' in convdev:
+                pool_stride = convdev['pool_stride']
+
+            pool_padding = 1
+            if 'pool_padding' in convdev:
+                pool_padding = convdev['pool_padding']
+
+            prevent_collapse = 0
+            if self.prevent_collapse is not None:
+                prevent_collapse = self.prevent_collapse
+            else:
+                if 'prevent_collapse' in convdev:
+                    prevent_collapse = convdev['prevent_collapse']
+
+            relu = relu
+            if 'relu' in convdev:
+                relu = convdev['relu']
+
+            # Apply the residual relaxation to the output convolution's relaxation
+            if i == len(convolutions)-1:
+                relaxation = self.residual_relaxation
+
             conv = ConvBR(src_channels, convdev['out_channels'], 
                 prev_relaxation = prev_relaxation,
-                batch_norm=self.batch_norm, 
-                relu=self.relu, 
+                relaxation = relaxation,
+                batch_norm=batch_norm, 
+                relu=relu, 
                 kernel_size=convdev['kernel_size'], 
                 stride=convdev['stride'], 
                 dilation=convdev['dilation'],
@@ -523,37 +797,19 @@ class Cell(nn.Module):
                 conv_transpose=conv_transpose,
                 k_prune_sigma=self.k_prune_sigma,
                 device=self.device,
-                search_flops = self.search_flops)
+                search_flops = self.search_flops,
+                max_pool = max_pool,
+                pool_kernel_size = pool_kernel_size,
+                pool_padding = pool_padding,
+                prevent_collapse = prevent_collapse,
+                )
 
             prev_relaxation = [conv.relaxation]
+            relaxation = None
             
             self.cnn.append(conv)
 
             src_channels = convdev['out_channels']
-            totalStride *= convdev['stride']
-            totalDilation *= convdev['dilation']
- 
-        if self.residual and (in_chanels != self.convolutions[-1]['out_channels'] or totalStride != 1 or totalDilation != 1):
-            self.conv_residual = ConvBR(in_chanels, self.convolutions[-1]['out_channels'], 
-                batch_norm=self.batch_norm, 
-                relu=self.relu, 
-                kernel_size=1, 
-                stride=totalStride, 
-                dilation=totalDilation, 
-                groups=self.groups, 
-                bias=self.bias, 
-                padding_mode=self.padding_mode,
-                weight_gain=self.weight_gain,
-                convMaskThreshold=self.convMaskThreshold, 
-                dropout_rate=self.dropout_rate,
-                search_structure=False,
-                residual=True,
-                dropout=self.dropout,
-                k_prune_sigma=self.k_prune_sigma,
-                device=self.device)
-        else:
-            self.conv_residual = None
-
 
         self._initialize_weights()
         self.total_trainable_weights = model_weights(self)
@@ -568,7 +824,7 @@ class Cell(nn.Module):
 
     def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None,
                         weight_gain=None, sigmoid_scale=None, feature_threshold=None,
-                        k_prune_sigma=None, search_flops=None): # Apply a parameter change
+                        k_prune_sigma=None, search_flops=None, batch_norm=None): # Apply a parameter change
         if search_structure is not None:
             self.search_structure = search_structure
 
@@ -591,10 +847,18 @@ class Cell(nn.Module):
         if search_flops is not None:
             self.search_flops = search_flops
 
+        if batch_norm is not None:
+            self.batch_norm = batch_norm
+
         if self.cnn is not None and len(self.cnn) > 0:
+            if self.conv_residual is not None:
+                self.conv_residual.ApplyParameters(search_structure=search_structure, convMaskThreshold=convMaskThreshold, dropout=dropout,
+                                     weight_gain=weight_gain, sigmoid_scale=sigmoid_scale, k_prune_sigma=k_prune_sigma, search_flops=search_flops, batch_norm=batch_norm)
+
+
             for conv in self.cnn:
                 conv.ApplyParameters(search_structure=search_structure, convMaskThreshold=convMaskThreshold, dropout=dropout,
-                                     weight_gain=weight_gain, sigmoid_scale=sigmoid_scale, k_prune_sigma=k_prune_sigma, search_flops=search_flops)
+                                     weight_gain=weight_gain, sigmoid_scale=sigmoid_scale, k_prune_sigma=k_prune_sigma, search_flops=search_flops, batch_norm=batch_norm)
 
     def ArchitectureWeights(self):
         layer_weights = []
@@ -665,8 +929,18 @@ class Cell(nn.Module):
         else: # Do not reduce input channels.  
             in_channel_mask = torch.ones((self.in1_channels+self.in2_channels), dtype=torch.bool, device=self.device)
         
+        if self.residual:
+            if self.conv_residual is not None:
+                layermsg = "cell residual search_structure={}".format(self.conv_residual.search_structure)
+                if msg is not None:
+                    layermsg = "{} {} ".format(msg, layermsg)
+                
+                residual_out_channel_mask = self.conv_residual.ApplyStructure(in_channel_mask=in_channel_mask, msg=layermsg)
+                residual_out_channels = self.conv_residual.out_channels
+            else:
+                residual_out_channel_mask = in_channel_mask
+
         if self.cnn is not None:
-            out_channel_mask = in_channel_mask
 
             _, _, conv_weight  = self.ArchitectureWeights()
             if (prune is not None and prune) or conv_weight['prune_weight'].item() < self.feature_threshold: # Prune convolutions prune_weight is < feature_threshold
@@ -683,41 +957,50 @@ class Cell(nn.Module):
 
                     if msg is not None:
                         layermsg = "{} {}".format(msg, layermsg)
+
+                    if self.residual and i == len(self.cnn)-1:
+                        out_channel_mask = residual_out_channel_mask
+                    else:
+                        out_channel_mask = None
                         
-                    out_channel_mask = cnn.ApplyStructure(in_channel_mask=out_channel_mask, msg=layermsg)
+                    out_channel_mask = cnn.ApplyStructure(in_channel_mask=in_channel_mask, out_channel_mask = out_channel_mask, msg=layermsg)
                     out_channels = cnn.out_channels
                     if out_channels == 0: # Prune convolutions if any convolution has no more outputs
                         if i != len(self.cnn)-1: # Make mask the size of the cell output with all values 0
                             out_channel_mask = torch.zeros(self.cnn[-1].out_channels, dtype=np.bool, device=self.device)
-     
-                        self.cnn = None
-                        out_channels = 0
 
                         layermsg = "Prune cell because convolution {} out_channels == {}".format(i, out_channels)
                         if msg is not None:
                             layermsg = "{} {} ".format(msg, layermsg)
                         print(layermsg)
+
+                        self.cnn = None
+                        if self.residual:
+                            out_channel_mask = residual_out_channel_mask
+                            out_channels = len(residual_out_channel_mask[residual_out_channel_mask!=0])
+                        else:
+                            out_channels = 0
                         break
+                    else:
+                        in_channel_mask = out_channel_mask
+
         else:
-            out_channel_mask = None
-            out_channels = 0
-
-        if self.conv_residual is not None:
-            layermsg = "cell residual search_structure={}".format(self.conv_residual.search_structure)
-            if msg is not None:
-                layermsg = "{} {} ".format(msg, layermsg)
-            
-            out_channel_mask = self.conv_residual.ApplyStructure(in_channel_mask=in_channel_mask, out_channel_mask=out_channel_mask, msg=layermsg)
-            out_channels = self.conv_residual.out_channels
+            if self.residual:
+                out_channel_mask = residual_out_channel_mask
+                out_channels = len(residual_out_channel_mask[residual_out_channel_mask!=0])
+            else:
+                out_channel_mask = None
+                out_channels = 0
 
 
-        layermsg = "cell summary: weights={} in1_channels={} in2_channels={} out_channels={} residual={} search_structure={}".format(
+        layermsg = "cell summary: weights={} in1_channels={} in2_channels={} out_channels={} residual={} search_structure={} passthrough={}".format(
             self.total_trainable_weights, 
             self.in1_channels, 
             self.in2_channels, 
             out_channels,
             self.residual,
-            self.search_structure)
+            self.search_structure,
+            self.cnn == None)
         if msg is not None:
             layermsg = "{} {} ".format(msg, layermsg)
         print(layermsg)
@@ -751,10 +1034,14 @@ class Cell(nn.Module):
 
             if self.residual:
                 y = x + residual
+
             else:
                 y = x
         else:
             y = residual
+
+        if self.activation:
+            y = self.activation(y)
 
         return y
 
@@ -846,7 +1133,7 @@ class Resnet(Enum):
     cifar_110 = 110
 
 
-def ResnetCells(size = Resnet.layers_50):
+def ResnetCells(size = Resnet.layers_50, useConv1 = True, conv1_kernel_size = 7, conv1_stride = 2):
     resnetCells = []
     
     sizes = {
@@ -895,12 +1182,14 @@ def ResnetCells(size = Resnet.layers_50):
     cell = []
     if is_cifar_style:
         network_channels = [32, 16, 8]
-        cell.append({'out_channels':network_channels[0], 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':False})
+        cell.append({'out_channels':network_channels[0], 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True})
+        resnetCells.append({'residual':False, 'cell':cell})
     else:
         network_channels = [64, 128, 256, 512]
-        cell.append({'out_channels':network_channels[0], 'kernel_size': 7, 'stride': 3, 'dilation': 1, 'search_structure':False})
+        if useConv1:
+            cell.append({'out_channels':network_channels[0], 'kernel_size': conv1_kernel_size, 'stride': conv1_stride, 'dilation': 1, 'search_structure':True, 'residual':False, 'max_pool': True})
+            resnetCells.append({'residual':False, 'cell':cell})
 
-    resnetCells.append({'residual':False, 'cell':cell})
 
     for i, layer_size in enumerate(block_sizes):
         block_channels = network_channels[i]
@@ -916,12 +1205,12 @@ def ResnetCells(size = Resnet.layers_50):
                 # according to "Deep residual learning for image recognition"https://arxiv.org/abs/1512.03385.
                 # This variant is also known as ResNet V1.5 and improves accuracy according to
                 # https://ngc.nvidia.com/catalog/model-scripts/nvidia:resnet_50_v1_5_for_pytorch.
-                cell.append({'out_channels':network_channels[i], 'kernel_size': 1, 'stride': 1, 'dilation': 1, 'search_structure':True})
-                cell.append({'out_channels':network_channels[i], 'kernel_size': 3, 'stride': stride, 'dilation': 1, 'search_structure':True})
-                cell.append({'out_channels':4*network_channels[i], 'kernel_size': 1, 'stride': 1, 'dilation': 1, 'search_structure':False})
+                cell.append({'out_channels':network_channels[i], 'kernel_size': 1, 'stride': 1, 'dilation': 1, 'search_structure':True, 'relu': True})
+                cell.append({'out_channels':network_channels[i], 'kernel_size': 3, 'stride': stride, 'dilation': 1, 'search_structure':True, 'relu': True})
+                cell.append({'out_channels':4*network_channels[i], 'kernel_size': 1, 'stride': 1, 'dilation': 1, 'search_structure':True, 'relu': False})
             else:
-                cell.append({'out_channels':network_channels[i], 'kernel_size': 3, 'stride': stride, 'dilation': 1, 'search_structure':True})
-                cell.append({'out_channels':network_channels[i], 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':False})
+                cell.append({'out_channels':network_channels[i], 'kernel_size': 3, 'stride': stride, 'dilation': 1, 'search_structure':True, 'relu': True})
+                cell.append({'out_channels':network_channels[i], 'kernel_size': 3, 'stride': 1, 'dilation': 1, 'search_structure':True, 'relu': False})
             resnetCells.append({'residual':True, 'cell':cell})
         
     return resnetCells
@@ -959,6 +1248,8 @@ class Classify(nn.Module):
         self.cells = torch.nn.ModuleList()
         in_channels = self.source_channels
 
+        prev_relaxation = None
+        residual_relaxation = None
         for i, cell_convolutions in enumerate(convolutions):
 
             convdfn = None
@@ -974,11 +1265,19 @@ class Classify(nn.Module):
                 search_structure=self.search_structure, 
                 sigmoid_scale=self.sigmoid_scale, 
                 feature_threshold=self.feature_threshold,
-                             search_flops = self.search_flops)
+                search_flops = self.search_flops,
+                prev_relaxation = [prev_relaxation],
+                residual_relaxation = residual_relaxation,
+                bias = False
+                )
+
+            if cell.conv_residual is not None:
+                prev_relaxation = cell.conv_residual.relaxation
+                residual_relaxation = cell.conv_residual.relaxation
             in_channels = cell_convolutions['cell'][-1]['out_channels']
             self.cells.append(cell)
 
-        self.maxpool = nn.MaxPool2d(2, 2)
+        #self.maxpool = nn.MaxPool2d(2, 2) # Match Pytorch pretrained Resnet
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = FC(in_channels, self.out_channels, device=self.device)
 
@@ -987,19 +1286,19 @@ class Classify(nn.Module):
         self.fc_weights = model_weights(self.fc)
 
     def ApplyStructure(self):
-        layer_msg = 'Initial resize convolution'
-        #in_channel_mask = self.resnet_conv1.ApplyStructure(msg=layer_msg)
+        layermsg = 'Initial resize convolution'
+        #in_channel_mask = self.resnet_conv1.ApplyStructure(msg=layermsg)
         in_channel_mask = None
         for i, cell in enumerate(self.cells):
-            layer_msg = 'Cell {}'.format(i)
-            out_channel_mask = cell.ApplyStructure(in1_channel_mask=in_channel_mask, msg=layer_msg)
+            layermsg = 'Cell {}'.format(i)
+            out_channel_mask = cell.ApplyStructure(in1_channel_mask=in_channel_mask, msg=layermsg)
             in_channel_mask = out_channel_mask
 
         self.fc.ApplyStructure(in_channel_mask=in_channel_mask)
 
     def ApplyParameters(self, search_structure=None, convMaskThreshold=None, dropout=None, 
                         weight_gain=None, sigmoid_scale=None, feature_threshold=None,
-                        k_prune_sigma=None, search_flops=None): # Apply a parameter change
+                        k_prune_sigma=None, search_flops=None, batch_norm=None): # Apply a parameter change
         if search_structure is not None:
             self.search_structure = search_structure
         if dropout is not None:
@@ -1016,10 +1315,13 @@ class Classify(nn.Module):
             self.k_prune_sigma = k_prune_sigma
         if search_flops is not None:
             self.search_flops = search_flops
+        if batch_norm is not None:
+            self.batch_norm = batch_norm
+
         for cell in self.cells:
             cell.ApplyParameters(search_structure=search_structure, dropout=dropout, convMaskThreshold=convMaskThreshold,
                                  weight_gain=weight_gain, sigmoid_scale=sigmoid_scale, feature_threshold=feature_threshold,
-                                 k_prune_sigma=k_prune_sigma, search_flops=search_flops)
+                                 k_prune_sigma=k_prune_sigma, search_flops=search_flops, batch_norm=batch_norm)
 
     def forward(self, x, isTraining=False):
         #x = self.resnet_conv1(x)
@@ -1042,7 +1344,7 @@ class Classify(nn.Module):
         #cell_weights.append(cell_weight)
         #architecture_weights.append(cell_archatecture_weights)
 
-        for in_cell in self.cells:
+        for i,  in_cell in enumerate(self.cells):
             cell_archatecture_weights, cell_total_trainable_weights, cell_weight = in_cell.ArchitectureWeights()
             cell_weights.append(cell_weight)
             architecture_weights.append(cell_archatecture_weights)
@@ -1079,18 +1381,20 @@ def parse_arguments():
     parser.add_argument('-minimum', type=str2bool, default=False, help='Minimum run with a few iterations to test execution')
 
     parser.add_argument('-credentails', type=str, default='creds.yaml', help='Credentials file.')
+    parser.add_argument('-s3_name', type=str, default='store', help='S3 name in credentials')
 
-    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152, 20, 32, 44, 56, 110], default=101, help='Run description')
+    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152, 20, 32, 44, 56, 110], default=18, help='Run description')
+    parser.add_argument('-useConv1', type=str2bool, default=True, help='If true, use initial convolution and max pool before ResNet blocks')
 
     parser.add_argument('-dataset', type=str, default='imagenet', choices=['cifar10', 'imagenet'], help='Dataset')
     parser.add_argument('-dataset_path', type=str, default='/data', help='Local dataset path')
     parser.add_argument('-obj_imagenet', type=str, default='data/imagenet', help='Local dataset path')
     parser.add_argument('-model', type=str, default='model')
 
-    parser.add_argument('-batch_size', type=int, default=80, help='Training batch size') 
+    parser.add_argument('-batch_size', type=int, default=1, help='Training batch size') 
 
-    parser.add_argument('-optimizer', type=str, default='sgd', choices=['sgd', 'adam'], help='Optimizer')
-    parser.add_argument('-learning_rate', type=float, default=1e-1, help='Training learning rate')
+    parser.add_argument('-optimizer', type=str, default='adam', choices=['sgd', 'adam'], help='Optimizer')
+    parser.add_argument('-learning_rate', type=float, default=1e-4, help='Training learning rate')
     parser.add_argument('-learning_rate_decay', type=float, default=0.5, help='Rate decay multiple')
     parser.add_argument('-rate_schedule', type=json.loads, default='[50, 100, 150, 200, 250, 300, 350, 400, 450, 500]', help='Training learning rate')
     #parser.add_argument('-rate_schedule', type=json.loads, default='[40, 60, 65]', help='Training learning rate')
@@ -1098,20 +1402,20 @@ def parse_arguments():
     
     parser.add_argument('-momentum', type=float, default=0.9, help='Learning Momentum')
     parser.add_argument('-weight_decay', type=float, default=0.0001)
-    parser.add_argument('-epochs', type=int, default=500, help='Training epochs')
+    parser.add_argument('-epochs', type=int, default=5, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
     parser.add_argument('-num_workers', type=int, default=0, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='classification')
-    parser.add_argument('-model_class', type=str,  default='imagenet')
-    parser.add_argument('-model_src', type=str,  default=None)
-    parser.add_argument('-model_dest', type=str, default="crisp20220511_t00_00")
-    parser.add_argument('-test_sparsity', type=int, default=1, help='test step multiple')
+    parser.add_argument('-model_class', type=str,  default='ImgClassifyPrune')
+    parser.add_argument('-model_src', type=str,  default="")
+    parser.add_argument('-model_dest', type=str, default="ImgClassifyPrune_imagenet_20221115_094226_ipc001_test")
+    parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
 
-    parser.add_argument('-height', type=int, default=200, help='Input image height')
-    parser.add_argument('-width', type=int, default=200, help='Input image width')
+    parser.add_argument('-height', type=int, default=224, help='Input image height')
+    parser.add_argument('-width', type=int, default=224, help='Input image width')
     parser.add_argument('-channels', type=int, default=3, help='Input image color channels')
     parser.add_argument('-k_accuracy', type=float, default=1.0, help='Accuracy weighting factor')
     parser.add_argument('-k_structure', type=float, default=0.5, help='Structure minimization weighting factor')
@@ -1128,11 +1432,11 @@ def parse_arguments():
     parser.add_argument('-convMaskThreshold', type=float, default=0.1, help='convolution channel sigmoid level to prune convolution channels')
 
     parser.add_argument('-augment_rotation', type=float, default=0.0, help='Input augmentation rotation degrees')
-    parser.add_argument('-augment_scale_min', type=float, default=1.00, help='Input augmentation scale')
-    parser.add_argument('-augment_scale_max', type=float, default=1.00, help='Input augmentation scale')
-    parser.add_argument('-augment_translate_x', type=float, default=0.125, help='Input augmentation translation')
-    parser.add_argument('-augment_translate_y', type=float, default=0.125, help='Input augmentation translation')
-    parser.add_argument('-augment_noise', type=float, default=0.1, help='Augment image noise')
+    parser.add_argument('-augment_scale_min', type=float, default=1.0, help='Input augmentation scale')
+    parser.add_argument('-augment_scale_max', type=float, default=1.0, help='Input augmentation scale')
+    parser.add_argument('-augment_translate_x', type=float, default=0.0, help='Input augmentation translation')
+    parser.add_argument('-augment_translate_y', type=float, default=0.0, help='Input augmentation translation')
+    parser.add_argument('-augment_noise', type=float, default=0.0, help='Augment image noise')
 
     parser.add_argument('-ejector', type=FenceSitterEjectors, default=FenceSitterEjectors.prune_basis, choices=list(FenceSitterEjectors))
     parser.add_argument('-ejector_start', type=float, default=4, help='Ejector start epoch')
@@ -1140,24 +1444,141 @@ def parse_arguments():
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector max value')
     parser.add_argument('-ejector_exp', type=float, default=3.0, help='Ejector exponent')
     parser.add_argument('-prune', type=str2bool, default=False)
-    parser.add_argument('-train', type=str2bool, default=True)
+    parser.add_argument('-train', type=str2bool, default=False)
     parser.add_argument('-test', type=str2bool, default=True)
     parser.add_argument('-search_structure', type=str2bool, default=False)
     parser.add_argument('-search_flops', type=str2bool, default=False)
     parser.add_argument('-profile', type=str2bool, default=False)
     parser.add_argument('-time_trial', type=str2bool, default=False)
-    parser.add_argument('-onnx', type=str2bool, default=True)
+    parser.add_argument('-onnx', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
+    parser.add_argument('-test_name', type=str, default='default_test', help='Test name for test log' )
+    parser.add_argument('-test_path', type=str, default='test/tests.yaml', help='S3 path to test log')
     parser.add_argument('-resultspath', type=str, default='results.yaml')
     parser.add_argument('-prevresultspath', type=str, default=None)
     parser.add_argument('-test_dir', type=str, default=None)
-    #parser.add_argument('-tensorboard_dir', type=str, default='/tb_logs',
-    parser.add_argument('-tensorboard_dir', type=str, default=None,
-        help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
-    parser.add_argument('-tb_dest', type=str, default='crispcifar10_20220909_061234_hiocnn_tb_01')
+    parser.add_argument('-tensorboard_dir', type=str, default='/tb_logs/test/ImgClassifyPrune_cifar10_20221106_094226_ipc001', help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
+    #parser.add_argument('-tensorboard_dir', type=str, default=None, help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
+    parser.add_argument('-tb_dest', type=str, default='ImgClassifyPrune_cifar10_20221106_094226_ipc001')
+    parser.add_argument('-config', type=str, default='config/build.yaml', help='Configuration file')
+    parser.add_argument('-description', type=json.loads, default='{"description":"CRISP classification"}', help='Test description')
+    parser.add_argument('-output_dir', type=str, default='./out', help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
 
-    parser.add_argument('-description', type=json.loads, default='{"description":"CRISP classificaiton"}', help='Test description')
+
+    parser.add_argument("--opt", default="sgd", type=str, help="optimizer")
+    parser.add_argument("--lr", default=0.1, type=float, help="initial learning rate")
+    parser.add_argument("--momentum", default=0.9, type=float, metavar="M", help="momentum")
+    parser.add_argument(
+        "--wd",
+        "--weight-decay",
+        default=1e-4,
+        type=float,
+        metavar="W",
+        help="weight decay (default: 1e-4)",
+        dest="weight_decay",
+    )
+    parser.add_argument(
+        "--norm-weight-decay",
+        default=None,
+        type=float,
+        help="weight decay for Normalization layers (default: None, same value as --wd)",
+    )
+    parser.add_argument(
+        "--bias-weight-decay",
+        default=None,
+        type=float,
+        help="weight decay for bias parameters of all layers (default: None, same value as --wd)",
+    )
+    parser.add_argument(
+        "--transformer-embedding-decay",
+        default=None,
+        type=float,
+        help="weight decay for embedding parameters for vision transformer models (default: None, same value as --wd)",
+    )
+    parser.add_argument(
+        "--label-smoothing", default=0.0, type=float, help="label smoothing (default: 0.0)", dest="label_smoothing"
+    )
+    parser.add_argument("--mixup-alpha", default=0.0, type=float, help="mixup alpha (default: 0.0)")
+    parser.add_argument("--cutmix-alpha", default=0.0, type=float, help="cutmix alpha (default: 0.0)")
+    parser.add_argument("--lr-scheduler", default="steplr", type=str, help="the lr scheduler (default: steplr)")
+    parser.add_argument("--lr-warmup-epochs", default=0, type=int, help="the number of epochs to warmup (default: 0)")
+    parser.add_argument(
+        "--lr-warmup-method", default="constant", type=str, help="the warmup method (default: constant)"
+    )
+    parser.add_argument("--lr-warmup-decay", default=0.01, type=float, help="the decay for lr")
+    parser.add_argument("--lr-step-size", default=30, type=int, help="decrease lr every step-size epochs")
+    parser.add_argument("--lr-gamma", default=0.1, type=float, help="decrease lr by a factor of lr-gamma")
+    parser.add_argument("--lr-min", default=0.0, type=float, help="minimum lr of lr schedule (default: 0.0)")
+    parser.add_argument("--print-freq", default=10, type=int, help="print frequency")
+    parser.add_argument("--output-dir", default=".", type=str, help="path to save outputs")
+    parser.add_argument("--resume", default="", type=str, help="path of checkpoint")
+    parser.add_argument("--start-epoch", default=0, type=int, metavar="N", help="start epoch")
+    parser.add_argument(
+        "--cache-dataset",
+        dest="cache_dataset",
+        help="Cache the datasets for quicker initialization. It also serializes the transforms",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--sync-bn",
+        dest="sync_bn",
+        help="Use sync batch norm",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--test-only",
+        dest="test_only",
+        help="Only test the model",
+        action="store_true",
+    )
+    parser.add_argument("--auto-augment", default=None, type=str, help="auto augment policy (default: None)")
+    parser.add_argument("--ra-magnitude", default=9, type=int, help="magnitude of auto augment policy")
+    parser.add_argument("--augmix-severity", default=3, type=int, help="severity of augmix policy")
+    parser.add_argument("--random-erase", default=0.0, type=float, help="random erasing probability (default: 0.0)")
+
+    # Mixed precision training parameters
+    parser.add_argument("--amp", action="store_true", help="Use torch.cuda.amp for mixed precision training")
+
+    # distributed training parameters
+    parser.add_argument("--world-size", default=1, type=int, help="number of distributed processes")
+    parser.add_argument("--dist-url", default="env://", type=str, help="url used to set up distributed training")
+    parser.add_argument(
+        "--model-ema", action="store_true", help="enable tracking Exponential Moving Average of model parameters"
+    )
+    parser.add_argument(
+        "--model-ema-steps",
+        type=int,
+        default=32,
+        help="the number of iterations that controls how often to update the EMA model (default: 32)",
+    )
+    parser.add_argument(
+        "--model-ema-decay",
+        type=float,
+        default=0.99998,
+        help="decay factor for Exponential Moving Average of model parameters (default: 0.99998)",
+    )
+    parser.add_argument(
+        "--use-deterministic-algorithms", action="store_true", help="Forces the use of deterministic algorithms only."
+    )
+    parser.add_argument(
+        "--interpolation", default="bilinear", type=str, help="the interpolation method (default: bilinear)"
+    )
+    parser.add_argument(
+        "--val-resize-size", default=256, type=int, help="the resize size used for validation (default: 256)"
+    )
+    parser.add_argument(
+        "--val-crop-size", default=224, type=int, help="the central crop size used for validation (default: 224)"
+    )
+    parser.add_argument(
+        "--train-crop-size", default=224, type=int, help="the random crop size used for training (default: 224)"
+    )
+    parser.add_argument("--clip-grad-norm", default=None, type=float, help="the maximum gradient norm (default None)")
+    parser.add_argument("--ra-sampler", action="store_true", help="whether to use Repeated Augmentation in training")
+    parser.add_argument(
+        "--ra-reps", default=4, type=int, help="number of repetitions for Repeated Augmentation (default: 3)"
+    )
+
 
     args = parser.parse_args()
 
@@ -1168,7 +1589,7 @@ def parse_arguments():
 
     return args
 
-def ModelSize(args, model, results, loaders):
+def ModelSize(args, model, loaders):
 
     testloader = next(filter(lambda d: d.get('set') == 'test' or d.get('set') == 'val', loaders), None)
     if testloader is None:
@@ -1178,39 +1599,175 @@ def ModelSize(args, model, results, loaders):
     if args.cuda:
         device = torch.device("cuda")
 
-    input = torch.zeros((1, testloader['in_channels'], testloader['height'], testloader['width']), device=device)
+    input = torch.zeros((1, testloader['in_channels'], args.height, args.width), device=device)
+    model(input)
 
-    # flops, params = get_model_complexity_info(deepcopy(model), (class_dictionary['input_channels'], args.height, args.width), as_strings=False,
-    #                                     print_per_layer_stat=True, verbose=False)
-    flops = FlopCountAnalysis(model, input)
-    parameters = count_parameters(model)
-    image_flops = flops.total()
+    image_flops, parameters = get_model_complexity_info(deepcopy(model), (testloader['in_channels'], args.height, args.width), as_strings=False,
+                                         print_per_layer_stat=False, verbose=False)
+
+    # flops = FlopCountAnalysis(model, input)
+    # parameters = count_parameters(model)
+    #image_flops = flops.total()
 
     return parameters, image_flops
 
+
+def WriteModelGraph(args, writer, model, loaders):
+
+    testloader = next(filter(lambda d: d.get('set') == 'test' or d.get('set') == 'val', loaders), None)
+    if testloader is None:
+        raise ValueError('{} {} failed to load testloader {}'.format(__file__, __name__, args.dataset))
+
+    device = torch.device("cpu")
+    if args.cuda:
+        device = torch.device("cuda")
+
+    input = torch.zeros((1, testloader['in_channels'], args.height, args.width), device=device)
+    writer.add_graph(model, input)
+
+def InitWeights(model_state_dict, tv_state_dict, useConv1 = True):
+    mkeys = list(model_state_dict.keys())
+    tvkeys = tv_state_dict.keys()
+
+    if useConv1:
+        iCell = 0
+    else:
+        iCell = -1
+    imkeys = 0
+
+    iConv = 0
+    pBlock = -1
+    pResidual = -1
+    pLayer = -1
+    for i, tvkey in enumerate(tvkeys):
+        tvkeyname = re.split('(\d*)\.', tvkey)
+        tvkeyname = list(filter(None, tvkeyname))
+        mkey = None
+
+        if len(tvkeyname) == 6:
+            layer = tvkeyname[1]
+            residual = tvkeyname[2]
+            block = int(tvkeyname[4])
+
+            if block != pBlock:
+                iConv += 1
+            
+            if residual != pResidual:
+                iCell += 1
+                iConv = 0
+
+            if layer != pLayer:
+                print('layer {}'.format(layer))
+
+            pBlock = block
+            pResidual = residual
+            pLayer = layer
+
+            blockname = 'cnn'
+            if tvkeyname[3] == 'downsample':
+                blockname = 'conv_residual'
+                if tvkeyname[4] == '0':
+                    mkey_operator = 'conv'
+                else:
+                    mkey_operator = 'batchnorm2d'
+
+                mkey = 'cells.{}.{}.{}.{}'.format(iCell, blockname, mkey_operator,tvkeyname[-1]) 
+            else:
+                if tvkeyname[3] == 'bn':
+                    mkey_operator = 'batchnorm2d'
+                else:
+                    mkey_operator = tvkeyname[3]
+
+                mkey = 'cells.{}.{}.{}.{}.{}'.format(iCell, blockname, iConv,mkey_operator,tvkeyname[-1]) 
+
+        elif tvkeyname[0] == 'conv' and tvkeyname[1]=='1':
+            if useConv1:
+                mkey = 'cells.{}.cnn.{}.{}.{}'.format(iCell, iConv,tvkeyname[0],tvkeyname[-1])
+
+        elif tvkeyname[0] == 'bn' and tvkeyname[1]=='1':
+            if useConv1:
+                mkey = 'cells.{}.cnn.{}.batchnorm2d.{}'.format(iCell, iConv, tvkeyname[-1]) 
+
+        elif tvkeyname[0] == 'fc':
+            mkey = 'fc.{}.{}'.format(tvkeyname[0], tvkeyname[1])
+
+        else:
+            print('{}: {} skipping'.format(i, tvkey))
+
+        if mkey is not None:
+            if mkey in model_state_dict:
+                if model_state_dict[mkey].shape == tv_state_dict[tvkey].shape:
+                    print('{}: {} = {}'.format(i, mkey, tvkey))
+                    model_state_dict[mkey] = tv_state_dict[tvkey].data.clone()
+                else:
+                    print('{}: {}={} != {}={} not in model'.format(i, mkey, model_state_dict[mkey].shape, tvkey, tv_state_dict[tvkey].shape))
+            else:
+                print('{}: {} == {} not in model'.format(i, mkey, tvkey))
+        
+    return model_state_dict
+
+
 def load(s3, s3def, args, loaders, results):
-    model = None
 
-    if 'initial_parameters' not in results or args.model_src is None or args.model_src == '':
-        model = MakeNetwork(args, source_channels = loaders[0]['in_channels'], out_channels = loaders[0]['num_classes'])
-        results['initial_parameters'] , results['initial_flops'] = ModelSize(args, model, results, loaders)
+    model = MakeNetwork(args, source_channels = loaders[0]['in_channels'], out_channels = loaders[0]['num_classes'])
+    model_weights = model.state_dict()
 
+    tv_weights = None
+    transforms_vision = None
+
+    if args.resnet_len == 18:
+        tv_weights = torchvision.models.ResNet18_Weights(torchvision.models.ResNet18_Weights.IMAGENET1K_V1)
+        model_vision = torchvision.models.resnet18(weights=tv_weights)
+
+    elif args.resnet_len == 34:
+        tv_weights = torchvision.models.ResNet34_Weights(torchvision.models.ResNet34_Weights.IMAGENET1K_V1)
+        model_vision = torchvision.models.resnet34(weights=tv_weights)
+
+    elif args.resnet_len == 50:
+        tv_weights = torchvision.models.ResNet50_Weights(torchvision.models.ResNet50_Weights.IMAGENET1K_V2)
+        model_vision = torchvision.models.resnet50(weights=tv_weights)
+
+    elif args.resnet_len == 101:
+        tv_weights = torchvision.models.ResNet101_Weights(torchvision.models.ResNet101_Weights.IMAGENET1K_V2)
+        model_vision = torchvision.models.resnet101(weights=tv_weights)
+
+    elif args.resnet_len == 152:
+        tv_weights = torchvision.models.ResNet152_Weights(torchvision.models.ResNet152_Weights.IMAGENET1K_V2)
+        model_vision = torchvision.models.resnet152(weights=tv_weights)
+
+    if tv_weights is not None:
+        state_dict = tv_weights.get_state_dict(progress=True)
+        model_weights = InitWeights(model_weights, state_dict, useConv1 = args.useConv1)
+        model.load_state_dict(state_dict = model_weights, strict = False)
+        transforms_vision = tv_weights.transforms()
+
+    device = torch.device("cpu")
+    if args.cuda:
+        device = torch.device("cuda")
+    model.to(device)
+    model_vision.to(device)
+
+    results['initial_parameters'] , results['initial_flops'] = ModelSize(args, model, loaders)
     print('load initial_parameters = {} initial_flops = {}'.format(results['initial_parameters'], results['initial_flops']))
+
 
     if(args.model_src and args.model_src != ''):
         modelObj = s3.GetObject(s3def['sets']['model']['bucket'], '{}/{}/{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_src ))
 
         if modelObj is not None:
             model = torch.load(io.BytesIO(modelObj))
-
-            results['model_parameters'] , results['model_flops'] = ModelSize(args, model, results, loaders)
-
-            print('load model_parameters = {} model_flops = {}'.format(results['model_parameters'], results['model_flops']))
+            
+            model_parameters, model_flops = ModelSize(args, model, loaders)
+            results['load'][args.model_dest]= {'model_parameters':model_parameters, 'model_flops':model_flops}
+            print('load model_parameters = {} model_flops = {}'.format(model_parameters, model_flops))
         else:
-            print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(s3def['sets']['model']['bucket'],s3def['sets']['model']['prefix'],args.model_class,args.model_src))
+            print('Failed to load model_src {}/{}/{}/{}.pt  Exiting'.format(
+                s3def['sets']['model']['bucket'],
+                s3def['sets']['model']['prefix'],
+                args.model_class,args.model_src))
             return model
 
-    return model, results
+    return model, results, model_vision, transforms_vision
 
 def save(model, s3, s3def, args, loc=''):
     out_buffer = io.BytesIO()
@@ -1218,10 +1775,18 @@ def save(model, s3, s3def, args, loc=''):
     #torch.save(model.state_dict(), out_buffer) # To save just state dictionary, need to determine pruned network from state dict
     torch.save(model, out_buffer)
     outname = '{}/{}/{}{}.pt'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest,loc)
-    s3.PutObject(s3def['sets']['model']['bucket'], outname, out_buffer)
+
+    print('save {}/{}'.format(s3def['sets']['model']['bucket'], outname))
+    succeeded = s3.PutObject(s3def['sets']['model']['bucket'], outname, out_buffer)
+    print('s3.PutObject return {}'.format(succeeded))
+
+def save_file(model,outname):
+    out_buffer = io.BytesIO()
+    model.zero_grad(set_to_none=True)
+    torch.save(model, outname)
 
 def MakeNetwork(args, source_channels = 3, out_channels = 10):
-    resnetCells = ResnetCells(Resnet(args.resnet_len))
+    resnetCells = ResnetCells(Resnet(args.resnet_len), useConv1 = args.useConv1)
 
     device = torch.device("cpu")
     if args.cuda:
@@ -1238,9 +1803,12 @@ def MakeNetwork(args, source_channels = 3, out_channels = 10):
                         out_channels = out_channels, 
                         )
 
-    network.to(device)
     return network
 
+def activation_hook(name, results_dict):
+    def hook(model, input, output):
+        results_dict[name] = output.detach()
+    return hook
 
 class PlotSearch():
     def __init__(self, title = 'Architecture Weights', colormapname = 'jet', lenght = 5, dpi=1200, thickness=1 ):
@@ -1375,8 +1943,8 @@ class PlotWeights():
                 cv2.line(img,start_point,end_point,colorbgr,self.thickness)
             x += self.lenght
 
-        grad_mag = '{:0.3e}'.format(max_weight, min_weight)
-        cv2.putText(img,grad_mag,(int(0.05*width), int(0.90*height)), cv2.FONT_HERSHEY_COMPLEX_SMALL, fontScale=0.75, color=(0, 255, 255))
+        conv_mag = '{:0.3e}'.format(max_weight, min_weight)
+        cv2.putText(img,conv_mag,(int(0.05*width), int(0.90*height)), cv2.FONT_HERSHEY_COMPLEX_SMALL, fontScale=0.75, color=(0, 255, 255))
 
         return img
 
@@ -1467,22 +2035,133 @@ class PlotGradients():
 
         return img
 
-class AddGaussianNoise(object):
-    def __init__(self, mean=0., std=1.):
-        self.std = std
-        self.mean = mean
+class PlotConvMag():
+    def __init__(self, title = 'Convolution Magnitude', colormapname = 'jet', lenght = 5, dpi=1200, thickness=1, classification=True, pruning=True ):
+
+        self.title = title
+        self.colormapname = colormapname
+        self.lenght = int(lenght)
+        self.dpi = dpi
+        self.cm = plt.get_cmap(colormapname)
+        self.thickness=thickness
+        self.classification=classification
+        self.pruning=pruning
+
+    def plot(self, network, index = None): 
         
-    def __call__(self, tensor):
-        return tensor + torch.randn(tensor.size()) * self.std + self.mean
-    
-    def __repr__(self):
-        return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
+        if index:
+            title = '{} {}'.format(self.title, index)
+        else:
+            title = self.title
+
+        conv_mag = []
+        max_gradient =  float('-inf')
+        min_gradient = float('inf')
+        max_layers = 0
+        for i,  cell, in enumerate(network.cells):
+            if cell.cnn is not None:
+                for j, convbr in enumerate(cell.cnn):
+                    layer_mags = []
+                    if convbr.conv.weight is not None:
+                        if convbr.conv_transpose:
+                            mags = convbr.conv.weight.permute(1, 0, 2, 3).flatten(1).norm(dim=1)/np.sqrt(np.product(convbr.conv.weight.shape[1:]))
+                        else:
+                            mags = convbr.conv.weight.flatten(1).norm(dim=1)/np.sqrt(np.product(convbr.conv.weight.shape[0:]))              
+
+
+                        #x = i*self.lenght*len(cell.cnn)+j*self.lenght
+
+                        for k, mag in enumerate(mags.cpu().detach().numpy()):
+                            if mag > max_gradient:
+                                max_gradient = mag
+                            if mag < min_gradient:
+                                min_gradient = mag
+
+                            layer_mags.append(mag)
+                            
+                            '''y = int(k*self.thickness+self.thickness/2)
+                            start_point = (x,y)
+                            end_point=(x+self.lenght,y)
+
+                            color = 255*np.array(self.cm(mag))
+                            color = color.astype('uint8')
+                            colorbgr = (int(color[2]), int(color[1]), int(color[0]))
+
+                            cv2.line(img,start_point,end_point,colorbgr,self.thickness)'''
+                    conv_mag.append(layer_mags)
+                    max_layers = max(max_layers, len(layer_mags))
+
+        width = len(conv_mag)*self.lenght
+        height = max_layers*self.thickness
+        img = np.zeros([height,width,3]).astype(np.uint8)
+
+        x = 0
+        for j, gradient_norm in enumerate(conv_mag):
+            for k, gradient in enumerate(gradient_norm):
+                y = int(k*self.thickness)
+                start_point = (x,y)
+                end_point=(x+self.lenght-1,y)
+
+                gain = (gradient-min_gradient)/(max_gradient-min_gradient)
+                color = 255*np.array(self.cm(gain))
+                color = color.astype('uint8')
+                colorbgr = (int(color[2]), int(color[1]), int(color[0]))
+
+                cv2.line(img,start_point,end_point,colorbgr,self.thickness)
+            x += self.lenght
+
+        grad_mag = '{:0.3e}'.format(max_gradient, min_gradient)
+        cv2.putText(img,grad_mag,(int(0.05*width), int(0.90*height)), cv2.FONT_HERSHEY_COMPLEX_SMALL, fontScale=0.75, color=(0, 255, 255))
+
+        return img
+
+
+def LogTest(args, s3, s3def, results):
+
+    min_results = {}
+    if 'initial_parameters' in results:
+        min_results['initial_parameters'] = results['initial_parameters']
+    if 'initial_flops' in results:
+        min_results['initial_flops'] = results['initial_flops']
+    if 'load' in results:
+        min_results['load'] = results['load'] 
+    if 'training' in results:
+        min_results['training'] = results['training']
+    if 'test' in results:
+        min_results['test'] = results['test']
+    if 'prune' in results:
+        min_results['prune'] = results['prune']
+
+    test_data = s3.GetDict(s3def['sets']['test']['bucket'], args.test_path)
+    if test_data is None or type(test_data) is not list:
+        test_data = []
+
+    iTest = next((idx for idx, test in enumerate(test_data) if 'name' in test and test['name'] == args.test_name), None)
+    if iTest is not None:
+        test_data[iTest]['results'] = min_results
+    else:
+        test_time = datetime.now()
+        test = {
+            'name': args.test_name,
+            'when': test_time.strftime("%c"),
+            'server': None,
+            'image': None,
+            'workflow': None,
+            'job': None,
+            'tensorboard': args.tb_dest,
+            'description': args.description,
+            'results': min_results,
+        }
+        test_data.append(test)
+
+    s3.PutDict(s3def['sets']['test']['bucket'], args.test_path, test_data)
+
 
 default_loaders = [{'set':'train', 'enable_transform':True},
                    {'set':'test', 'enable_transform':False}]
 
 def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None):
-
+    torch.cuda.empty_cache()
     trainloader = next(filter(lambda d: d.get('set') == 'train', loaders), None)
     testloader = next(filter(lambda d: d.get('set') == 'test' or d.get('set') == 'val', loaders), None)
 
@@ -1521,6 +2200,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
         raise ValueError(error_message)
     plotsearch = PlotSearch()
     plotgrads = PlotGradients()
+    plotconvmag = PlotConvMag()
     #scheduler1 = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.999)
     scheduler2 = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.rate_schedule, gamma=args.learning_rate_decay)
 
@@ -1529,8 +2209,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
     compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
 
     # Train
-    results['train'] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'architecture_reduction':[]}
-    results['test'] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'architecture_reduction':[], 'accuracy':[]}
+    results['train'][args.model_dest] = {'loss':[], 'cross_entropy_loss':[], 'architecture_loss':[], 'architecture_reduction':[]}
     # Set up fence sitter ejectors
     ejector_exp = None
     if args.ejector == FenceSitterEjectors.dais or args.ejector == FenceSitterEjectors.dais.value:
@@ -1543,7 +2222,6 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
         if args.epochs > args.ejector_start and args.ejector_max > 0:
             ejector_exp =  Exponential(vx=args.ejector_start, vy=0, px=args.ejector_full, py=args.ejector_max, power=args.ejector_exp)
 
-    write_graph = False
     for epoch in tqdm(range(args.start_epoch, args.epochs), 
                         bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}', 
                         desc="Train epochs", disable=args.job):  # loop over the dataset multiple times
@@ -1573,10 +2251,6 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                 if args.cuda:
                     inputs = inputs.cuda()
                     labels = labels.cuda()
-
-                if writer is not None and not write_graph:
-                    writer.add_graph(model, inputs)
-                    write_graph = True
 
                 # zero the parameter gradients
                 optimizer.zero_grad(set_to_none=True)
@@ -1620,17 +2294,10 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                     #writer.add_scalar('CRISP/sigmoid_scale', sigmoid_scale, results['batches'])
 
                 if i % test_freq == test_freq-1:    # Save image and run test
-                    if args.search_structure and writer is not None:
-                        imprune_weights = plotsearch.plot(cell_weights)
-                        if imprune_weights.size > 0:
-                            im_class_weights = cv2.cvtColor(imprune_weights, cv2.COLOR_BGR2RGB)
-                            writer.add_image('network/prune_weights', im_class_weights, 0,dataformats='HWC')
 
-                        imgrad = plotgrads.plot(model)
-                        if imgrad.size > 0:
-                            im_grad_norm = cv2.cvtColor(imgrad, cv2.COLOR_BGR2RGB)
-                            writer.add_image('network/gradient_norm', im_grad_norm, 0,dataformats='HWC')
-
+                    if writer is not None:
+                        img = PlotClassPredictions(inputs, labels, outputs, trainloader)
+                        writer.add_image('predictions/train', img, 0, dataformats='HWC')
 
                     classifications = torch.argmax(outputs, 1)
                     top1_correct = (classifications == labels).float()
@@ -1655,8 +2322,29 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                         writer.add_scalar('cross_entropy_loss/test', cross_entropy_loss, results['batches'])
                         writer.add_scalar('accuracy/test', test_accuracy, results['batches'])
 
+                        img = PlotClassPredictions(inputs, labels, outputs, testloader)
+                        writer.add_image('predictions/test', img, results['batches'], dataformats='HWC')
+
+                        imgrad = plotgrads.plot(model)
+                        if imgrad.size > 0:
+                            im_grad_norm = cv2.cvtColor(imgrad, cv2.COLOR_BGR2RGB)
+                            writer.add_image('network/gradient_norm', im_grad_norm, results['batches'],dataformats='HWC')
+
+                        convmag = plotconvmag.plot(model)
+                        if convmag.size > 0:
+                            convmag = cv2.cvtColor(convmag, cv2.COLOR_BGR2RGB)
+                            writer.add_image('network/conv_mag', convmag, results['batches'],dataformats='HWC')
+
+
+                        if args.search_structure:
+                            if cell_weights is not None:
+                                imprune_weights = plotsearch.plot(cell_weights)
+                                if imprune_weights.size > 0:
+                                    im_class_weights = cv2.cvtColor(imprune_weights, cv2.COLOR_BGR2RGB)
+                                    writer.add_image('network/prune_weights', im_class_weights, results['batches'], dataformats='HWC')
+
                     running_loss /=test_freq
-                    msg = '[{:3}/{}, {:6d}/{}]  loss: {:0.5e}|{:0.5e} cross-entropy loss: {:0.5e}|{:0.5e} accuracy: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test) step time: {:0.3f}'.format(
+                    msg = '[{:3}/{}, {:6d}/{}]  loss: {:0.5e}|{:0.5e} cross-entropy loss: {:0.5e}|{:0.5e} accuracy: {:0.5e}|{:0.5e} remaining: {:0.5e} (train|test) compute time: {:0.3f} cycle time: {:0.3f}'.format(
                         epoch + 1,
                         args.epochs, 
                         i + 1, 
@@ -1666,7 +2354,8 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                         cross_entropy_loss.item(), 
                         training_accuracy.item(), 
                         test_accuracy.item(), 
-                        architecture_reduction.item(), 
+                        architecture_reduction.item(),
+                        dtCompute,
                         dtCycle
                     )
                     if args.job is True:
@@ -1675,31 +2364,33 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                         tqdm.write(msg)
                     running_loss = 0.0
 
-                iSave = 100
-                if args.search_structure and writer is not None and i % iSave == iSave-1:    # print every iSave mini-batches
-                    img = plotsearch.plot(cell_weights)
-                    if img.size > 0:
-                        is_success, buffer = cv2.imencode(".png", img, compression_params)
-                        img_enc = io.BytesIO(buffer).read()
-                        filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-                        s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
-                    imgrad = plotgrads.plot(model)
-                    if imgrad.size > 0:
-                        is_success, buffer = cv2.imencode(".png", imgrad)  
-                        img_enc = io.BytesIO(buffer).read()
-                        filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-                        s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
-                        # Save calls zero_grads so call it after plotgrads.plot
+                # iSave = 100
+                # if args.search_structure and writer is not None and i % iSave == iSave-1:    # print every iSave mini-batches
+                #     if cell_weights is not None:
+                #         img = plotsearch.plot(cell_weights)
+                #         if img.size > 0:
+                #             is_success, buffer = cv2.imencode(".png", img, compression_params)
+                #             img_enc = io.BytesIO(buffer).read()
+                #             filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                #             s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
 
-                    save(model, s3, s3def, args)
+                #     imgrad = plotgrads.plot(model)
+                #     if imgrad.size > 0:
+                #         is_success, buffer = cv2.imencode(".png", imgrad)  
+                #         img_enc = io.BytesIO(buffer).read()
+                #         filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                #         s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+                #         # Save calls zero_grads so call it after plotgrads.plot
+
+                #     save(model, s3, s3def, args)
 
                 if args.minimum and i+1 >= test_freq:
                     break
 
                 if profile is not None:
                     profile.step()
+            except AssertionError:
             #except:
-            except NameError:
                 print ("Unhandled error in train loop.  Continuing")
 
             results['batches'] += 1
@@ -1707,25 +2398,42 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                 break
 
         try:
+
+            writer_path = '{}/{}'.format(args.tensorboard_dir, args.model_dest)
+
             #scheduler1.step()
             scheduler2.step()
+            if cell_weights is not None:
+                img = plotsearch.plot(cell_weights)
+                if img.size > 0:
+                    filename = '{}/{}{:04d}_cw.png'.format(writer_path,args.model_dest, epoch )
+                    cv2.imwrite(filename, img)
 
-            img = plotsearch.plot(cell_weights)
-            if img.size > 0:
-                is_success, buffer = cv2.imencode(".png", img, compression_params)
-                img_enc = io.BytesIO(buffer).read()
-                filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-                s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+                    #is_success, buffer = cv2.imencode(".png", img, compression_params)
+                    #img_enc = io.BytesIO(buffer).read()
+                    # filename = '{}/{}/{}_cw.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                    # s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
 
             # Plot gradients before saving which clears the gradients
             imgrad = plotgrads.plot(model)
             if imgrad.size > 0:
-                is_success, buffer = cv2.imencode(".png", imgrad)  
-                img_enc = io.BytesIO(buffer).read()
-                filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
-                s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+                filename = '{}/{}{:04d}_gn.png'.format(writer_path,args.model_dest, epoch )
+                cv2.imwrite(filename, imgrad)  
+
+                # is_success, buffer = cv2.imencode(".png", imgrad)  
+                # img_enc = io.BytesIO(buffer).read()
+                # filename = '{}/{}/{}_gn.png'.format(s3def['sets']['model']['prefix'],args.model_class,args.model_dest )
+                # s3.PutObject(s3def['sets']['model']['bucket'], filename, img_enc)
+
+                convmag = plotconvmag.plot(model)
+                if convmag.size > 0:
+                    filename = '{}/{}{:04d}_cm.png'.format(writer_path,args.model_dest, epoch )
+                    cv2.imwrite(filename, convmag)  
 
             save(model, s3, s3def, args)
+
+            filename = '{}/{}.pt'.format(writer_path,args.model_dest)
+            save_file(model, filename)
 
             if args.minimum:
                 break
@@ -1735,27 +2443,27 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                 print(msg)
             else:
                 tqdm.write(msg)
-            results['training'] = {}
-            if cross_entropy_loss: results['training']['cross_entropy_loss']=cross_entropy_loss.item()
-            if architecture_loss: results['training']['architecture_loss']=architecture_loss.item()
-            if prune_loss: results['training']['prune_loss']=prune_loss.item()
-            if architecture_reduction: results['training']['architecture_reduction']=architecture_reduction.item()
-            if training_accuracy: results['training']['accuracy'] =  training_accuracy.item()
 
-            if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
-                tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
-                s3.PutDir(s3def['sets']['test']['bucket'], args.tensorboard_dir, tb_path )
+            if cross_entropy_loss: results['train'][args.model_dest]['cross_entropy_loss']=cross_entropy_loss.item()
+            if architecture_loss: results['train'][args.model_dest]['architecture_loss']=architecture_loss.item()
+            if prune_loss: results['train'][args.model_dest]['prune_loss']=prune_loss.item()
+            if loss: results['train'][args.model_dest]['loss']=loss.item()
+            if architecture_reduction: results['train'][args.model_dest]['architecture_reduction']=architecture_reduction.item()
+            if training_accuracy: results['train'][args.model_dest]['accuracy'] =  training_accuracy.item()
 
+        except AssertionError:
         #except:
-        except NameError:
             print ("Unhandled error in epoch reporting.  Continuing")
+
+    #save(model, s3, s3def, args)
+
     return results
 
-def Test(args, s3, s3def, model, loaders, device, results, writer, profile=None):
+def Test(args, s3, s3def, model, model_vision, loaders, device, results, writer, transforms_vision, profile=None):
     torch.cuda.empty_cache()
-    now = datetime.now()
-    date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
-    test_summary = {'date':date_time}
+    # now = datetime.now()
+    # date_time = now.strftime("%m/%d/%Y, %H:%M:%S")
+    # test_summary = {'date':date_time}
 
     testloader = next(filter(lambda d: d.get('set') == 'test' or d.get('set') == 'val', loaders), None)
     if testloader is None:
@@ -1767,9 +2475,75 @@ def Test(args, s3, s3def, model, loaders, device, results, writer, profile=None)
     else:
         outputdir = None
 
+    model_outputs = {}
+    model_vision_outputs = {}
+    
+    model.cells[0].cnn[0].conv.register_forward_hook(activation_hook('model.cells[0].cnn[0].conv', model_outputs))
+    model_vision.conv1.register_forward_hook(activation_hook('model_vision.conv1', model_vision_outputs))
+
+    model.cells[1].cnn[0].conv.register_forward_hook(activation_hook('model.cells[1].cnn[0].conv', model_outputs))
+    model_vision.layer1[0].conv1.register_forward_hook(activation_hook('model_vision.layer1[0].conv1', model_vision_outputs))
+
+    model.cells[1].cnn[1].conv.register_forward_hook(activation_hook('model.cells[1].cnn[1].conv', model_outputs))
+    model_vision.layer1[0].conv2.register_forward_hook(activation_hook('model_vision.layer1[0].conv2', model_vision_outputs))
+
+    model.cells[2].cnn[0].conv.register_forward_hook(activation_hook('model.cells[2].cnn[0].conv', model_outputs))
+    model_vision.layer1[1].conv1.register_forward_hook(activation_hook('model_vision.layer1[1].conv1.', model_vision_outputs))
+
+    model.cells[2].cnn[1].conv.register_forward_hook(activation_hook('model.cells[2].cnn[1].conv', model_outputs))
+    model_vision.layer1[1].conv2.register_forward_hook(activation_hook('model_vision.layer1[1].conv2', model_vision_outputs))
+
+    model.cells[2].cnn[2].conv.register_forward_hook(activation_hook('model.cells[2].cnn[2].conv', model_outputs))
+    model_vision.layer1[1].conv3.register_forward_hook(activation_hook('model_vision.layer1[1].conv3', model_vision_outputs))
+
+    model.cells[2].cnn[2].batchnorm2d.register_forward_hook(activation_hook('model.cells[2].cnn[2].batchnorm2d', model_outputs))
+    model_vision.layer1[1].bn3.register_forward_hook(activation_hook('model_vision.layer1[1].bn3', model_vision_outputs))
+
+    model.cells[3].cnn[0].conv.register_forward_hook(activation_hook('model.cells[3].cnn[0].conv', model_outputs))
+    model_vision.layer1[2].conv1.register_forward_hook(activation_hook('model_vision.layer1[2].conv1', model_vision_outputs))
+
+    model.cells[4].cnn[0].conv.register_forward_hook(activation_hook('model.cells[4].cnn[0].conv', model_outputs))
+    model_vision.layer2[0].conv1.register_forward_hook(activation_hook('model_vision.layer2[0].conv1', model_vision_outputs))
+
+    model.cells[5].cnn[0].conv.register_forward_hook(activation_hook('model.cells[5].cnn[0].conv', model_outputs))
+    model_vision.layer2[1].conv1.register_forward_hook(activation_hook('model_vision.layer2[1].conv1', model_vision_outputs))
+
+    model.cells[6].cnn[0].conv.register_forward_hook(activation_hook('model.cells[6].cnn[0].conv', model_outputs))
+    model_vision.layer2[2].conv1.register_forward_hook(activation_hook('model_vision.layer2[2].conv1', model_vision_outputs))
+
+    model.cells[7].cnn[0].conv.register_forward_hook(activation_hook('model.cells[7].cnn[0].conv', model_outputs))
+    model_vision.layer2[3].conv1.register_forward_hook(activation_hook('model_vision.layer2[3].conv1', model_vision_outputs))
+
+    model.cells[8].cnn[0].conv.register_forward_hook(activation_hook('model.cells[8].cnn[0].conv', model_outputs))
+    model_vision.layer3[0].conv1.register_forward_hook(activation_hook('model_vision.layer3[0].conv1', model_vision_outputs))
+
+    model.cells[9].cnn[0].conv.register_forward_hook(activation_hook('model.cells[9].cnn[0].conv', model_outputs))
+    model_vision.layer3[1].conv1.register_forward_hook(activation_hook('model_vision.layer3[1].conv1', model_vision_outputs))
+
+    model.cells[10].cnn[0].conv.register_forward_hook(activation_hook('model.cells[10].cnn[0].conv', model_outputs))
+    model_vision.layer3[2].conv1.register_forward_hook(activation_hook('model_vision.layer3[2].conv1', model_vision_outputs))
+
+    model.cells[11].cnn[0].conv.register_forward_hook(activation_hook('model.cells[11].cnn[0].conv', model_outputs))
+    model_vision.layer3[3].conv1.register_forward_hook(activation_hook('model_vision.layer3[3].conv1', model_vision_outputs))
+
+    model.cells[12].cnn[0].conv.register_forward_hook(activation_hook('model.cells[12].cnn[0].conv', model_outputs))
+    model_vision.layer3[4].conv1.register_forward_hook(activation_hook('model_vision.layer3[4].conv1', model_vision_outputs))    
+
+    model.cells[13].cnn[0].conv.register_forward_hook(activation_hook('model.cells[13].cnn[0].conv', model_outputs))
+    model_vision.layer3[5].conv1.register_forward_hook(activation_hook('model_vision.layer3[5].conv1', model_vision_outputs))
+
+    model.cells[14].cnn[0].conv.register_forward_hook(activation_hook('model.cells[14].cnn[0].conv', model_outputs))
+    model_vision.layer4[0].conv1.register_forward_hook(activation_hook('model_vision.layer4[0].conv1', model_vision_outputs))
+
+    model.cells[16].cnn[2].conv.register_forward_hook(activation_hook('model.cells[16].cnn[2].conv', model_outputs))
+    model_vision.layer4[2].conv3.register_forward_hook(activation_hook('model_vision.layer4[2].conv3', model_vision_outputs))
+
     accuracy = 0.0
+    samples = 0
     dtSum = 0.0
     inferTime = []
+    top1_correct = []
+    top1_vision_correct = []
     for i, data in tqdm(enumerate(testloader['dataloader']), 
                         total=testloader['batches'], 
                         desc="Test steps", 
@@ -1784,15 +2558,35 @@ def Test(args, s3, s3def, model, loaders, device, results, writer, profile=None)
         initial = datetime.now()
         with torch.no_grad():
             outputs = model(inputs)
-
             classifications = torch.argmax(outputs, 1)
+
+            outputs_vision = model_vision(inputs)
+            classifications_vision = torch.argmax(outputs_vision, 1)
+
         dt = (datetime.now()-initial).total_seconds()
         dtSum += dt
         inferTime.append(dt/args.batch_size)
-        tqdm.write('inferTime = {}'.format(inferTime[-1]))
-        writer.add_scalar('test/infer', inferTime[-1], results['batches'])
-        top1_correct = (classifications == labels).float()
-        accuracy += torch.sum(top1_correct).item()
+
+        mvkeys = list(model_vision_outputs.keys())
+        for i, key in enumerate(model_outputs.keys()):
+            max_diff = torch.abs(torch.max(model_outputs[key] - model_vision_outputs[mvkeys[i]])).item()
+            if max_diff > 0:
+                print('{} != {} diff {}'.format(key, mvkeys[i]))
+
+
+
+        top1_step = classifications == labels
+        top1_correct.extend(top1_step.cpu().tolist())
+
+        top1_step_vision = classifications_vision == labels
+        top1_vision_correct.extend(top1_step_vision.cpu().tolist())
+
+        step_accuracy = torch.sum(top1_step)/len(top1_step)
+        step_accuracy_vision = torch.sum(top1_step_vision)/len(top1_step_vision)
+        tqdm.write('test samples={} inferTime={:.5f} step accuracy={:.3f} step_accuracy_vision={:.3f}'.format(len(top1_step), inferTime[-1], step_accuracy, step_accuracy_vision))
+        if writer is not None:
+            writer.add_scalar('test/infer', inferTime[-1], results['batches'])
+            writer.add_scalar('test/accuracy', step_accuracy, results['batches'])
 
         if args.minimum and i+1 >= 10:
             break
@@ -1800,59 +2594,74 @@ def Test(args, s3, s3def, model, loaders, device, results, writer, profile=None)
         if profile is not None:
             profile.step()
 
-    test_summary['results'] = {
-            'accuracy': args.batch_size*testloader['batches'],
+    accuracy = np.sum(np.array(top1_correct))/len(top1_correct)
+    accuracy_vision = np.sum(np.array(top1_vision_correct))/len(top1_vision_correct)
+
+    results['test'][args.model_dest] = {
+            'accuracy': accuracy.item(),
+            'accuracy_vision': accuracy_vision.item(),
             'minimum time': float(np.min(inferTime)),
-            'average time': float(dtSum/testloader['length']),
-            'num images': testloader['length'],
+            'average time': float(dtSum/len(top1_correct)),
+            'num images': len(top1_correct),
         }
-    test_summary['object store'] =s3def
-    test_summary['config'] = args.__dict__
-    if args.ejector is not None and type(args.ejector) != str:
-        test_summary['config']['ejector'] = args.ejector.value
-    test_summary['system'] = results['system']
-    test_summary['training_results'] = results
+    # test_summary['object store'] =s3def
+    # test_summary['config'] = args.__dict__
+    # if args.ejector is not None and type(args.ejector) != str:
+    #     test_summary['config']['ejector'] = args.ejector.value
+    # test_summary['system'] = results['system']
+    # test_summary['training_results'] = results
 
-    # If there is a way to lock this object between read and write, it would prevent the possability of loosing data
-    test_path = '{}/{}/{}'.format(s3def['sets']['test']['prefix'], args.model_type, args.test_results)
-    training_data = s3.GetDict(s3def['sets']['test']['bucket'], test_path)
-    if training_data is None or type(training_data) is not list:
-        training_data = []
-    training_data.append(test_summary)
-    s3.PutDict(s3def['sets']['test']['bucket'], test_path, training_data)
+    # # If there is a way to lock this object between read and write, it would prevent the possability of loosing data
+    # test_path = '{}/{}/{}'.format(s3def['sets']['test']['prefix'], args.model_type, args.test_results)
+    # training_data = s3.GetDict(s3def['sets']['test']['bucket'], test_path)
+    # if training_data is None or type(training_data) is not list:
+    #     training_data = []
+    # training_data.append(test_summary)
+    # s3.PutDict(s3def['sets']['test']['bucket'], test_path, training_data)
 
-    test_url = s3.GetUrl(s3def['sets']['test']['bucket'], test_path)
-    print("Test results {}".format(test_url))
+    # test_url = s3.GetUrl(s3def['sets']['test']['bucket'], test_path)
+    # print("Test results {}".format(test_url))
+    # tqdm.write('test results={}'.format(yaml.dump(test_summary['results'], default_flow_style=False) ) )
 
-    results['test'] = test_summary['results']
+    # if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
+    #     writer_path = '{}/{}/testresults.yaml'.format(args.tensorboard_dir, args.model_dest)
+    #     WriteDict(test_summary, writer_path)
+
+    # results['test'][args.model_dest] = test_summary['results']
     return results
 
 
 def Prune(args, s3, s3def, model, loaders, results):
-    initial_parameters = results['initial_parameters']
+    torch.cuda.empty_cache()
     model.ApplyStructure()
-    reduced_parameters = count_parameters(model)
 
-    results['parameters_after_prune'], results['flops_after_prune'] = ModelSize(args, model, results, loaders)
+    parameters_after_prune, flops_after_prune = ModelSize(args, model, loaders)
+
+    if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
+        writer_path = '{}/{}'.format(args.tensorboard_dir, args.model_dest)
+        filename = '{}/{}.pt'.format(writer_path,args.model_dest)
+        save_file(model, filename)
 
     save(model, s3, s3def, args)
-    results['prune'] = {'final parameters':reduced_parameters, 
-                        'initial parameters' : initial_parameters, 
-                        'remaining ratio':reduced_parameters/initial_parameters, 
-                        'final flops': results['flops_after_prune'], 
-                        'initial flops': results['initial_flops'], 
-                        'remaining flops':results['flops_after_prune']/results['initial_flops'] }
+    results['prune'][args.model_dest] = {
+                        'final parameters':parameters_after_prune, 
+                        'initial parameters' : results['initial_parameters'], 
+                        'final/intial params': parameters_after_prune/results['initial_parameters'], 
+                        'final FLOPS': flops_after_prune, 
+                        'initial FLOPS': results['initial_flops'], 
+                        'final/intial FLOPS':flops_after_prune/results['initial_flops'] }
     print('{} prune results {}'.format(args.model_dest, yaml.dump(results['prune'], default_flow_style=False)))
 
     return results
 
 def onnx(model, s3, s3def, args, input_channels):
+    torch.cuda.empty_cache()
     import torch.onnx as torch_onnx
 
     dummy_input = torch.randn(args.batch_size, input_channels, args.height, args.width, device='cuda')
     input_names = ["image"]
     output_names = ["segmentation"]
-    oudput_dir = '{}/{}'.format(args.test_dir,args.model_class)
+    oudput_dir = args.tensorboard_dir
     output_filename = '{}/{}.onnx'.format(oudput_dir, args.model_dest)
     dynamic_axes = {input_names[0] : {0 : 'batch_size'},    # variable length axes
                             output_names[0] : {0 : 'batch_size'}}
@@ -1869,33 +2678,232 @@ def onnx(model, s3, s3def, args, input_channels):
                 opset_version=11)
 
     succeeded = s3.PutFile(s3def['sets']['model']['bucket'], output_filename, '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class) )
-    if succeeded:
-        os.remove(output_filename)
+
+def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema=None, scaler=None):
+    model.train()
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value}"))
+    metric_logger.add_meter("img/s", utils.SmoothedValue(window_size=10, fmt="{value}"))
+
+    header = f"Epoch: [{epoch}]"
+    for i, (image, target) in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
+        start_time = time.time()
+        image, target = image.to(device), target.to(device)
+        with torch.cuda.amp.autocast(enabled=scaler is not None):
+            output = model(image)
+            loss = criterion(output, target)
+
+        optimizer.zero_grad()
+        if scaler is not None:
+            scaler.scale(loss).backward()
+            if args.clip_grad_norm is not None:
+                # we should unscale the gradients of optimizer's assigned params if do gradient clipping
+                scaler.unscale_(optimizer)
+                nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            if args.clip_grad_norm is not None:
+                nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
+            optimizer.step()
+
+        if model_ema and i % args.model_ema_steps == 0:
+            model_ema.update_parameters(model)
+            if epoch < args.lr_warmup_epochs:
+                # Reset ema buffer to keep copying weights during warmup period
+                model_ema.n_averaged.fill_(0)
+
+        acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
+        batch_size = image.shape[0]
+        metric_logger.update(loss=loss.item(), lr=optimizer.param_groups[0]["lr"])
+        metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
+        metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
+        metric_logger.meters["img/s"].update(batch_size / (time.time() - start_time))
+
+
+def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix=""):
+    model.eval()
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    header = f"Test: {log_suffix}"
+
+    num_processed_samples = 0
+    with torch.inference_mode():
+        for image, target in metric_logger.log_every(data_loader, print_freq, header):
+            image = image.to(device, non_blocking=True)
+            target = target.to(device, non_blocking=True)
+            output = model(image)
+            loss = criterion(output, target)
+
+            acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
+            # FIXME need to take into account that the datasets
+            # could have been padded in distributed setup
+            batch_size = image.shape[0]
+            metric_logger.update(loss=loss.item())
+            metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
+            metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
+            num_processed_samples += batch_size
+    # gather the stats from all processes
+
+    num_processed_samples = utils.reduce_across_processes(num_processed_samples)
+    if (
+        hasattr(data_loader.dataset, "__len__")
+        and len(data_loader.dataset) != num_processed_samples
+        and torch.distributed.get_rank() == 0
+    ):
+        # See FIXME above
+        warnings.warn(
+            f"It looks like the dataset has {len(data_loader.dataset)} samples, but {num_processed_samples} "
+            "samples were used for the validation, which might bias the results. "
+            "Try adjusting the batch size and / or the world size. "
+            "Setting the world size to 1 is always a safe bet."
+        )
+
+    metric_logger.synchronize_between_processes()
+
+    print(f"{header} Acc@1 {metric_logger.acc1.global_avg:.3f} Acc@5 {metric_logger.acc5.global_avg:.3f}")
+    return metric_logger.acc1.global_avg
+
+
+def _get_cache_path(filepath):
+    import hashlib
+
+    h = hashlib.sha1(filepath.encode()).hexdigest()
+    cache_path = os.path.join("~", ".torch", "vision", "datasets", "imagefolder", h[:10] + ".pt")
+    cache_path = os.path.expanduser(cache_path)
+    return cache_path
+
+
+def load_data(traindir, valdir, args):
+    # Data loading code
+    print("Loading data")
+    val_resize_size, val_crop_size, train_crop_size = (
+        args.val_resize_size,
+        args.val_crop_size,
+        args.train_crop_size,
+    )
+    interpolation = InterpolationMode(args.interpolation)
+
+    print("Loading training data")
+    st = time.time()
+    cache_path = _get_cache_path(traindir)
+    if args.cache_dataset and os.path.exists(cache_path):
+        # Attention, as the transforms are also cached!
+        print(f"Loading dataset_train from {cache_path}")
+        dataset, _ = torch.load(cache_path)
+    else:
+        auto_augment_policy = getattr(args, "auto_augment", None)
+        random_erase_prob = getattr(args, "random_erase", 0.0)
+        ra_magnitude = args.ra_magnitude
+        augmix_severity = args.augmix_severity
+        dataset = torchvision.datasets.ImageFolder(
+            traindir,
+            presets.ClassificationPresetTrain(
+                crop_size=train_crop_size,
+                interpolation=interpolation,
+                auto_augment_policy=auto_augment_policy,
+                random_erase_prob=random_erase_prob,
+                ra_magnitude=ra_magnitude,
+                augmix_severity=augmix_severity,
+            ),
+        )
+        if args.cache_dataset:
+            print(f"Saving dataset_train to {cache_path}")
+            utils.mkdir(os.path.dirname(cache_path))
+            utils.save_on_master((dataset, traindir), cache_path)
+    print("Took", time.time() - st)
+
+    print("Loading validation data")
+    cache_path = _get_cache_path(valdir)
+    if args.cache_dataset and os.path.exists(cache_path):
+        # Attention, as the transforms are also cached!
+        print(f"Loading dataset_test from {cache_path}")
+        dataset_test, _ = torch.load(cache_path)
+    else:
+        if args.weights and args.test_only:
+            weights = torchvision.models.get_weight(args.weights)
+            preprocessing = weights.transforms()
+        else:
+            preprocessing = presets.ClassificationPresetEval(
+                crop_size=val_crop_size, resize_size=val_resize_size, interpolation=interpolation
+            )
+
+        dataset_test = torchvision.datasets.ImageFolder(
+            valdir,
+            preprocessing,
+        )
+        if args.cache_dataset:
+            print(f"Saving dataset_test to {cache_path}")
+            utils.mkdir(os.path.dirname(cache_path))
+            utils.save_on_master((dataset_test, valdir), cache_path)
+
+    print("Creating data loaders")
+    if args.distributed:
+        if hasattr(args, "ra_sampler") and args.ra_sampler:
+            train_sampler = RASampler(dataset, shuffle=True, repetitions=args.ra_reps)
+        else:
+            train_sampler = torch.utils.data.distributed.DistributedSampler(dataset)
+        test_sampler = torch.utils.data.distributed.DistributedSampler(dataset_test, shuffle=False)
+    else:
+        train_sampler = torch.utils.data.RandomSampler(dataset)
+        test_sampler = torch.utils.data.SequentialSampler(dataset_test)
+
+    return dataset, dataset_test, train_sampler, test_sampler
+
 
 # Classifier based on https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
 def main(args):
-    print('cell2d test')
 
-    results={}
-    results['config'] = args.__dict__
-    results['config']['ejector'] = args.ejector.value
-    results['system'] = {
+    if args.output_dir:
+        os.makedirs(os.path.dirname(args.output_dir), exist_ok=True)
+
+    utils.init_distributed_mode(args)
+    print(args)
+
+    if args.use_deterministic_algorithms:
+        torch.backends.cudnn.benchmark = False
+        torch.use_deterministic_algorithms(True)
+    else:
+        torch.backends.cudnn.benchmark = True
+
+    config = ReadDict(args.config)
+    version_str = VersionString(config)
+    print('{} version {}'.format(__file__, version_str))
+
+    versions = {
         'platform':str(platform.platform()),
         'python':str(platform.python_version()),
         'numpy': str(np.__version__),
         'torch': str(torch.__version__),
         'OpenCV': str(cv2.__version__),
         'pymlutil': str(pymlutil_version.__version__),
-        #'torchdatasetutil':str(torchdatasetutil_version.__version__),
+        'cell2d':version_str
     }
-    print('cell2d system={}'.format(yaml.dump(results['system'], default_flow_style=False) ))
-    print('cell2d config={}'.format(yaml.dump(results['config'], default_flow_style=False) ))
+
+    results = {
+            'batches': 0,
+            'initial_parameters': None,
+            'initial_flops': None,
+            'runs': {},
+            'load': {},
+            'prune': {},
+            'store': {},
+            'train': {},
+            'test': {},
+        }
+
+    results['runs'][args.model_dest] = {
+            'arguments': args.__dict__,
+            'versions': versions,
+        }
+
+    results['runs'][args.model_dest]['arguments']['ejector'] = args.ejector.value # Convert from enum to string
+    print('{}'.format(yaml.dump(results, default_flow_style=False) ))
 
     #torch.autograd.set_detect_anomaly(True)
+    s3, _, s3def = Connect(args.credentails, s3_name=args.s3_name)
 
-    s3, _, s3def = Connect(args.credentails)
-
-    results['store'] = s3def
+    results['runs'][args.model_dest]['store'] = s3def
 
     device = torch.device("cpu")
     if args.cuda:
@@ -1909,17 +2917,26 @@ def main(args):
                                        rotate=args.augment_rotation, 
                                        scale_min=args.augment_scale_min, 
                                        scale_max=args.augment_scale_max, 
-                                       offset=args.augment_translate_x)
-        results['classes'] = loaders[0]['classes']
+                                       offset=args.augment_translate_x,
+                                       augment_noise=args.augment_noise,
+                                       width=args.width, height=args.height)
+
     elif args.dataset == 'imagenet':
-        loaders = CreateImagesetLoaders(s3, s3def, 
+        loaders = CreateImagenetLoaders(s3, s3def, 
                                         args.obj_imagenet, 
                                         args.dataset_path+'/imagenet', 
-                                        width=args.width, 
+                                        width=232, 
                                         height=args.height, 
                                         batch_size=args.batch_size, 
                                         num_workers=args.num_workers,
-                                        cuda = args.cuda)
+                                        cuda = args.cuda,
+                                        rotate=args.augment_rotation, 
+                                        scale_min=args.augment_scale_min, 
+                                        scale_max=args.augment_scale_max, 
+                                        offset=args.augment_translate_x,
+                                        augment_noise=args.augment_noise,
+                                        normalize=False
+                                       )
     else:
         raise ValueError("Unupported dataset {}".format(args.dataset))
 
@@ -1928,7 +2945,9 @@ def main(args):
     print('prevresultspath={}'.format(args.prevresultspath))
     if args.prevresultspath and len(args.prevresultspath) > 0:
         prevresults = ReadDict(args.prevresultspath)
+
         if prevresults is not None:
+            results.update(prevresults)
             if 'batches' in prevresults:
                 print('found prevresultspath={}'.format(yaml.dump(prevresults, default_flow_style=False)))
                 results['batches'] = prevresults['batches']
@@ -1936,7 +2955,7 @@ def main(args):
                 results['initial_parameters'] = prevresults['initial_parameters']
                 results['initial_flops'] = prevresults['initial_flops']
 
-    classify, results = load(s3, s3def, args, loaders, results)
+    classify, results, model_vision, transforms_vision = load(s3, s3def, args, loaders, results)
 
     # Prune with loaded parameters than apply current search_structure setting
     classify.ApplyParameters(weight_gain=args.weight_gain, 
@@ -1944,7 +2963,9 @@ def main(args):
                             feature_threshold=args.feature_threshold,
                             search_structure=args.search_structure, 
                             convMaskThreshold=args.convMaskThreshold, 
-                            k_prune_sigma=args.k_prune_sigma,)
+                            k_prune_sigma=args.k_prune_sigma,
+                            search_flops=args.search_flops,
+                            batch_norm=args.batch_norm)
 
 
     # # Enable multi-gpu processing
@@ -1971,9 +2992,13 @@ def main(args):
         print(f"To launch tensorboard server: tensorboard --bind_all --logdir {args.tensorboard_dir}") # https://stackoverflow.com/questions/47425882/tensorboard-logdir-with-s3-path
         writer = SummaryWriter(writer_path)
 
+        if args.write_vision_graph:
+            WriteModelGraph(args, writer, model_vision, loaders)
+        else:
+            WriteModelGraph(args, writer, classify, loaders)
+
     if 'batches' not in results:
         results['batches'] = 0
-
 
     if args.prune:
         results = Prune(args, s3, s3def, model=classify, loaders=loaders, results=results)
@@ -1998,9 +3023,9 @@ def main(args):
                     on_trace_ready=torch.profiler.tensorboard_trace_handler(writer_path),
                     record_shapes=False, profile_memory=False, with_stack=True, with_flops=False, with_modules=True
             ) as prof:
-                results = Test(args, s3, s3def, classify, loaders, device, results, writer, prof)
+                results = Test(args, s3, s3def, classify, model_vision, loaders, device, results, writer, transforms_vision, prof)
         else:
-            results = Test(args, s3, s3def, classify, loaders, device, results, writer)
+            results = Test(args, s3, s3def, classify, model_vision, loaders, device, results, writer, transforms_vision)
 
     if args.onnx:
         onnx(classify, s3, s3def, args, loaders[0]['in_channels'])
@@ -2008,8 +3033,18 @@ def main(args):
     if args.resultspath is not None and len(args.resultspath) > 0:
         WriteDict(results, args.resultspath)
 
-    print('Finished {}'.format(args.model_dest, yaml.dump(results, default_flow_style=False) ))
-    print(json.dumps(results, indent=2))
+    if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
+        results_path = '{}/results.yaml'.format(args.tensorboard_dir)
+        WriteDict(results, results_path)
+
+        tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
+        print('Write tensorboard to s3 {}/{}'.format(s3def['sets']['test']['bucket'], args.tensorboard_dir))
+        s3.PutDir(s3def['sets']['test']['bucket'], args.tensorboard_dir, tb_path )
+
+    LogTest(args, s3, s3def, results)
+
+    print('Finished {}'.format(args.model_dest ))
+    print(yaml.dump(results, default_flow_style=False))
     return 0
 
 if __name__ == '__main__':
@@ -2041,7 +3076,7 @@ if __name__ == '__main__':
         Launch application from console with -debug flag
         $ python3 train.py -debug
 
-        Connet to vscode "Python: Remote" configuration
+        Connect to vscode "Python: Remote" configuration
         '''
 
         debugpy.listen(address=(args.debug_address, args.debug_port)) # Pause the program until a remote debugger is attached

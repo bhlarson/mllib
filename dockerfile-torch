@@ -5,27 +5,13 @@ LABEL maintainer="Brad Larson"
 
 #USER root
 
-RUN apt-get install -y \
-        ca-certificates \
-        curl
-
-# Setup the ZED SDK https://download.stereolabs.com/zedsdk/3.4/cu111/ubuntu20
-#RUN zedpackage=ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run && \
-#    wget -q -O ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run https://download.stereolabs.com/zedsdk/3.4/cu111/ubuntu20 && \
-#    chmod +x ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run && \
-#    ./ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run -- silent runtime_only && \
-#    rm ZED_SDK_Ubuntu20_cuda11.1_v3.4.2.run
-
-RUN pip3 install --upgrade pip
-RUN pip3 install --no-cache-dir \
-        jupyterlab \
-        ipywidgets \
-        plotly
-
+COPY requirements.txt .
+RUN --mount=type=cache,target=/var/cache/apt \
+    pip3 install -r requirements.txt
 
 EXPOSE 22 3000 5000 6006 8888
 
 # Launch container
-CMD ["/bin/bash"]
-#CMD ["/usr/sbin/sshd", "-D"]
+#CMD ["/bin/bash"]
+CMD ["/usr/sbin/sshd", "-D"]
 #CMD ["./run.sh"]

@@ -15,5 +15,5 @@ onnx
 ptflops==0.6.9 
 fvcore 
 pymlutil==0.1.11  
-torchdatasetutil==0.1.15
+torchdatasetutil==0.1.30
 torchelastic==0.2.2

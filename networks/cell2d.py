@@ -1383,7 +1383,7 @@ def parse_arguments():
     parser.add_argument('-credentails', type=str, default='creds.yaml', help='Credentials file.')
     parser.add_argument('-s3_name', type=str, default='store', help='S3 name in credentials')
 
-    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152, 20, 32, 44, 56, 110], default=18, help='Run description')
+    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152, 20, 32, 44, 56, 110], default=152, help='Run description')
     parser.add_argument('-useConv1', type=str2bool, default=True, help='If true, use initial convolution and max pool before ResNet blocks')
 
     parser.add_argument('-dataset', type=str, default='imagenet', choices=['cifar10', 'imagenet'], help='Dataset')
@@ -1391,9 +1391,9 @@ def parse_arguments():
     parser.add_argument('-obj_imagenet', type=str, default='data/imagenet', help='Local dataset path')
     parser.add_argument('-model', type=str, default='model')
 
-    parser.add_argument('-batch_size', type=int, default=1, help='Training batch size') 
+    parser.add_argument('-batch_size', type=int, default=100, help='Training batch size') 
 
-    parser.add_argument('-optimizer', type=str, default='adam', choices=['sgd', 'adam'], help='Optimizer')
+    parser.add_argument('-optimizer', type=str, default='adamw', choices=['sgd', 'rmsprop', 'adam', 'adamw'], help='Optimizer')
     parser.add_argument('-learning_rate', type=float, default=1e-4, help='Training learning rate')
     parser.add_argument('-learning_rate_decay', type=float, default=0.5, help='Rate decay multiple')
     parser.add_argument('-rate_schedule', type=json.loads, default='[50, 100, 150, 200, 250, 300, 350, 400, 450, 500]', help='Training learning rate')
@@ -1451,6 +1451,7 @@ def parse_arguments():
     parser.add_argument('-profile', type=str2bool, default=False)
     parser.add_argument('-time_trial', type=str2bool, default=False)
     parser.add_argument('-onnx', type=str2bool, default=False)
+    parser.add_argument('-write_vision_graph', type=str2bool, default=False)
     parser.add_argument('-job', action='store_true',help='Run as job')
 
     parser.add_argument('-test_name', type=str, default='default_test', help='Test name for test log' )
@@ -2190,14 +2191,29 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                             total_weights= total_weights,
                             )
 
-    if args.optimizer == 'sgd':
-        optimizer = optim.SGD(model.parameters(), lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay )
+    opt_name = args.optimizer.lower()
+    if opt_name.startswith("sgd"):
+        optimizer = torch.optim.SGD(
+            model.parameters(),
+            lr=args.learning_rate,
+            momentum=args.momentum,
+            weight_decay=args.weight_decay,
+            nesterov="nesterov" in opt_name,
+        )
+    elif opt_name == "rmsprop":
+        optimizer = torch.optim.RMSprop(
+            parameters, lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay, eps=0.0316, alpha=0.9
+        )
+    elif opt_name == "adamw":
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     elif args.optimizer == 'adam':
         optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay )
+
     else:
-        error_message = "Invalid optimizer argument {}".format(args)
-        print(error_message)
-        raise ValueError(error_message)
+        raise RuntimeError(f"Invalid optimizer {args.opt}. Only SGD, RMSprop and AdamW are supported.")
+
+
+
     plotsearch = PlotSearch()
     plotgrads = PlotGradients()
     plotconvmag = PlotConvMag()
@@ -2550,6 +2566,7 @@ def Test(args, s3, s3def, model, model_vision, loaders, device, results, writer,
                         disable=args.job, 
                         bar_format='{desc:<8.5}{percentage:3.0f}%|{bar:50}{r_bar}'):
         inputs, labels = data
+        #inputs = transforms_vision(inputs)
 
         if args.cuda:
             inputs = inputs.cuda()
@@ -2567,11 +2584,11 @@ def Test(args, s3, s3def, model, model_vision, loaders, device, results, writer,
         dtSum += dt
         inferTime.append(dt/args.batch_size)
 
-        mvkeys = list(model_vision_outputs.keys())
-        for i, key in enumerate(model_outputs.keys()):
-            max_diff = torch.abs(torch.max(model_outputs[key] - model_vision_outputs[mvkeys[i]])).item()
-            if max_diff > 0:
-                print('{} != {} diff {}'.format(key, mvkeys[i]))
+        # mvkeys = list(model_vision_outputs.keys())
+        # for i, key in enumerate(model_outputs.keys()):
+        #     max_diff = torch.abs(torch.max(model_outputs[key] - model_vision_outputs[mvkeys[i]])).item()
+        #     if max_diff > 0:
+        #         print('{} != {} diff {}'.format(key, mvkeys[i]))
 
 
 
@@ -2925,8 +2942,8 @@ def main(args):
         loaders = CreateImagenetLoaders(s3, s3def, 
                                         args.obj_imagenet, 
                                         args.dataset_path+'/imagenet', 
-                                        width=232, 
-                                        height=args.height, 
+                                        crop_width=args.width, 
+                                        crop_height=args.height, 
                                         batch_size=args.batch_size, 
                                         num_workers=args.num_workers,
                                         cuda = args.cuda,
@@ -2935,7 +2952,8 @@ def main(args):
                                         scale_max=args.augment_scale_max, 
                                         offset=args.augment_translate_x,
                                         augment_noise=args.augment_noise,
-                                        normalize=False
+                                        augment=False,
+                                        normalize=True
                                        )
     else:
         raise ValueError("Unupported dataset {}".format(args.dataset))

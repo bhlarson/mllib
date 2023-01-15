@@ -1,73 +1,40 @@
-#FROM nvcr.io/nvidia/cuda:11.7.1-devel-ubuntu20.04
-#FROM nvcr.io/nvidia/cuda:11.6.2-devel-ubuntu20.04
-#FROM nvcr.io/nvidia/cuda:11.5.2-devel-ubuntu20.04
-#FROM nvcr.io/nvidia/cuda:11.4.3-devel-ubuntu20.04
-#FROM nvcr.io/nvidia/cuda:11.3.1-devel-ubuntu20.04
-#FROM nvcr.io/nvidia/cuda:11.2.2-devel-ubuntu20.04
-#FROM nvcr.io/nvidia/cuda:11.0.3-devel-ubuntu20.04
-FROM nvcr.io/nvidia/pytorch:22.08-py3
-#FROM nvcr.io/nvidia/pytorch:22.05-py3
-#FROM nvcr.io/nvidia/pytorch:21.12-py3
+FROM nvcr.io/nvidia/pytorch:22.09-py3
 LABEL maintainer="Brad Larson"
 
 #USER root
 ENV TZ=America/Los_Angeles
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-RUN apt-get update -y && apt-get install -y \
+RUN --mount=type=cache,target=/var/cache/apt \ 
+    apt-get update -y && apt-get install -y --no-install-recommends \
     libgl1-mesa-glx \
     ffmpeg \
-    wget
+    wget && \
+    rm -rf /var/lib/apt/lists/*
 
 #RUN useradd -D user
 #USER user
 #WORKDIR /home/user
 
-RUN pip3 install --upgrade pip && pip3 install --no-cache-dir \
-        opencv-python==4.5.5.64 \
-        debugpy \
-        matplotlib \
-        minio \
-        natsort \
-        path \
-        torch \
-        torchvision \
-        tensorboard \
-        tensorboardX \
-        torch_tb_profiler \
-        scikit-image \
-        wget \
-        configparser \
-        pycuda \
-        pycocotools \
-        apex \
-        configparser \
-        prettytable \
-        onnx \
-        onnxruntime-gpu \
-        pycuda \
-        ptflops \
-        fvcore
-
-ADD "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
-RUN pip3 --no-cache-dir install --upgrade\
-        pymlutil  \
-        torchdatasetutil
-
+COPY requirements_train.txt .
+RUN --mount=type=cache,target=/var/cache/apt \
+    pip3 install -r requirements_train.txt
 
 RUN echo 'alias py=python3' >> ~/.bashrc
 
 WORKDIR /app
 ENV LANG C.UTF-8
-
-# PYTHONUNBUFFERED=1 smooths the logfile updates in Kubernetes
 ENV PYTHONUNBUFFERED=1
-COPY networks networks
-COPY creds.yaml creds.yaml
 
 # port 3000: debugger
 # port 6006: tensorboard
 EXPOSE 3000 6006 
+# PYTHONUNBUFFERED=1 smooths the logfile updates in Kubernetes
+
+#ARG CACHEBUST 
+COPY networks networks
+COPY config config
+COPY creds.yaml creds.yaml
 
 # Launch training
 CMD ["python3","-u", "networks/cell2d.py"]

@@ -33,7 +33,6 @@
 airflow/
 argo/
 classify/
-config/
 cvat/
 containers/
 dataset/

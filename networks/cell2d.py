@@ -1391,9 +1391,9 @@ def parse_arguments():
     parser.add_argument('-obj_imagenet', type=str, default='data/imagenet', help='Local dataset path')
     parser.add_argument('-model', type=str, default='model')
 
-    parser.add_argument('-batch_size', type=int, default=100, help='Training batch size') 
+    parser.add_argument('-batch_size', type=int, default=150, help='Training batch size') 
 
-    parser.add_argument('-optimizer', type=str, default='adamw', choices=['sgd', 'rmsprop', 'adam', 'adamw'], help='Optimizer')
+    parser.add_argument('-optimizer', type=str, default='sgd', choices=['sgd', 'rmsprop', 'adam', 'adamw'], help='Optimizer')
     parser.add_argument('-learning_rate', type=float, default=1e-4, help='Training learning rate')
     parser.add_argument('-learning_rate_decay', type=float, default=0.5, help='Rate decay multiple')
     parser.add_argument('-rate_schedule', type=json.loads, default='[50, 100, 150, 200, 250, 300, 350, 400, 450, 500]', help='Training learning rate')
@@ -1402,7 +1402,7 @@ def parse_arguments():
     
     parser.add_argument('-momentum', type=float, default=0.9, help='Learning Momentum')
     parser.add_argument('-weight_decay', type=float, default=0.0001)
-    parser.add_argument('-epochs', type=int, default=5, help='Training epochs')
+    parser.add_argument('-epochs', type=int, default=90, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
     parser.add_argument('-num_workers', type=int, default=0, help='Data loader workers')
@@ -1444,10 +1444,10 @@ def parse_arguments():
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector max value')
     parser.add_argument('-ejector_exp', type=float, default=3.0, help='Ejector exponent')
     parser.add_argument('-prune', type=str2bool, default=False)
-    parser.add_argument('-train', type=str2bool, default=False)
+    parser.add_argument('-train', type=str2bool, default=True)
     parser.add_argument('-test', type=str2bool, default=True)
-    parser.add_argument('-search_structure', type=str2bool, default=False)
-    parser.add_argument('-search_flops', type=str2bool, default=False)
+    parser.add_argument('-search_structure', type=str2bool, default=True)
+    parser.add_argument('-search_flops', type=str2bool, default=True)
     parser.add_argument('-profile', type=str2bool, default=False)
     parser.add_argument('-time_trial', type=str2bool, default=False)
     parser.add_argument('-onnx', type=str2bool, default=False)
@@ -1459,9 +1459,9 @@ def parse_arguments():
     parser.add_argument('-resultspath', type=str, default='results.yaml')
     parser.add_argument('-prevresultspath', type=str, default=None)
     parser.add_argument('-test_dir', type=str, default=None)
-    parser.add_argument('-tensorboard_dir', type=str, default='/tb_logs/test/ImgClassifyPrune_cifar10_20221106_094226_ipc001', help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
+    parser.add_argument('-tensorboard_dir', type=str, default='/tb_logs/test/ImgClassifyPrune_cifar10_20230118_094226_ipc001', help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
     #parser.add_argument('-tensorboard_dir', type=str, default=None, help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
-    parser.add_argument('-tb_dest', type=str, default='ImgClassifyPrune_cifar10_20221106_094226_ipc001')
+    parser.add_argument('-tb_dest', type=str, default='ImgClassifyPrune_cifar10_20230118_094226_ipc001')
     parser.add_argument('-config', type=str, default='config/build.yaml', help='Configuration file')
     parser.add_argument('-description', type=json.loads, default='{"description":"CRISP classification"}', help='Test description')
     parser.add_argument('-output_dir', type=str, default='./out', help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
@@ -2320,7 +2320,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                 outputs = model(inputs, isTraining=True)
                 classifications = torch.argmax(outputs, 1)
                 tinfer = time.perf_counter()
-                loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale  = loss_fcn(outputs, labels, model)
+                loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale = loss_fcn(outputs, labels, model)
                 tloss = time.perf_counter()
                 loss.backward()
                 optimizer.step()
@@ -2341,7 +2341,6 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                 # print statistics
                 running_loss += loss.item()
                 training_cross_entropy_loss = cross_entropy_loss
-
                 if writer is not None:
                     writer.add_scalar('loss/train', loss, results['batches'])
                     writer.add_scalar('cross_entropy_loss/train', cross_entropy_loss, results['batches'])
@@ -2365,6 +2364,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                     classifications = torch.argmax(outputs, 1)
                     top1_correct = (classifications == labels).float()
                     training_accuracy = torch.sum(top1_correct)/len(top1_correct)
+                    
                     with torch.no_grad():
                         data = next(iTest)
                         inputs, labels = data
@@ -2373,12 +2373,12 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                             inputs = inputs.cuda()
                             labels = labels.cuda()
 
-                    #with torch.cuda.amp.autocast():
-                    outputs = model(inputs)
-                    loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale = loss_fcn(outputs, labels, model)
-                    classifications = torch.argmax(outputs, 1)
-                    top1_correct = (classifications == labels).float()
-                    test_accuracy = torch.sum(top1_correct)/len(top1_correct)
+                        #with torch.cuda.amp.autocast():
+                        outputs = model(inputs)
+                        loss, cross_entropy_loss, architecture_loss, architecture_reduction, cell_weights, prune_loss, sigmoid_scale = loss_fcn(outputs, labels, model)
+                        classifications = torch.argmax(outputs, 1)
+                        top1_correct = (classifications == labels).float()
+                        test_accuracy = torch.sum(top1_correct)/len(top1_correct)
 
                     if writer is not None:
                         writer.add_scalar('loss/test', loss, results['batches'])

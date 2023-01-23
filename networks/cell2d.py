@@ -2538,68 +2538,68 @@ def Test(args, s3, s3def, model, model_vision, loaders, device, results, writer,
     else:
         outputdir = None
 
-    model_outputs = {}
-    model_vision_outputs = {}
+    # model_outputs = {}
+    # model_vision_outputs = {}
     
-    model.cells[0].cnn[0].conv.register_forward_hook(activation_hook('model.cells[0].cnn[0].conv', model_outputs))
-    model_vision.conv1.register_forward_hook(activation_hook('model_vision.conv1', model_vision_outputs))
+    # model.cells[0].cnn[0].conv.register_forward_hook(activation_hook('model.cells[0].cnn[0].conv', model_outputs))
+    # model_vision.conv1.register_forward_hook(activation_hook('model_vision.conv1', model_vision_outputs))
 
-    model.cells[1].cnn[0].conv.register_forward_hook(activation_hook('model.cells[1].cnn[0].conv', model_outputs))
-    model_vision.layer1[0].conv1.register_forward_hook(activation_hook('model_vision.layer1[0].conv1', model_vision_outputs))
+    # model.cells[1].cnn[0].conv.register_forward_hook(activation_hook('model.cells[1].cnn[0].conv', model_outputs))
+    # model_vision.layer1[0].conv1.register_forward_hook(activation_hook('model_vision.layer1[0].conv1', model_vision_outputs))
 
-    model.cells[1].cnn[1].conv.register_forward_hook(activation_hook('model.cells[1].cnn[1].conv', model_outputs))
-    model_vision.layer1[0].conv2.register_forward_hook(activation_hook('model_vision.layer1[0].conv2', model_vision_outputs))
+    # model.cells[1].cnn[1].conv.register_forward_hook(activation_hook('model.cells[1].cnn[1].conv', model_outputs))
+    # model_vision.layer1[0].conv2.register_forward_hook(activation_hook('model_vision.layer1[0].conv2', model_vision_outputs))
 
-    model.cells[2].cnn[0].conv.register_forward_hook(activation_hook('model.cells[2].cnn[0].conv', model_outputs))
-    model_vision.layer1[1].conv1.register_forward_hook(activation_hook('model_vision.layer1[1].conv1.', model_vision_outputs))
+    # model.cells[2].cnn[0].conv.register_forward_hook(activation_hook('model.cells[2].cnn[0].conv', model_outputs))
+    # model_vision.layer1[1].conv1.register_forward_hook(activation_hook('model_vision.layer1[1].conv1.', model_vision_outputs))
 
-    model.cells[2].cnn[1].conv.register_forward_hook(activation_hook('model.cells[2].cnn[1].conv', model_outputs))
-    model_vision.layer1[1].conv2.register_forward_hook(activation_hook('model_vision.layer1[1].conv2', model_vision_outputs))
+    # model.cells[2].cnn[1].conv.register_forward_hook(activation_hook('model.cells[2].cnn[1].conv', model_outputs))
+    # model_vision.layer1[1].conv2.register_forward_hook(activation_hook('model_vision.layer1[1].conv2', model_vision_outputs))
 
-    model.cells[2].cnn[2].conv.register_forward_hook(activation_hook('model.cells[2].cnn[2].conv', model_outputs))
-    model_vision.layer1[1].conv3.register_forward_hook(activation_hook('model_vision.layer1[1].conv3', model_vision_outputs))
+    # model.cells[2].cnn[2].conv.register_forward_hook(activation_hook('model.cells[2].cnn[2].conv', model_outputs))
+    # model_vision.layer1[1].conv3.register_forward_hook(activation_hook('model_vision.layer1[1].conv3', model_vision_outputs))
 
-    model.cells[2].cnn[2].batchnorm2d.register_forward_hook(activation_hook('model.cells[2].cnn[2].batchnorm2d', model_outputs))
-    model_vision.layer1[1].bn3.register_forward_hook(activation_hook('model_vision.layer1[1].bn3', model_vision_outputs))
+    # model.cells[2].cnn[2].batchnorm2d.register_forward_hook(activation_hook('model.cells[2].cnn[2].batchnorm2d', model_outputs))
+    # model_vision.layer1[1].bn3.register_forward_hook(activation_hook('model_vision.layer1[1].bn3', model_vision_outputs))
 
-    model.cells[3].cnn[0].conv.register_forward_hook(activation_hook('model.cells[3].cnn[0].conv', model_outputs))
-    model_vision.layer1[2].conv1.register_forward_hook(activation_hook('model_vision.layer1[2].conv1', model_vision_outputs))
+    # model.cells[3].cnn[0].conv.register_forward_hook(activation_hook('model.cells[3].cnn[0].conv', model_outputs))
+    # model_vision.layer1[2].conv1.register_forward_hook(activation_hook('model_vision.layer1[2].conv1', model_vision_outputs))
 
-    model.cells[4].cnn[0].conv.register_forward_hook(activation_hook('model.cells[4].cnn[0].conv', model_outputs))
-    model_vision.layer2[0].conv1.register_forward_hook(activation_hook('model_vision.layer2[0].conv1', model_vision_outputs))
+    # model.cells[4].cnn[0].conv.register_forward_hook(activation_hook('model.cells[4].cnn[0].conv', model_outputs))
+    # model_vision.layer2[0].conv1.register_forward_hook(activation_hook('model_vision.layer2[0].conv1', model_vision_outputs))
 
-    model.cells[5].cnn[0].conv.register_forward_hook(activation_hook('model.cells[5].cnn[0].conv', model_outputs))
-    model_vision.layer2[1].conv1.register_forward_hook(activation_hook('model_vision.layer2[1].conv1', model_vision_outputs))
+    # model.cells[5].cnn[0].conv.register_forward_hook(activation_hook('model.cells[5].cnn[0].conv', model_outputs))
+    # model_vision.layer2[1].conv1.register_forward_hook(activation_hook('model_vision.layer2[1].conv1', model_vision_outputs))
 
-    model.cells[6].cnn[0].conv.register_forward_hook(activation_hook('model.cells[6].cnn[0].conv', model_outputs))
-    model_vision.layer2[2].conv1.register_forward_hook(activation_hook('model_vision.layer2[2].conv1', model_vision_outputs))
+    # model.cells[6].cnn[0].conv.register_forward_hook(activation_hook('model.cells[6].cnn[0].conv', model_outputs))
+    # model_vision.layer2[2].conv1.register_forward_hook(activation_hook('model_vision.layer2[2].conv1', model_vision_outputs))
 
-    model.cells[7].cnn[0].conv.register_forward_hook(activation_hook('model.cells[7].cnn[0].conv', model_outputs))
-    model_vision.layer2[3].conv1.register_forward_hook(activation_hook('model_vision.layer2[3].conv1', model_vision_outputs))
+    # model.cells[7].cnn[0].conv.register_forward_hook(activation_hook('model.cells[7].cnn[0].conv', model_outputs))
+    # model_vision.layer2[3].conv1.register_forward_hook(activation_hook('model_vision.layer2[3].conv1', model_vision_outputs))
 
-    model.cells[8].cnn[0].conv.register_forward_hook(activation_hook('model.cells[8].cnn[0].conv', model_outputs))
-    model_vision.layer3[0].conv1.register_forward_hook(activation_hook('model_vision.layer3[0].conv1', model_vision_outputs))
+    # model.cells[8].cnn[0].conv.register_forward_hook(activation_hook('model.cells[8].cnn[0].conv', model_outputs))
+    # model_vision.layer3[0].conv1.register_forward_hook(activation_hook('model_vision.layer3[0].conv1', model_vision_outputs))
 
-    model.cells[9].cnn[0].conv.register_forward_hook(activation_hook('model.cells[9].cnn[0].conv', model_outputs))
-    model_vision.layer3[1].conv1.register_forward_hook(activation_hook('model_vision.layer3[1].conv1', model_vision_outputs))
+    # model.cells[9].cnn[0].conv.register_forward_hook(activation_hook('model.cells[9].cnn[0].conv', model_outputs))
+    # model_vision.layer3[1].conv1.register_forward_hook(activation_hook('model_vision.layer3[1].conv1', model_vision_outputs))
 
-    model.cells[10].cnn[0].conv.register_forward_hook(activation_hook('model.cells[10].cnn[0].conv', model_outputs))
-    model_vision.layer3[2].conv1.register_forward_hook(activation_hook('model_vision.layer3[2].conv1', model_vision_outputs))
+    # model.cells[10].cnn[0].conv.register_forward_hook(activation_hook('model.cells[10].cnn[0].conv', model_outputs))
+    # model_vision.layer3[2].conv1.register_forward_hook(activation_hook('model_vision.layer3[2].conv1', model_vision_outputs))
 
-    model.cells[11].cnn[0].conv.register_forward_hook(activation_hook('model.cells[11].cnn[0].conv', model_outputs))
-    model_vision.layer3[3].conv1.register_forward_hook(activation_hook('model_vision.layer3[3].conv1', model_vision_outputs))
+    # model.cells[11].cnn[0].conv.register_forward_hook(activation_hook('model.cells[11].cnn[0].conv', model_outputs))
+    # model_vision.layer3[3].conv1.register_forward_hook(activation_hook('model_vision.layer3[3].conv1', model_vision_outputs))
 
-    model.cells[12].cnn[0].conv.register_forward_hook(activation_hook('model.cells[12].cnn[0].conv', model_outputs))
-    model_vision.layer3[4].conv1.register_forward_hook(activation_hook('model_vision.layer3[4].conv1', model_vision_outputs))    
+    # model.cells[12].cnn[0].conv.register_forward_hook(activation_hook('model.cells[12].cnn[0].conv', model_outputs))
+    # model_vision.layer3[4].conv1.register_forward_hook(activation_hook('model_vision.layer3[4].conv1', model_vision_outputs))    
 
-    model.cells[13].cnn[0].conv.register_forward_hook(activation_hook('model.cells[13].cnn[0].conv', model_outputs))
-    model_vision.layer3[5].conv1.register_forward_hook(activation_hook('model_vision.layer3[5].conv1', model_vision_outputs))
+    # model.cells[13].cnn[0].conv.register_forward_hook(activation_hook('model.cells[13].cnn[0].conv', model_outputs))
+    # model_vision.layer3[5].conv1.register_forward_hook(activation_hook('model_vision.layer3[5].conv1', model_vision_outputs))
 
-    model.cells[14].cnn[0].conv.register_forward_hook(activation_hook('model.cells[14].cnn[0].conv', model_outputs))
-    model_vision.layer4[0].conv1.register_forward_hook(activation_hook('model_vision.layer4[0].conv1', model_vision_outputs))
+    # model.cells[14].cnn[0].conv.register_forward_hook(activation_hook('model.cells[14].cnn[0].conv', model_outputs))
+    # model_vision.layer4[0].conv1.register_forward_hook(activation_hook('model_vision.layer4[0].conv1', model_vision_outputs))
 
-    model.cells[16].cnn[2].conv.register_forward_hook(activation_hook('model.cells[16].cnn[2].conv', model_outputs))
-    model_vision.layer4[2].conv3.register_forward_hook(activation_hook('model_vision.layer4[2].conv3', model_vision_outputs))
+    # model.cells[16].cnn[2].conv.register_forward_hook(activation_hook('model.cells[16].cnn[2].conv', model_outputs))
+    # model_vision.layer4[2].conv3.register_forward_hook(activation_hook('model_vision.layer4[2].conv3', model_vision_outputs))
 
     accuracy = 0.0
     samples = 0

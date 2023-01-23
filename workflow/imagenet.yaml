@@ -46,11 +46,11 @@ workflow:
           value: /tb_logs
         # cell2d.py -resnet_len for supported lenghts
         - name: resnet_len
-          value: 18
+          value: 34
         - name: num_workers
           value: 25
         - name: optimizer
-          value: adam
+          value: sgd
         - name: s3_name
           value: store
           

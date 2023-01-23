@@ -33,6 +33,7 @@ EXPOSE 3000 6006
 
 #ARG CACHEBUST 
 COPY networks networks
+COPY train train
 COPY config config
 COPY creds.yaml creds.yaml
 

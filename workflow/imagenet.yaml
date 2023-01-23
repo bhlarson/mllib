@@ -76,7 +76,7 @@ workflow:
                       data: |
                         batches: 0
             - name: search-structure-01
-              dependencies: [search-structure-00]
+              dependencies: [test]
               template: train
               when: "{{workflow.parameters.start}} < 2"
               arguments:

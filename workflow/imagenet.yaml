@@ -81,7 +81,7 @@ workflow:
               when: "{{workflow.parameters.start}} < 2"
               arguments:
                 parameters:
-                  - {name: model_src, value: "{{workflow.parameters.output_name}}_test"}
+                  - {name: model_src, value: ""}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}_train"}
                 artifacts:
                   - name: prev_results

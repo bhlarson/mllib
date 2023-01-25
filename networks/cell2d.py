@@ -1715,26 +1715,26 @@ def load(s3, s3def, args, loaders, results):
 
     tv_weights = None
     transforms_vision = None
-
+    model_vision = None
     if args.resnet_len == 18:
         tv_weights = torchvision.models.ResNet18_Weights(torchvision.models.ResNet18_Weights.IMAGENET1K_V1)
-        model_vision = torchvision.models.resnet18(weights=tv_weights)
+        #model_vision = torchvision.models.resnet18(weights=tv_weights)
 
     elif args.resnet_len == 34:
         tv_weights = torchvision.models.ResNet34_Weights(torchvision.models.ResNet34_Weights.IMAGENET1K_V1)
-        model_vision = torchvision.models.resnet34(weights=tv_weights)
+        #model_vision = torchvision.models.resnet34(weights=tv_weights)
 
     elif args.resnet_len == 50:
         tv_weights = torchvision.models.ResNet50_Weights(torchvision.models.ResNet50_Weights.IMAGENET1K_V2)
-        model_vision = torchvision.models.resnet50(weights=tv_weights)
+        #model_vision = torchvision.models.resnet50(weights=tv_weights)
 
     elif args.resnet_len == 101:
         tv_weights = torchvision.models.ResNet101_Weights(torchvision.models.ResNet101_Weights.IMAGENET1K_V2)
-        model_vision = torchvision.models.resnet101(weights=tv_weights)
+        #model_vision = torchvision.models.resnet101(weights=tv_weights)
 
     elif args.resnet_len == 152:
         tv_weights = torchvision.models.ResNet152_Weights(torchvision.models.ResNet152_Weights.IMAGENET1K_V2)
-        model_vision = torchvision.models.resnet152(weights=tv_weights)
+        #model_vision = torchvision.models.resnet152(weights=tv_weights)
 
     if tv_weights is not None:
         state_dict = tv_weights.get_state_dict(progress=True)
@@ -1746,7 +1746,7 @@ def load(s3, s3def, args, loaders, results):
     if args.cuda:
         device = torch.device("cuda")
     model.to(device)
-    model_vision.to(device)
+    #model_vision.to(device)
 
     results['initial_parameters'] , results['initial_flops'] = ModelSize(args, model, loaders)
     print('load initial_parameters = {} initial_flops = {}'.format(results['initial_parameters'], results['initial_flops']))
@@ -2265,7 +2265,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
     plotgrads = PlotGradients()
     plotconvmag = PlotConvMag()
     #scheduler1 = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.999)
-    scheduler2 = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.rate_schedule, gamma=args.learning_rate_decay)
+    #scheduler2 = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.rate_schedule, gamma=args.learning_rate_decay)
 
     test_freq = args.test_sparsity*int(math.ceil(trainloader['batches']/testloader['batches']))
     tstart = None
@@ -2465,7 +2465,6 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
             writer_path = '{}/{}'.format(args.tensorboard_dir, args.model_dest)
 
             #scheduler1.step()
-            scheduler2.step()
             if cell_weights is not None:
                 img = plotsearch.plot(cell_weights)
                 if img.size > 0:
@@ -2494,6 +2493,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                     cv2.imwrite(filename, convmag)  
 
             save(model, s3, s3def, args)
+            lr_scheduler.step()
 
             filename = '{}/{}.pt'.format(writer_path,args.model_dest)
             save_file(model, filename)
@@ -2624,8 +2624,8 @@ def Test(args, s3, s3def, model, model_vision, loaders, device, results, writer,
             outputs = model(inputs)
             classifications = torch.argmax(outputs, 1)
 
-            outputs_vision = model_vision(inputs)
-            classifications_vision = torch.argmax(outputs_vision, 1)
+            # outputs_vision = model_vision(inputs)
+            # classifications_vision = torch.argmax(outputs_vision, 1)
 
         dt = (datetime.now()-initial).total_seconds()
         dtSum += dt
@@ -3057,10 +3057,10 @@ def main(args):
         print(f"To launch tensorboard server: tensorboard --bind_all --logdir {args.tensorboard_dir}") # https://stackoverflow.com/questions/47425882/tensorboard-logdir-with-s3-path
         writer = SummaryWriter(writer_path)
 
-        if args.write_vision_graph:
-            WriteModelGraph(args, writer, model_vision, loaders)
-        else:
-            WriteModelGraph(args, writer, classify, loaders)
+        # if args.write_vision_graph:
+        #     WriteModelGraph(args, writer, model_vision, loaders)
+        # else:
+        WriteModelGraph(args, writer, classify, loaders)
 
     if 'batches' not in results:
         results['batches'] = 0

@@ -1383,7 +1383,7 @@ def parse_arguments():
     parser.add_argument('-credentails', type=str, default='creds.yaml', help='Credentials file.')
     parser.add_argument('-s3_name', type=str, default='store', help='S3 name in credentials')
 
-    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152, 20, 32, 44, 56, 110], default=152, help='Run description')
+    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152, 20, 32, 44, 56, 110], default=101, help='Run description')
     parser.add_argument('-useConv1', type=str2bool, default=True, help='If true, use initial convolution and max pool before ResNet blocks')
 
     parser.add_argument('-dataset', type=str, default='imagenet', choices=['cifar10', 'imagenet'], help='Dataset')
@@ -1391,7 +1391,7 @@ def parse_arguments():
     parser.add_argument('-obj_imagenet', type=str, default='data/imagenet', help='Local dataset path')
     parser.add_argument('-model', type=str, default='model')
 
-    parser.add_argument('-batch_size', type=int, default=150, help='Training batch size') 
+    parser.add_argument('-batch_size', type=int, default=220, help='Training batch size') 
 
     parser.add_argument('-optimizer', type=str, default='sgd', choices=['sgd', 'rmsprop', 'adam', 'adamw'], help='Optimizer')
     parser.add_argument('-learning_rate', type=float, default=1e-4, help='Training learning rate')
@@ -1402,7 +1402,7 @@ def parse_arguments():
     
     parser.add_argument('-momentum', type=float, default=0.9, help='Learning Momentum')
     parser.add_argument('-weight_decay', type=float, default=0.0001)
-    parser.add_argument('-epochs', type=int, default=90, help='Training epochs')
+    parser.add_argument('-epochs', type=int, default=220, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
     parser.add_argument('-num_workers', type=int, default=0, help='Data loader workers')
@@ -1657,8 +1657,8 @@ def InitWeights(model_state_dict, tv_state_dict, useConv1 = True):
                 iCell += 1
                 iConv = 0
 
-            if layer != pLayer:
-                print('layer {}'.format(layer))
+            # if layer != pLayer:
+            #     print('layer {}'.format(layer))
 
             pBlock = block
             pResidual = residual
@@ -1698,7 +1698,7 @@ def InitWeights(model_state_dict, tv_state_dict, useConv1 = True):
         if mkey is not None:
             if mkey in model_state_dict:
                 if model_state_dict[mkey].shape == tv_state_dict[tvkey].shape:
-                    print('{}: {} = {}'.format(i, mkey, tvkey))
+                    # print('{}: {} = {}'.format(i, mkey, tvkey))
                     model_state_dict[mkey] = tv_state_dict[tvkey].data.clone()
                 else:
                     print('{}: {}={} != {}={} not in model'.format(i, mkey, model_state_dict[mkey].shape, tvkey, tv_state_dict[tvkey].shape))
@@ -2663,7 +2663,7 @@ def Test(args, s3, s3def, model, model_vision, loaders, device, results, writer,
 
     results['test'][args.model_dest] = {
             'accuracy': accuracy.item(),
-            'accuracy_vision': accuracy_vision.item(),
+            #'accuracy_vision': accuracy_vision.item(),
             'minimum time': float(np.min(inferTime)),
             'average time': float(dtSum/len(top1_correct)),
             'num images': len(top1_correct),
@@ -2742,48 +2742,6 @@ def onnx(model, s3, s3def, args, input_channels):
                 opset_version=11)
 
     succeeded = s3.PutFile(s3def['sets']['model']['bucket'], output_filename, '{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class) )
-
-def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema=None, scaler=None):
-    model.train()
-    metric_logger = utils.MetricLogger(delimiter="  ")
-    metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value}"))
-    metric_logger.add_meter("img/s", utils.SmoothedValue(window_size=10, fmt="{value}"))
-
-    header = f"Epoch: [{epoch}]"
-    for i, (image, target) in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
-        start_time = time.time()
-        image, target = image.to(device), target.to(device)
-        with torch.cuda.amp.autocast(enabled=scaler is not None):
-            output = model(image)
-            loss = criterion(output, target)
-
-        optimizer.zero_grad()
-        if scaler is not None:
-            scaler.scale(loss).backward()
-            if args.clip_grad_norm is not None:
-                # we should unscale the gradients of optimizer's assigned params if do gradient clipping
-                scaler.unscale_(optimizer)
-                nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
-            scaler.step(optimizer)
-            scaler.update()
-        else:
-            loss.backward()
-            if args.clip_grad_norm is not None:
-                nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
-            optimizer.step()
-
-        if model_ema and i % args.model_ema_steps == 0:
-            model_ema.update_parameters(model)
-            if epoch < args.lr_warmup_epochs:
-                # Reset ema buffer to keep copying weights during warmup period
-                model_ema.n_averaged.fill_(0)
-
-        acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
-        batch_size = image.shape[0]
-        metric_logger.update(loss=loss.item(), lr=optimizer.param_groups[0]["lr"])
-        metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
-        metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
-        metric_logger.meters["img/s"].update(batch_size / (time.time() - start_time))
 
 
 def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix=""):

@@ -12,7 +12,7 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: batch_size
-          value: 450
+          value: 220
         - name: output_name
           value: 20220520i
         - name: description
@@ -46,11 +46,11 @@ workflow:
           value: /tb_logs
         # cell2d.py -resnet_len for supported lenghts
         - name: resnet_len
-          value: 34
+          value: 101
         - name: num_workers
           value: 25
         - name: optimizer
-          value: adam
+          value: sgd
         - name: s3_name
           value: store
           
@@ -60,24 +60,23 @@ workflow:
       - name: train-crisp
         dag:
           tasks:
-            # - name: train
-            #   template: train
-            #   when: "{{workflow.parameters.start}} < 1"
-            #   arguments:
-            #     parameters:
-            #       - {name: prune, value: false}
-            #       - {name: train, value: true}
-            #       - {name: test, value: true}
-            #       - {name: search_structure, value: true}
-            #       - {name: model_src, value: "crispimagenet_20221020_152949_hiocnn0_train"}
-            #       - {name: model_dest, value: "{{workflow.parameters.output_name}}_train"}
-            #     artifacts:
-            #       - name: prev_results
-            #         raw:
-            #           data: |
-            #             batches: 0
+            - name: test
+              template: train
+              when: "{{workflow.parameters.start}} < 1"
+              arguments:
+                parameters:
+                  - {name: prune, value: false}
+                  - {name: train, value: false}
+                  - {name: test, value: true}
+                  - {name: model_src, value: ""}
+                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_test"}
+                artifacts:
+                  - name: prev_results
+                    raw:
+                      data: |
+                        batches: 0
             - name: search-structure-00
-              dependencies:
+              dependencies: [test]
               template: train
               when: "{{workflow.parameters.start}} < 2"
               arguments:

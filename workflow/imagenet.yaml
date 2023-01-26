@@ -12,7 +12,7 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: batch_size
-          value: 300
+          value: 220
         - name: output_name
           value: 20220520i
         - name: description
@@ -46,7 +46,7 @@ workflow:
           value: /tb_logs
         # cell2d.py -resnet_len for supported lenghts
         - name: resnet_len
-          value: 34
+          value: 101
         - name: num_workers
           value: 25
         - name: optimizer

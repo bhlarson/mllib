@@ -2606,7 +2606,7 @@ def Test(args, s3, s3def, model, model_vision, loaders, device, results, writer,
     dtSum = 0.0
     inferTime = []
     top1_correct = []
-    top1_vision_correct = []
+    # top1_vision_correct = []
     for i, data in tqdm(enumerate(testloader['dataloader']), 
                         total=testloader['batches'], 
                         desc="Test steps", 
@@ -2646,8 +2646,9 @@ def Test(args, s3, s3def, model, model_vision, loaders, device, results, writer,
         # top1_vision_correct.extend(top1_step_vision.cpu().tolist())
 
         step_accuracy = torch.sum(top1_step)/len(top1_step)
-        step_accuracy_vision = torch.sum(top1_step_vision)/len(top1_step_vision)
-        tqdm.write('test samples={} inferTime={:.5f} step accuracy={:.3f} step_accuracy_vision={:.3f}'.format(len(top1_step), inferTime[-1], step_accuracy, step_accuracy_vision))
+        #step_accuracy_vision = torch.sum(top1_step_vision)/len(top1_step_vision)
+        #tqdm.write('test samples={} inferTime={:.5f} step accuracy={:.3f} step_accuracy_vision={:.3f}'.format(len(top1_step), inferTime[-1], step_accuracy, step_accuracy_vision))
+        tqdm.write('test samples={} inferTime={:.5f} step accuracy={:.3f}'.format(len(top1_step), inferTime[-1], step_accuracy))
         if writer is not None:
             writer.add_scalar('test/infer', inferTime[-1], results['batches'])
             writer.add_scalar('test/accuracy', step_accuracy, results['batches'])
@@ -2659,7 +2660,7 @@ def Test(args, s3, s3def, model, model_vision, loaders, device, results, writer,
             profile.step()
 
     accuracy = np.sum(np.array(top1_correct))/len(top1_correct)
-    accuracy_vision = np.sum(np.array(top1_vision_correct))/len(top1_vision_correct)
+    #accuracy_vision = np.sum(np.array(top1_vision_correct))/len(top1_vision_correct)
 
     results['test'][args.model_dest] = {
             'accuracy': accuracy.item(),

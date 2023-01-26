@@ -2642,8 +2642,8 @@ def Test(args, s3, s3def, model, model_vision, loaders, device, results, writer,
         top1_step = classifications == labels
         top1_correct.extend(top1_step.cpu().tolist())
 
-        top1_step_vision = classifications_vision == labels
-        top1_vision_correct.extend(top1_step_vision.cpu().tolist())
+        # top1_step_vision = classifications_vision == labels
+        # top1_vision_correct.extend(top1_step_vision.cpu().tolist())
 
         step_accuracy = torch.sum(top1_step)/len(top1_step)
         step_accuracy_vision = torch.sum(top1_step_vision)/len(top1_step_vision)

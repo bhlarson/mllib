@@ -14,6 +14,6 @@ wget==3.2
 onnx 
 ptflops==0.6.9 
 fvcore 
-pymlutil==0.1.11  
+pymlutil==0.1.12  
 torchdatasetutil==0.1.30
 torchelastic==0.2.2

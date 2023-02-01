@@ -12,7 +12,7 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: batch_size
-          value: 220
+          value: 1000
         - name: output_name
           value: 20220520i
         - name: description
@@ -46,11 +46,11 @@ workflow:
           value: /tb_logs
         # cell2d.py -resnet_len for supported lenghts
         - name: resnet_len
-          value: 101
+          value: 18
         - name: num_workers
           value: 25
         - name: optimizer
-          value: sgd
+          value: adamw
         - name: s3_name
           value: store
           
@@ -85,7 +85,6 @@ workflow:
                   - {name: model_src, value: ""}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_00"}
                   - {name: convMaskThreshold, value: 0.01}
-                  - {name: epochs, value: 15}
                 artifacts:
                   - name: prev_results
                     raw:
@@ -183,11 +182,11 @@ workflow:
             - {name: model_src, value: ""}
             - {name: model_dest, value: "crispimagenet_{{workflow.parameters.output_name}}"}
             - {name: k_accuracy, value: 1.0}
-            - {name: k_structure, value: 0.3}
-            - {name: k_prune_basis, value: 0.5}
-            - {name: learning_rate, value: 1e-3}
+            - {name: k_structure, value: 1.0}
+            - {name: k_prune_basis, value: 1.0}
+            - {name: learning_rate, value: 2e-5}
             - {name: learning_rate_decay, value: 0.25}
-            - {name: rate_schedule, value: "[5, 10, 15, 18]"}
+            - {name: rate_schedule, value: "[8, 12, 15, 18]"}
             - {name: description, value: "{{workflow.parameters.description}}"}
             - {name: resultspath, value: "/app/results.yaml"}
             - {name: prevresultspath, value: "/app/prevresults.yaml"}

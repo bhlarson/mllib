@@ -46,13 +46,22 @@ tblogs:
 
 postgresql:
   #See https://github.com/bitnami/charts/blob/master/bitnami/postgresql/ for more info
-  postgresqlDatabase: mllib_db
-  postgresqlUsername: mllib_user
-  postgresqlPassword: mllib_pwd
-  service:
-    type: NodePort
-    port: 5432
-    nodePort: 31095
+  auth:
+    postgresPassword: dbadmin
+
+  primary:
+    service: 
+      port: 5432
+      type: LoadBalancer
+      # type: NodePort
+      # nodePorts:
+      #   postgresql: '30995'
+    persistence:
+      existingClaim: mldb-pv-claim
   size: 10Gi
   hostPath:
-    path: /nvmestore/mlstore
+    path: /nvmestore/mldb
+
+  audit:
+    logHostname: true
+    logConnections: true

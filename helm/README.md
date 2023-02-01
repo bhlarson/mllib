@@ -1,10 +1,17 @@
-From mllib:
-```console
-helm upgrade --install --namespace ml --create-namespace --values helm/values_dev.yaml mllib helm/mllib
-helm uninstall mllib -n ml
+To install mllib:
+Edit  helm/values_dev.yam
 
+```console
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm dependency build helm/mllib
+helm upgrade --install --namespace ml --create-namespace --values helm/values_dev.yaml mllib helm/mllib
 ```
-Edit k8s/mllib/values.yaml
+
+To uninstal mllib:
+```console
+helm uninstall mllib -n ml
+```
+
 From mllib:
 ## Helm commands
 ```console

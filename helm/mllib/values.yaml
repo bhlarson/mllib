@@ -36,13 +36,13 @@ workerdata:
   name: workerstorage
   size: 900Gi
   hostPath:
-    path: /store/Datasets
+    path: /data/Datasets
 
 tblogs:
   name: tblogs
   size: 100Gi
   hostPath:
-    path: /store/tb_logs
+    path: /data/tb_logs
 
 postgresql:
   #See https://github.com/bitnami/charts/blob/master/bitnami/postgresql/ for more info

@@ -1,9 +1,11 @@
 [microk8s snap instll](https://microk8s.io/docs/setting-snap-channel)
 
 ```console
-snap info microk8s
-sudo snap install microk8s --channel=1.22.2/stable --classic
+sudo snap remove microk8s --purge
+sudo snap info microk8s
+sudo snap install microk8s --channel=1.25/stable --classic
 sudo microk8s.enable dns gpu helm3 ingress registry storage metallb:10.64.140.43-10.64.140.143
+sudo usermod -a -G microk8s $USER
 sudo snap install kubectl --classic
 cd $HOME
 mkdir .kube

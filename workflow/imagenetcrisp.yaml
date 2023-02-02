@@ -12,7 +12,7 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: batch_size
-          value: 1000
+          value: 500
         - name: output_name
           value: 20220520i
         - name: description
@@ -182,7 +182,7 @@ workflow:
             - {name: model_src, value: ""}
             - {name: model_dest, value: "crispimagenet_{{workflow.parameters.output_name}}"}
             - {name: k_accuracy, value: 1.0}
-            - {name: k_structure, value: 2.0}
+            - {name: k_structure, value: 1.0}
             - {name: k_prune_basis, value: 1.0}
             - {name: learning_rate, value: 2e-5}
             - {name: learning_rate_decay, value: 0.25}

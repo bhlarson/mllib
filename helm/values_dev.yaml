@@ -1,12 +1,7 @@
 objectstore:
-  url: 192.168.0.163
-  credentials:
-    access_key: admin
-    secret_key: storeadmin
   size: 900Gi
   hostPath:
     path: /store/ml/store
-
 
 workerdata:
   size: 10Gi

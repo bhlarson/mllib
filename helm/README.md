@@ -4,6 +4,7 @@ Edit  helm/values_dev.yam
 ```console
 helm repo add bitnami https://charts.bitnami.com/bitnami
 helm dependency build helm/mllib
+helm upgrade --install --namespace ml --create-namespace mllib helm/mllib
 helm upgrade --install --namespace ml --create-namespace --values helm/values_dev.yaml mllib helm/mllib
 ```
 

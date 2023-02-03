@@ -83,11 +83,45 @@ sudo usermod -aG docker $USER
 newgrp docker
 docker run hello-world
 ```
-
+Set up [nvidia-docker](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker)
+```console
+sudo apt-get install -y nvidia-docker2
+```
+Test:
+```console
+docker run --rm --gpus all nvidia/cuda:11.6.2-base-ubuntu20.04 nvidia-smi
+```
+Response (dependent on GPUs)
+```console
+Thu Feb  2 18:27:55 2023       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 515.86.01    Driver Version: 515.86.01    CUDA Version: 11.7     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  NVIDIA RTX A6000    Off  | 00000000:3B:00.0 Off |                  Off |
+| 30%   27C    P8    17W / 300W |      6MiB / 49140MiB |      0%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+|   1  NVIDIA RTX A6000    Off  | 00000000:86:00.0 Off |                  Off |
+| 30%   29C    P8    21W / 300W |      6MiB / 49140MiB |      0%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
++-----------------------------------------------------------------------------+
+```
 - Install [microk8s kubernetes](https://microk8s.io/docs)
 
 To install the latestest version of microk8s:
 ```console
+sudo snap install microk8s --channel=1.22/stable --classic
 sudo snap install microk8s --classic
 sudo usermod -a -G microk8s $USER
 sudo chown -f -R $USER ~/.kube

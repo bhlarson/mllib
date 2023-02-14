@@ -64,49 +64,91 @@ On the development workstation:
 - Install the current [nvidia drivers](https://linuxize.com/post/how-to-nvidia-drivers-on-ubuntu-20-04/)
 ```console
 sudo apt update
-sudo apt upgrade
-sudo ubuntu-drivers autoinstall
+sudo apt upgrade -y
+```
+Setup ssh server:
+```console
+sudo apt install openssh-server -y
+sudo systemctl status ssh
+sudo ufw allow ssh
+sudo ufw enable && sudo ufw reload
+```
+
+- Configure ssh access key (windows)
+    1. On your development computer, generate a public/private key.  Accept default parameters.
+        ``` cmd
+        ssh-keygen
+        ```
+    1. Open C:\Users\\username\\.ssh\\id_rsa.pub 
+    1. Copy all file contents
+    1. In the container, past the contents of id_rsa.pub to  ~/.ssh/authorized_keys in linux.
+        ```cmd
+        blarson@0c7a556d4a53:~$ mkdir ~/.ssh
+        blarson@0c7a556d4a53:~$ nano ~/.ssh/authorized_keys
+        ```
+    1. Press ctl+o to save the authorized_keys once you have pasted in the new key.  
+    1. Pres ctl+x to exit to close nano.
+
+Problems with sudo ubuntu-drivers autoinstall.  Move to install a specific version.  Sorry that this document will quickly become out of data 
+[ubuntu-drivers "UnboundLocalError: local variable 'version' referenced before assignment" when installing nvidia drivers](https://askubuntu.com/questions/1436601/ubuntu-drivers-unboundlocalerror-local-variable-version-referenced-before-as)
+For Ubuntu 22.04, Had the same issue today. Fixed it by editing the /usr/lib/python3/dist-packages/UbuntuDrivers/detect.py" file and replace line 835 with this line:
+```python
+version = int(package_name.split('-')[-2])
+```
+
+
+```console
+ubuntu-drivers devices
+sudo apt install nvidia-driver-525 -y
 sudo reboot now
+```
+Once the computer has restarted, test that the nvidia driver is installed and running:
+```console
 nvidia-smi
 ```
 - Install [docker](https://docs.docker.com/engine/install/ubuntu/)
 ```console
-sudo apt install ca-certificates curl gnupg lsb-release
+sudo apt install ca-certificates curl gnupg lsb-release -y
 sudo mkdir -p /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 echo   "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
   $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 sudo apt update
-sudo apt install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+sudo apt install docker-ce docker-ce-cli containerd.io docker-compose-plugin -y
 sudo groupadd docker
 sudo usermod -aG docker $USER
 newgrp docker
 docker run hello-world
 ```
-Set up [nvidia-docker](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker)
+Set up [nvidia-docker](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#setting-up-nvidia-container-toolkit)
 ```console
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID) \
+      && curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
+      && curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list | \
+            sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+            sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+sudo apt-get update
+sudo apt-get install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
 sudo apt-get install -y nvidia-docker2
+sudo systemctl restart docker
 ```
 Test:
 ```console
-docker run --rm --gpus all nvidia/cuda:11.6.2-base-ubuntu20.04 nvidia-smi
+sudo docker run --rm --runtime=nvidia --gpus all nvidia/cuda:11.6.2-base-ubuntu20.04 nvidia-smi
 ```
 Response (dependent on GPUs)
 ```console
-Thu Feb  2 18:27:55 2023       
+Sat Feb 11 17:31:23 2023       
 +-----------------------------------------------------------------------------+
-| NVIDIA-SMI 515.86.01    Driver Version: 515.86.01    CUDA Version: 11.7     |
+| NVIDIA-SMI 525.78.01    Driver Version: 525.78.01    CUDA Version: 12.0     |
 |-------------------------------+----------------------+----------------------+
 | GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
 | Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
 |                               |                      |               MIG M. |
 |===============================+======================+======================|
-|   0  NVIDIA RTX A6000    Off  | 00000000:3B:00.0 Off |                  Off |
-| 30%   27C    P8    17W / 300W |      6MiB / 49140MiB |      0%      Default |
-|                               |                      |                  N/A |
-+-------------------------------+----------------------+----------------------+
-|   1  NVIDIA RTX A6000    Off  | 00000000:86:00.0 Off |                  Off |
-| 30%   29C    P8    21W / 300W |      6MiB / 49140MiB |      0%      Default |
+|   0  Quadro RTX 6000     Off  | 00000000:15:00.0  On |                  Off |
+| 33%   24C    P8    18W / 260W |    522MiB / 24576MiB |      0%      Default |
 |                               |                      |                  N/A |
 +-------------------------------+----------------------+----------------------+
                                                                                
@@ -119,11 +161,13 @@ Thu Feb  2 18:27:55 2023
 ```
 - Install [microk8s kubernetes](https://microk8s.io/docs)
 
-To install the latestest version of microk8s:
+You may encounter the following within a vscode terminal: "/snap/microk8s/4565/bin/sed: couldn't flush stdout: Permission denied", Execute these instructions within a stand-alone bash terminal.
+
+To install microk8s:
 ```console
-sudo snap install microk8s --channel=1.22/stable --classic
-sudo snap install microk8s --classic
+sudo snap install microk8s --channel=1.25/stable --classic
 sudo usermod -a -G microk8s $USER
+newgrp microk8s
 sudo chown -f -R $USER ~/.kube
 su - $USER
 microk8s status --wait-ready
@@ -134,7 +178,15 @@ mkdir .kube
 cd .kube
 microk8s config > config
 ```
-- Install [Visual Studio Code](https://code.visualstudio.com/)
+
+```console
+echo 'alias py=python3' >> ~/.bashrc
+echo 'alias kc=microk8s.kubectl' >> ~/.bashrc
+echo 'alias helm=microk8s.helm3' >> ~/.bashrc
+. ~/.bashrc
+```
+
+<!-- - Install [Visual Studio Code](https://code.visualstudio.com/)
 - In Visual Studio Code, install Python Remote Development, Jupyter, Json, and Getlens extensions
 - and the [NVIDIA docker extension](https://github.com/NVIDIA/nvidia-docker )
 ```console
@@ -146,7 +198,7 @@ sudo apt-get update
 sudo apt-get install -y nvidia-docker2
 sudo systemctl restart docker
 docker run --rm --gpus all nvidia/cuda:11.0-base nvidia-smi
-```
+``` -->
 - Create a [minio object storage](https://docs.min.io/docs/minio-quickstart-guide.html)
 
 
@@ -158,6 +210,9 @@ mkdir /data/git
 cd /data/git
 git https://github.com/bhlarson/mllib.git
 ```
+
+
+
 ## Set-up secure minio repository
 - Let's Encrypt wildcard certificae
 - Kubernetes secret: [Generate TLS Secret for kubernetes](https://software.danielwatrous.com/generate-tls-secret-for-kubernetes/)

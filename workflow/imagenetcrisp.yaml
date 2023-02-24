@@ -200,7 +200,7 @@ workflow:
             - {name: augment_noise, value: 0 }
             - {name: dropout, value: false }
             - {name: dropout_rate, value: 0.0 }
-            - {name: test_sparsity, value: 3 }
+            - {name: test_sparsity, value: 10 }
 
           artifacts:
             - name: prev_results

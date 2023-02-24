@@ -39,9 +39,8 @@ set -x
 docker run --ipc=host --gpus $GPUS -it --rm --cap-add=CAP_SYS_ADMIN \
     -v "$(pwd):/app" \
     -v "/store:/store" \
-    -v /store/Datasets:/data \
+    -v /nvmestore/data:/data \
     -v /store/tb_logs:/tb_logs \
-    -v "/store/Datasets/flow/SceneFlow:/store/Datasets/flow/SceneFlow" \
     -v /etc/localtime:/etc/localtime:ro \
     -p ${PORT1}:3000 \
     -p ${PORT2}:5000 \

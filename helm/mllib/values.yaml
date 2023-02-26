@@ -52,15 +52,15 @@ postgresql:
   primary:
     service: 
       port: 5432
-      type: LoadBalancer
-      # type: NodePort
-      # nodePorts:
-      #   postgresql: '30995'
+      #type: LoadBalancer
+      type: NodePort
+      nodePorts:
+        postgresql: '30993'
     persistence:
       existingClaim: mldb-pv-claim
   size: 10Gi
   hostPath:
-    path: /nvmestore/mldb
+    path: /store/mldb
 
   audit:
     logHostname: true

@@ -2881,7 +2881,7 @@ def main(args):
         os.makedirs(os.path.dirname(args.output_dir), exist_ok=True)
 
     utils.init_distributed_mode(args)
-    print(args)
+    #print(args)
 
     if args.use_deterministic_algorithms:
         torch.backends.cudnn.benchmark = False
@@ -2891,7 +2891,7 @@ def main(args):
 
     config = ReadDict(args.config)
     version_str = VersionString(config)
-    print('{} version {}'.format(__file__, version_str))
+    #print('{} version {}'.format(__file__, version_str))
 
     versions = {
         'platform':str(platform.platform()),

@@ -184,7 +184,7 @@ workflow:
             - {name: k_accuracy, value: 1.0}
             - {name: k_structure, value: 2.0}
             - {name: k_prune_basis, value: 1.0}
-            - {name: learning_rate, value: 2e-5}
+            - {name: learning_rate, value: 1e-3}
             - {name: learning_rate_decay, value: 0.25}
             - {name: rate_schedule, value: "[8, 12, 15, 18]"}
             - {name: description, value: "{{workflow.parameters.description}}"}

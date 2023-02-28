@@ -16,9 +16,9 @@ fi
 if [ "$3" != "" ]; then
     GPUS="$3"
 elif [[ -z "${gpus}" ]]; then
-    #GPUS='"device=1,2"'
-    GPUS='"device=0"'
-    #GPUS='all' 
+    #GPUS='"device=0,1"'
+    #GPUS='"device=0"'
+    GPUS='all' 
 fi
 
 if [ "$4" != "" ]; then

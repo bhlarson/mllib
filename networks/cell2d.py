@@ -286,7 +286,8 @@ class RelaxChannels(nn.Module):
         conv_weights = self.sigmoid(self.sigmoid_scale*self.channel_scale)
 
         if 'prevent_collapse' in self.__dict__ and self.prevent_collapse is not None and self.prevent_collapse:
-            conv_weights = conv_weights/conv_weights.max().item()
+            #conv_weights = conv_weights/conv_weights.max().item()
+            conv_weights = conv_weights/conv_weights.max()
         
         return conv_weights
 

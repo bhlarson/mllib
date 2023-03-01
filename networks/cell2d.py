@@ -1379,7 +1379,7 @@ def parse_arguments():
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
     parser.add_argument('-min', action='store_true', help='Minimum run with a few iterations to test execution')
-    parser.add_argument('-minimum', type=str2bool, default=False, help='Minimum run with a few iterations to test execution')
+    parser.add_argument('-minimum', type=str2bool, default=True, help='Minimum run with a few iterations to test execution')
 
     parser.add_argument('-credentails', type=str, default='creds.yaml', help='Credentials file.')
     parser.add_argument('-s3_name', type=str, default='store', help='S3 name in credentials')
@@ -1444,9 +1444,9 @@ def parse_arguments():
     parser.add_argument('-ejector_full', type=float, default=5, help='Ejector full epoch')
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector max value')
     parser.add_argument('-ejector_exp', type=float, default=3.0, help='Ejector exponent')
-    parser.add_argument('-prune', type=str2bool, default=True)
+    parser.add_argument('-prune', type=str2bool, default=False)
     parser.add_argument('-train', type=str2bool, default=True)
-    parser.add_argument('-test', type=str2bool, default=True)
+    parser.add_argument('-test', type=str2bool, default=False)
     parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-search_flops', type=str2bool, default=True)
     parser.add_argument('-profile', type=str2bool, default=False)
@@ -3055,18 +3055,18 @@ def main(args):
     if args.onnx:
         onnx(classify, s3, s3def, args, loaders[0]['in_channels'])
 
-    if args.resultspath is not None and len(args.resultspath) > 0:
-        WriteDict(results, args.resultspath)
+    # if args.resultspath is not None and len(args.resultspath) > 0:
+    #     WriteDict(results, args.resultspath)
 
     if(args.tensorboard_dir is not None and len(args.tensorboard_dir) > 0 and args.tb_dest is not None and len(args.tb_dest) > 0):
-        results_path = '{}/results.yaml'.format(args.tensorboard_dir)
-        WriteDict(results, results_path)
+        tb_results = os.path.join(args.tensorboard_dir, args.resultspath)
+        WriteDict(results, tb_results)
 
-        tb_path = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest )
+        tb_path = os.path.join(s3def['sets']['model']['prefix'],args.model_class,args.tb_dest)
         print('Write tensorboard to s3 {}/{}'.format(s3def['sets']['test']['bucket'], args.tensorboard_dir))
         s3.PutDir(s3def['sets']['test']['bucket'], args.tensorboard_dir, tb_path )
 
-    LogTest(args, s3, s3def, results)
+    # LogTest(args, s3, s3def, results)
 
     print('Finished {}'.format(args.model_dest ))
     print(yaml.dump(results, default_flow_style=False))

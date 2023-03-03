@@ -1255,6 +1255,9 @@ class Classify(nn.Module):
 
             convdfn = None
 
+            if cell_convolutions['residual'] and residual_relaxation is None:
+                residual_relaxation = prev_relaxation
+
             cell = Cell(in1_channels=in_channels, 
                 batch_norm=self.batch_norm,
                 device=self.device,  
@@ -1276,7 +1279,7 @@ class Classify(nn.Module):
                 prev_relaxation = cell.conv_residual.relaxation
                 residual_relaxation = cell.conv_residual.relaxation
             elif cell.cnn[-1].relaxation is not None:
-                prev_relaxation = [prev_relaxation] = cell.cnn[-1].relaxation
+                prev_relaxation = cell.cnn[-1].relaxation
             in_channels = cell_convolutions['cell'][-1]['out_channels']
             self.cells.append(cell)
 

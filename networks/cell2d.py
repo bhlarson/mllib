@@ -1255,6 +1255,9 @@ class Classify(nn.Module):
 
             convdfn = None
 
+            if cell_convolutions['residual'] and residual_relaxation is None:
+                residual_relaxation = prev_relaxation
+
             cell = Cell(in1_channels=in_channels, 
                 batch_norm=self.batch_norm,
                 device=self.device,  
@@ -1275,6 +1278,8 @@ class Classify(nn.Module):
             if cell.conv_residual is not None:
                 prev_relaxation = cell.conv_residual.relaxation
                 residual_relaxation = cell.conv_residual.relaxation
+            elif cell.cnn[-1].relaxation is not None:
+                prev_relaxation = cell.cnn[-1].relaxation
             in_channels = cell_convolutions['cell'][-1]['out_channels']
             self.cells.append(cell)
 
@@ -1409,8 +1414,8 @@ def parse_arguments():
     parser.add_argument('-num_workers', type=int, default=0, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='classification')
     parser.add_argument('-model_class', type=str,  default='ImClassify')
-    parser.add_argument('-model_src', type=str,  default="20230216_061853_hiocnn_search_structure_04")
-    parser.add_argument('-model_dest', type=str, default="20230216_061853_hiocnn_search_structure_05")
+    parser.add_argument('-model_src', type=str,  default="20230301_212419_hiocnn_search_structure_01")
+    parser.add_argument('-model_dest', type=str, default="20230301_212419_hiocnn_search_structure_02")
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
@@ -1430,7 +1435,7 @@ def parse_arguments():
     parser.add_argument('-weight_gain', type=float, default=11.0, help='Convolution norm tanh weight gain')
     parser.add_argument('-sigmoid_scale', type=float, default=5.0, help='Sigmoid scale domain for convolution channels weights')
     parser.add_argument('-feature_threshold', type=float, default=0.5, help='tanh pruning threshold')
-    parser.add_argument('-convMaskThreshold', type=float, default=0.1, help='convolution channel sigmoid level to prune convolution channels')
+    parser.add_argument('-convMaskThreshold', type=float, default=0.025, help='convolution channel sigmoid level to prune convolution channels')
 
     parser.add_argument('-augment_rotation', type=float, default=0.0, help='Input augmentation rotation degrees')
     parser.add_argument('-augment_scale_min', type=float, default=1.0, help='Input augmentation scale')
@@ -1444,9 +1449,9 @@ def parse_arguments():
     parser.add_argument('-ejector_full', type=float, default=5, help='Ejector full epoch')
     parser.add_argument('-ejector_max', type=float, default=1.0, help='Ejector max value')
     parser.add_argument('-ejector_exp', type=float, default=3.0, help='Ejector exponent')
-    parser.add_argument('-prune', type=str2bool, default=False)
+    parser.add_argument('-prune', type=str2bool, default=True)
     parser.add_argument('-train', type=str2bool, default=True)
-    parser.add_argument('-test', type=str2bool, default=False)
+    parser.add_argument('-test', type=str2bool, default=True)
     parser.add_argument('-search_structure', type=str2bool, default=True)
     parser.add_argument('-search_flops', type=str2bool, default=True)
     parser.add_argument('-profile', type=str2bool, default=False)
@@ -1460,9 +1465,9 @@ def parse_arguments():
     parser.add_argument('-resultspath', type=str, default='results.yaml')
     parser.add_argument('-prevresultspath', type=str, default=None)
     parser.add_argument('-test_dir', type=str, default=None)
-    parser.add_argument('-tensorboard_dir', type=str, default='/tb_logs/20230216_061853_hiocnn_tb', help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
+    parser.add_argument('-tensorboard_dir', type=str, default='/tb_logs/20230301_212419_hiocnn_tb', help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
     #parser.add_argument('-tensorboard_dir', type=str, default=None, help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
-    parser.add_argument('-tb_dest', type=str, default='20230216_061853_hiocnn_tb')
+    parser.add_argument('-tb_dest', type=str, default='20230301_212419_hiocnn_tb')
     parser.add_argument('-config', type=str, default='config/build.yaml', help='Configuration file')
     parser.add_argument('-description', type=json.loads, default='{"description":"CRISP classification"}', help='Test description')
     parser.add_argument('-output_dir', type=str, default='./out', help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')

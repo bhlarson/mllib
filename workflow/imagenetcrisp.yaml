@@ -12,7 +12,7 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: batch_size
-          value: 700
+          value: 500
         - name: output_name
           value: 20220520i
         - name: description
@@ -84,7 +84,6 @@ workflow:
                   - {name: prune, value: false}
                   - {name: model_src, value: ""}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_00"}
-                  - {name: convMaskThreshold, value: 0.01}
                 artifacts:
                   - name: prev_results
                     raw:
@@ -98,7 +97,6 @@ workflow:
                 parameters:
                   - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_00"}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_01"}
-                  - {name: convMaskThreshold, value: 0.01}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-00.outputs.artifacts.results}}"
@@ -110,7 +108,6 @@ workflow:
                 parameters:
                   - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_01"}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_02"}
-                  - {name: convMaskThreshold, value: 0.02}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-01.outputs.artifacts.results}}"
@@ -122,7 +119,6 @@ workflow:
                 parameters:
                   - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_02"}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_03"}
-                  - {name: convMaskThreshold, value: 0.03}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-02.outputs.artifacts.results}}"
@@ -134,7 +130,6 @@ workflow:
                 parameters:
                   - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_03"}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_04"}
-                  - {name: convMaskThreshold, value: 0.04}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-03.outputs.artifacts.results}}"
@@ -146,7 +141,6 @@ workflow:
                 parameters:
                   - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_04"}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_05"}
-                  - {name: convMaskThreshold, value: 0.05}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-04.outputs.artifacts.results}}"
@@ -158,10 +152,24 @@ workflow:
                 parameters:
                   - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_05"}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}"}
-                  - {name: convMaskThreshold, value: 0.1}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-05.outputs.artifacts.results}}"
+            - name: search-structure-07
+              dependencies: [search-structure-06]
+              template: train
+              when: "{{workflow.parameters.start}} < 9"
+              arguments:
+                parameters:
+                  - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_06"}
+                  - {name: model_dest, value: "{{workflow.parameters.output_name}}"}
+                  - {name: k_structure, value: 0.0}
+                  - {name: k_prune_basis, value: 0.0}
+                  - {name: epochs, value: 10}
+                  - {name: rate_schedule, value: "[5, 7, 8, 9]"}
+                artifacts:
+                  - name: prev_results
+                    from: "{{tasks.search-structure-06.outputs.artifacts.results}}"
 
       - name: train
         inputs:
@@ -173,31 +181,31 @@ workflow:
             - {name: onnx, value: false}
             - {name: search_structure, value: true}
             - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-            - {name: epochs, value: 20}
+            - {name: epochs, value: 2}
             - {name: start_epoch, value: 0}
             - {name: ejector, value: 'prune_basis'}
-            - {name: ejector_start, value: 9}
-            - {name: ejector_full, value: 10}
+            - {name: ejector_start, value: 0}
+            - {name: ejector_full, value: 1}
             - {name: ejector_max, value: 1.0}
             - {name: model_src, value: ""}
             - {name: model_dest, value: "crispimagenet_{{workflow.parameters.output_name}}"}
-            - {name: k_accuracy, value: 1.0}
-            - {name: k_structure, value: 2.0}
-            - {name: k_prune_basis, value: 1.0}
-            - {name: learning_rate, value: 1e-4}
-            - {name: learning_rate_decay, value: 0.25}
-            - {name: rate_schedule, value: "[8, 12, 15, 18]"}
+            - {name: k_accuracy, value: 0.5}
+            - {name: k_structure, value: 1.0}
+            - {name: k_prune_basis, value: 2.0}
+            - {name: learning_rate, value: 1e-3}
+            - {name: learning_rate_decay, value: 0.66}
+            - {name: rate_schedule, value: "[10, 15, 17, 19]"}
             - {name: description, value: "{{workflow.parameters.description}}"}
             - {name: resultspath, value: "/app/results.yaml"}
             - {name: prevresultspath, value: "/app/prevresults.yaml"}
             - {name: k_prune_sigma, value: 1.0}
-            - {name: convMaskThreshold, value: 0.1}
-            - {name: augment_rotation, value: 0 }
+            - {name: convMaskThreshold, value: 0.025}
+            - {name: augment_rotation, value: 10 }
             - {name: augment_scale_min, value: 1 }
-            - {name: augment_scale_max, value: 1 }
-            - {name: augment_translate_x, value: 0 }
-            - {name: augment_translate_y, value: 0 }
-            - {name: augment_noise, value: 0 }
+            - {name: augment_scale_max, value: 1.25 }
+            - {name: augment_translate_x, value: 0.1 }
+            - {name: augment_translate_y, value: 0.1 }
+            - {name: augment_noise, value: 0.1 }
             - {name: dropout, value: false }
             - {name: dropout_rate, value: 0.0 }
             - {name: test_sparsity, value: 10 }

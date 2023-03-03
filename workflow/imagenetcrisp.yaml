@@ -46,7 +46,7 @@ workflow:
           value: /tb_logs
         # cell2d.py -resnet_len for supported lenghts
         - name: resnet_len
-          value: 18
+          value: 50
         - name: num_workers
           value: 25
         - name: optimizer
@@ -199,7 +199,7 @@ workflow:
             - {name: resultspath, value: "/app/results.yaml"}
             - {name: prevresultspath, value: "/app/prevresults.yaml"}
             - {name: k_prune_sigma, value: 1.0}
-            - {name: convMaskThreshold, value: 0.025}
+            - {name: convMaskThreshold, value: 0.1}
             - {name: augment_rotation, value: 10 }
             - {name: augment_scale_min, value: 1 }
             - {name: augment_scale_max, value: 1.25 }

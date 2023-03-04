@@ -12,7 +12,7 @@ from pymlutil.s3 import s3store, Connect
 from pymlutil.jsonutil import ReadDict, Dict2Json
 
 # paraemters is a dictionary of parameters to set
-def set_parameters(workflow, new_parameters, template_name='train'):
+def set_parameters(workflow, new_parameters):
     if 'arguments' in workflow['workflow']['spec']:
         if 'parameters' in workflow['workflow']['spec']['arguments']:
             parameters = workflow['workflow']['spec']['arguments']['parameters']

@@ -166,7 +166,7 @@ You may encounter the following within a vscode terminal: "/snap/microk8s/4565/b
 To install microk8s:
 ```console
 sudo snap remove microk8s --purge
-sudo snap install microk8s --channel=1.25/stable --classic
+sudo snap install microk8s --channel=1.22/stable --classic
 sudo usermod -a -G microk8s $USER
 newgrp microk8s
 sudo chown -f -R $USER ~/.kube

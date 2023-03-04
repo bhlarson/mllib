@@ -14,7 +14,7 @@ workflow:
         - name: batch_size
           value: 1000
         - name: output_name
-          value: 20220520i
+          value: 20230303_204145_ipc
         - name: description
           value: '{"author":"Brad Larson","description":"Crisp cifar10 classification"}'
         - name: test_path
@@ -31,10 +31,10 @@ workflow:
           value: 32
           # Start step to test/recover failed runs
         - name: start
-          value: 0
+          value: 3
           # Start container and wait for debugger to attach
         - name: debug
-          value: false
+          value: true
         - name: profile
           value: false
           # Perform minimum run to test code execution
@@ -124,12 +124,14 @@ workflow:
                   - {name: train, value: true}
                   - {name: test, value: true}
                   - {name: search_structure, value: true}
-                  - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_01"}
+                  - {name: model_src, value: "20230303_204145_ipc_search_structure_01"}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_02"}
                   - {name: convMaskThreshold, value: 0.15}
                 artifacts:
                   - name: prev_results
-                    from: "{{tasks.search-structure-01.outputs.artifacts.results}}"
+                    raw:
+                      data: |
+                        batches: 0
             - name: search-structure-03
               dependencies: [search-structure-02]
               template: train
@@ -333,7 +335,7 @@ workflow:
           ports:
             - name: debug
               containerPort: 3000
-              #hostPort: 3000
+              hostPort: 3000
           resources:
             requests:
               ephemeral-storage: "40Gi"

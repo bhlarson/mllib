@@ -762,12 +762,14 @@ class Cell(nn.Module):
             if 'pool_padding' in convdev:
                 pool_padding = convdev['pool_padding']
 
-            prevent_collapse = 0
+            prevent_collapse = False
             if self.prevent_collapse is not None:
                 prevent_collapse = self.prevent_collapse
             else:
                 if 'prevent_collapse' in convdev:
                     prevent_collapse = convdev['prevent_collapse']
+            if convdev['stride'] > 1:
+                prevent_collapse = True
 
             relu = relu
             if 'relu' in convdev:
@@ -1258,6 +1260,11 @@ class Classify(nn.Module):
             if cell_convolutions['residual'] and residual_relaxation is None:
                 residual_relaxation = prev_relaxation
 
+            if i == 0:
+                prevent_collapse = True
+            else:
+                prevent_collapse = False
+
             cell = Cell(in1_channels=in_channels, 
                 batch_norm=self.batch_norm,
                 device=self.device,  
@@ -1270,6 +1277,7 @@ class Classify(nn.Module):
                 sigmoid_scale=self.sigmoid_scale, 
                 feature_threshold=self.feature_threshold,
                 search_flops = self.search_flops,
+                prevent_collapse = prevent_collapse
                 prev_relaxation = [prev_relaxation],
                 residual_relaxation = residual_relaxation,
                 bias = False
@@ -1384,22 +1392,22 @@ def parse_arguments():
     parser.add_argument('-debug_port', type=int, default=3000, help='Debug port')
     parser.add_argument('-debug_address', type=str, default='0.0.0.0', help='Debug port')
     parser.add_argument('-min', action='store_true', help='Minimum run with a few iterations to test execution')
-    parser.add_argument('-minimum', type=str2bool, default=True, help='Minimum run with a few iterations to test execution')
+    parser.add_argument('-minimum', type=str2bool, default=False, help='Minimum run with a few iterations to test execution')
 
     parser.add_argument('-credentails', type=str, default='creds.yaml', help='Credentials file.')
     parser.add_argument('-s3_name', type=str, default='store', help='S3 name in credentials')
 
-    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152, 20, 32, 44, 56, 110], default=18, help='Run description')
-    parser.add_argument('-useConv1', type=str2bool, default=True, help='If true, use initial convolution and max pool before ResNet blocks')
+    parser.add_argument('-resnet_len', type=int, choices=[18, 34, 50, 101, 152, 20, 32, 44, 56, 110], default=56, help='Run description')
+    parser.add_argument('-useConv1', type=str2bool, default=False, help='If true, use initial convolution and max pool before ResNet blocks')
 
-    parser.add_argument('-dataset', type=str, default='imagenet', choices=['cifar10', 'imagenet'], help='Dataset')
+    parser.add_argument('-dataset', type=str, default='cifar10', choices=['cifar10', 'imagenet'], help='Dataset')
     parser.add_argument('-dataset_path', type=str, default='/data', help='Local dataset path')
     parser.add_argument('-obj_imagenet', type=str, default='data/imagenet', help='Local dataset path')
     parser.add_argument('-model', type=str, default='model')
 
-    parser.add_argument('-batch_size', type=int, default=220, help='Training batch size') 
+    parser.add_argument('-batch_size', type=int, default=1000, help='Training batch size') 
 
-    parser.add_argument('-optimizer', type=str, default='sgd', choices=['sgd', 'rmsprop', 'adam', 'adamw'], help='Optimizer')
+    parser.add_argument('-optimizer', type=str, default='adam', choices=['sgd', 'rmsprop', 'adam', 'adamw'], help='Optimizer')
     parser.add_argument('-learning_rate', type=float, default=2e-5, help='Training learning rate')
     parser.add_argument('-learning_rate_decay', type=float, default=0.25, help='Rate decay multiple')
     parser.add_argument('-rate_schedule', type=json.loads, default='[8, 12, 15, 18]', help='Training learning rate')
@@ -1413,22 +1421,22 @@ def parse_arguments():
 
     parser.add_argument('-num_workers', type=int, default=0, help='Data loader workers')
     parser.add_argument('-model_type', type=str,  default='classification')
-    parser.add_argument('-model_class', type=str,  default='ImClassify')
-    parser.add_argument('-model_src', type=str,  default="20230301_212419_hiocnn_search_structure_01")
-    parser.add_argument('-model_dest', type=str, default="20230301_212419_hiocnn_search_structure_02")
+    parser.add_argument('-model_class', type=str,  default='ImgClassifyPrune')
+    parser.add_argument('-model_src', type=str,  default="20230303_204145_ipc_search_structure_01")
+    parser.add_argument('-model_dest', type=str, default="20230303_204145_ipc_search_structure_02")
     parser.add_argument('-test_sparsity', type=int, default=10, help='test step multiple')
     parser.add_argument('-test_results', type=str, default='test_results.json')
     parser.add_argument('-cuda', type=bool, default=True)
 
-    parser.add_argument('-height', type=int, default=224, help='Input image height')
-    parser.add_argument('-width', type=int, default=224, help='Input image width')
+    parser.add_argument('-height', type=int, default=32, help='Input image height')
+    parser.add_argument('-width', type=int, default=32, help='Input image width')
     parser.add_argument('-channels', type=int, default=3, help='Input image color channels')
     parser.add_argument('-k_accuracy', type=float, default=1.0, help='Accuracy weighting factor')
     parser.add_argument('-k_structure', type=float, default=2.0, help='Structure minimization weighting factor')
     parser.add_argument('-k_prune_basis', type=float, default=1.0, help='prune base loss scaling')
     parser.add_argument('-k_prune_exp', type=float, default=50.0, help='prune basis exponential weighting factor')
     parser.add_argument('-k_prune_sigma', type=float, default=1.0, help='prune basis exponential weighting factor')
-    parser.add_argument('-target_structure', type=float, default=0.00, help='Structure minimization weighting factor')
+    parser.add_argument('-target_structure', type=float, default=0.0, help='Structure minimization weighting factor')
     parser.add_argument('-batch_norm', type=bool, default=True)
     parser.add_argument('-dropout', type=str2bool, default=False, help='Enable dropout')
     parser.add_argument('-dropout_rate', type=float, default=0.0, help='Dropout probability gain')
@@ -1465,9 +1473,9 @@ def parse_arguments():
     parser.add_argument('-resultspath', type=str, default='results.yaml')
     parser.add_argument('-prevresultspath', type=str, default=None)
     parser.add_argument('-test_dir', type=str, default=None)
-    parser.add_argument('-tensorboard_dir', type=str, default='/tb_logs/20230301_212419_hiocnn_tb', help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
+    parser.add_argument('-tensorboard_dir', type=str, default='/tb_logs/20230303_204145_ipc_tb', help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
     #parser.add_argument('-tensorboard_dir', type=str, default=None, help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
-    parser.add_argument('-tb_dest', type=str, default='20230301_212419_hiocnn_tb')
+    parser.add_argument('-tb_dest', type=str, default='20230303_204145_ipc_tb')
     parser.add_argument('-config', type=str, default='config/build.yaml', help='Configuration file')
     parser.add_argument('-description', type=json.loads, default='{"description":"CRISP classification"}', help='Test description')
     parser.add_argument('-output_dir', type=str, default='./out', help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')

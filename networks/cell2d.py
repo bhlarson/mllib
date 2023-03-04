@@ -1277,7 +1277,7 @@ class Classify(nn.Module):
                 sigmoid_scale=self.sigmoid_scale, 
                 feature_threshold=self.feature_threshold,
                 search_flops = self.search_flops,
-                prevent_collapse = prevent_collapse
+                prevent_collapse = prevent_collapse,
                 prev_relaxation = [prev_relaxation],
                 residual_relaxation = residual_relaxation,
                 bias = False

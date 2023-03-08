@@ -5,11 +5,12 @@ import os
 import requests
 import random
 import json
+import tempfile
 from datetime import datetime, timedelta
 
 
 from pymlutil.s3 import s3store, Connect
-from pymlutil.jsonutil import ReadDict, Dict2Json
+from pymlutil.jsonutil import ReadDict, WriteDict, Dict2Json
 
 # paraemters is a dictionary of parameters to set
 def set_parameters(workflow, new_parameters):
@@ -53,7 +54,7 @@ def parse_arguments():
 
     parser.add_argument('--server', '-s', type=str, default='hiocnn', help='Argo Server.')
 
-    parser.add_argument('--run', '-r', type=str, default='workflow/litcrisp.yaml', help='Run workflow')
+    parser.add_argument('--run', '-r', type=str, default='workflow/cifar10ts.yaml', help='Run workflow')
     parser.add_argument('--params', '-p', type=json.loads, default=None, help='Parameters parsed by set_parameters  e.g.: -p "{"description": {"author": "Brad Larson","description":"Crisp LIT segmentation"}, "target_structure": 0.0, "batch_size": 2, "debug": "true"}" ')
 
     args = parser.parse_args()
@@ -98,6 +99,19 @@ def main(args):
     if args.params is not None and len(args.params) > 0:
         set_parameters(workflow, args.params)
     result = run(workflow, argocreds)
+
+    output_name = next(filter(lambda d: d.get('name') == 'output_name', workflow['workflow']['spec']['arguments']['parameters']), None)
+    model_class = next(filter(lambda d: d.get('name') == 'model_class', workflow['workflow']['spec']['arguments']['parameters']), None)
+    if model_class is not None and output_name is not None:
+        basename = os.path.basename(args.run)
+        workflow_key = '{}/{}/{}'.format(s3def['sets']['model']['prefix'],model_class['value'],output_name['value'])
+
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            tempworkflow = tmpdirname+'/'+basename
+            WriteDict(workflow, tempworkflow)
+            s3.PutFile(s3def['sets']['model']['bucket'], tempworkflow, workflow_key)
+    else:
+        print("Cannot save workflow to S3 without model_class and output_name parameters")
 
     return result
 

@@ -1415,7 +1415,7 @@ def parse_arguments():
     #parser.add_argument('-rate_schedule', type=json.loads, default='[10, 15, 17]', help='Training learning rate')
     
     parser.add_argument('-momentum', type=float, default=0.9, help='Learning Momentum')
-    parser.add_argument('-weight_decay', type=float, default=0.001)
+    parser.add_argument('-weight_decay', type=float, default=1e-4)
     parser.add_argument('-epochs', type=int, default=220, help='Training epochs')
     parser.add_argument('-start_epoch', type=int, default=0, help='Start epoch')
 
@@ -1477,7 +1477,7 @@ def parse_arguments():
     #parser.add_argument('-tensorboard_dir', type=str, default=None, help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
     parser.add_argument('-tb_dest', type=str, default='20230303_204145_ipc_tb')
     parser.add_argument('-config', type=str, default='config/build.yaml', help='Configuration file')
-    parser.add_argument('-description', type=json.loads, default='{"description":"CRISP classification"}', help='Test description')
+    parser.add_argument('-description', type=str, default='Resnet classification', help='Test description')
     parser.add_argument('-output_dir', type=str, default='./out', help='to launch the tensorboard server, in the console, enter: tensorboard --logdir ./tb --bind_all')
 
 

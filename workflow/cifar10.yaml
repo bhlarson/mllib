@@ -52,7 +52,7 @@ workflow:
         - name: num_workers
           value: 5
         - name: optimizer
-          value: adamw
+          value: sgd
         - name: s3_name
           value: store
 
@@ -100,8 +100,8 @@ workflow:
             - {name: k_accuracy, value: 1.0}
             - {name: k_structure, value: 0.0}
             - {name: k_prune_basis, value: 0.0}
-            - {name: learning_rate, value: 1e-3}
-            - {name: learning_rate_decay, value: 0.66}
+            - {name: learning_rate, value: 1e-1}
+            - {name: weight_decay, value: 1e-4}
             - {name: rate_schedule, value: "[80, 120, 130, 140, 145]"}
             - {name: description, value: "{{workflow.parameters.description}}"}
             - {name: resultspath, value: "/app/results.yaml"}
@@ -171,7 +171,7 @@ workflow:
             - -k_structure={{inputs.parameters.k_structure}}
             - -optimizer={{workflow.parameters.optimizer}}  
             - -learning_rate={{inputs.parameters.learning_rate}}
-            - -learning_rate_decay={{inputs.parameters.learning_rate_decay}}
+            - -weight_decay={{inputs.parameters.weight_decay}}
             - -rate_schedule={{inputs.parameters.rate_schedule}}
             - -model_src={{inputs.parameters.model_src}}
             - -model_dest={{inputs.parameters.model_dest}}

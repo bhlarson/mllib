@@ -103,7 +103,7 @@ workflow:
                   - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_00"}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_01"}
                   - {name: optimizer, value: "adamw"}
-                  - {name: learning_rate, value: 1e-3}
+                  - {name: learning_rate, value: 5e-4}
                   - {name: epochs, value: 80}
                   - {name: rate_schedule, value: "[40, 60, 70, 75]"}
                 artifacts:
@@ -133,7 +133,7 @@ workflow:
                   - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_02"}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_03"}
                   - {name: optimizer, value: "adamw"}
-                  - {name: learning_rate, value: 1e-3}
+                  - {name: learning_rate, value: 2.5e-4}
                   - {name: epochs, value: 80}
                   - {name: rate_schedule, value: "[40, 60, 70, 75]"}
                 artifacts:
@@ -163,7 +163,7 @@ workflow:
                   - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_04"}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_05"}
                   - {name: optimizer, value: "adamw"}
-                  - {name: learning_rate, value: 1e-3}
+                  - {name: learning_rate, value: 1e-4}
                   - {name: epochs, value: 80}
                   - {name: rate_schedule, value: "[40, 60, 70, 75]"}
                 artifacts:

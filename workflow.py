@@ -20,7 +20,10 @@ def set_parameters(workflow, new_parameters):
             for parameter in parameters:
                 for key, value in new_parameters.items():
                     if key == parameter['name']:
-                        parameter['value'] = value
+                        if type(value) is dict:
+                            parameter['value'] = json.dumps(value)
+                        else:
+                            parameter['value'] = value
 
 
 def run(workflow, argocreds):

@@ -12,7 +12,7 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: batch_size
-          value: 500
+          value: 250
         - name: output_name
           value: 20220520i
         - name: description
@@ -84,6 +84,11 @@ workflow:
                   - {name: prune, value: false}
                   - {name: model_src, value: ""}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_00"}
+                  - {name: optimizer, value: adamw}
+                  - {name: learning_rate, value: 1e-3}
+                  - {name: epochs, value: 15}
+                  - {name: learning_rate_decay, value: 0.66}
+                  - {name: rate_schedule, value: "[5, 10, 12, 13, 14]"}
                 artifacts:
                   - name: prev_results
                     raw:
@@ -95,8 +100,14 @@ workflow:
               when: "{{workflow.parameters.start}} < 3"
               arguments:
                 parameters:
+                  - {name: prune, value: false}
                   - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_00"}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_01"}
+                  - {name: optimizer, value: sgd}
+                  - {name: learning_rate, value: 1e-2}
+                  - {name: epochs, value: 15}
+                  - {name: learning_rate_decay, value: 0.66}
+                  - {name: rate_schedule, value: "[5, 10, 12, 13, 14]"}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-00.outputs.artifacts.results}}"
@@ -108,6 +119,11 @@ workflow:
                 parameters:
                   - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_01"}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_02"}
+                  - {name: optimizer, value: adamw}
+                  - {name: learning_rate, value: 1e-3}
+                  - {name: epochs, value: 15}
+                  - {name: learning_rate_decay, value: 0.66}
+                  - {name: rate_schedule, value: "[5, 10, 12, 13, 14]"}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-01.outputs.artifacts.results}}"
@@ -117,8 +133,14 @@ workflow:
               when: "{{workflow.parameters.start}} < 5"
               arguments:
                 parameters:
+                  - {name: prune, value: false}
                   - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_02"}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_03"}
+                  - {name: optimizer, value: sgd}
+                  - {name: learning_rate, value: 1e-2}
+                  - {name: epochs, value: 15}
+                  - {name: learning_rate_decay, value: 0.66}
+                  - {name: rate_schedule, value: "[5, 10, 12, 13, 14]"}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-02.outputs.artifacts.results}}"
@@ -129,7 +151,11 @@ workflow:
               arguments:
                 parameters:
                   - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_03"}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_04"}
+                  - {name: optimizer, value: adamw}
+                  - {name: learning_rate, value: 1e-3}
+                  - {name: epochs, value: 15}
+                  - {name: learning_rate_decay, value: 0.66}
+                  - {name: rate_schedule, value: "[5, 10, 12, 13, 14]"}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-03.outputs.artifacts.results}}"
@@ -139,8 +165,14 @@ workflow:
               when: "{{workflow.parameters.start}} < 7"
               arguments:
                 parameters:
+                  - {name: prune, value: false}
                   - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_04"}
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_05"}
+                  - {name: optimizer, value: sgd}
+                  - {name: learning_rate, value: 1e-2}
+                  - {name: epochs, value: 15}
+                  - {name: learning_rate_decay, value: 0.66}
+                  - {name: rate_schedule, value: "[5, 10, 12, 13, 14]"}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-04.outputs.artifacts.results}}"
@@ -151,7 +183,12 @@ workflow:
               arguments:
                 parameters:
                   - {name: model_src, value: "{{workflow.parameters.output_name}}_search_structure_05"}
-                  - {name: model_dest, value: "{{workflow.parameters.output_name}}"}
+                  - {name: model_dest, value: "{{workflow.parameters.output_name}}_search_structure_06"}
+                  - {name: optimizer, value: adamw}
+                  - {name: learning_rate, value: 1e-3}
+                  - {name: epochs, value: 15}
+                  - {name: learning_rate_decay, value: 0.66}
+                  - {name: rate_schedule, value: "[5, 10, 12, 13, 14]"}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-05.outputs.artifacts.results}}"
@@ -165,8 +202,11 @@ workflow:
                   - {name: model_dest, value: "{{workflow.parameters.output_name}}"}
                   - {name: k_structure, value: 0.0}
                   - {name: k_prune_basis, value: 0.0}
-                  - {name: epochs, value: 10}
-                  - {name: rate_schedule, value: "[5, 7, 8, 9]"}
+                  - {name: optimizer, value: sgd}
+                  - {name: learning_rate, value: 1e-2}
+                  - {name: epochs, value: 15}
+                  - {name: learning_rate_decay, value: 0.66}
+                  - {name: rate_schedule, value: "[5, 10, 12, 13, 14]"}
                 artifacts:
                   - name: prev_results
                     from: "{{tasks.search-structure-06.outputs.artifacts.results}}"
@@ -209,6 +249,7 @@ workflow:
             - {name: dropout, value: false }
             - {name: dropout_rate, value: 0.0 }
             - {name: test_sparsity, value: 10 }
+            - {name: optimizer, value: "{{workflow.parameters.optimizer}}"} 
 
           artifacts:
             - name: prev_results
@@ -261,7 +302,7 @@ workflow:
             - -target_structure={{inputs.parameters.target_structure}}
             - -k_accuracy={{inputs.parameters.k_accuracy}}
             - -k_structure={{inputs.parameters.k_structure}}
-            - -optimizer={{workflow.parameters.optimizer}} 
+            - -optimizer={{inputs.parameters.optimizer}} 
             - -learning_rate={{inputs.parameters.learning_rate}}
             - -learning_rate_decay={{inputs.parameters.learning_rate_decay}}
             - -rate_schedule={{inputs.parameters.rate_schedule}}

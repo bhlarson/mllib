@@ -1484,15 +1484,7 @@ def parse_arguments():
     parser.add_argument("--opt", default="sgd", type=str, help="optimizer")
     parser.add_argument("--lr", default=0.1, type=float, help="initial learning rate")
     parser.add_argument("--momentum", default=0.9, type=float, metavar="M", help="momentum")
-    parser.add_argument(
-        "--wd",
-        "--weight-decay",
-        default=1e-4,
-        type=float,
-        metavar="W",
-        help="weight decay (default: 1e-4)",
-        dest="weight_decay",
-    )
+
     parser.add_argument(
         "--norm-weight-decay",
         default=None,
@@ -1517,9 +1509,8 @@ def parse_arguments():
     parser.add_argument("--mixup-alpha", default=0.0, type=float, help="mixup alpha (default: 0.0)")
     parser.add_argument("--cutmix-alpha", default=0.0, type=float, help="cutmix alpha (default: 0.0)")
     parser.add_argument("--lr-scheduler", default="steplr", type=str, help="the lr scheduler (default: steplr)")
-    parser.add_argument("--lr-warmup-epochs", default=0, type=int, help="the number of epochs to warmup (default: 0)")
-    parser.add_argument(
-        "--lr-warmup-method", default="constant", type=str, help="the warmup method (default: constant)"
+    parser.add_argument("--lr-warmup-epochs", dest="lr_warmup_epochs", default=0, type=int, help="the number of epochs to warmup (default: 0)")
+    parser.add_argument("--lr-warmup-method", dest="lr_warmup_method", default="constant", type=str, help="the warmup method (default: constant)"
     )
     parser.add_argument("--lr-warmup-decay", default=0.01, type=float, help="the decay for lr")
     parser.add_argument("--lr-step-size", default=30, type=int, help="decrease lr every step-size epochs")
@@ -2262,6 +2253,9 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
     else:
         lr_scheduler = main_lr_scheduler
 
+    scheduler1 = optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_gamma)
+    scheduler2 = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.rate_schedule, gamma=args.learning_rate_decay)
+
     model_ema = None
     if args.model_ema:
         # Decay adjustment that aims to keep the decay independent from other hyper-parameters originally proposed at:
@@ -2278,8 +2272,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
     plotsearch = PlotSearch()
     plotgrads = PlotGradients()
     plotconvmag = PlotConvMag()
-    #scheduler1 = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.999)
-    #scheduler2 = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.rate_schedule, gamma=args.learning_rate_decay)
+
 
     test_freq = args.test_sparsity*int(math.ceil(trainloader['batches']/testloader['batches']))
     tstart = None
@@ -2478,7 +2471,6 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
 
             writer_path = '{}/{}'.format(args.tensorboard_dir, args.model_dest)
 
-            #scheduler1.step()
             if cell_weights is not None:
                 img = plotsearch.plot(cell_weights)
                 if img.size > 0:
@@ -2507,7 +2499,9 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
                     cv2.imwrite(filename, convmag)  
 
             save(model, s3, s3def, args)
-            lr_scheduler.step()
+            #lr_scheduler.step()
+            scheduler1.step()
+            scheduler2.step()
 
             filename = '{}/{}.pt'.format(writer_path,args.model_dest)
             save_file(model, filename)

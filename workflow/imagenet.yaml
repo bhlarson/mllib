@@ -108,8 +108,9 @@ workflow:
             - {name: k_accuracy, value: 1.0}
             - {name: k_structure, value: 0.0}
             - {name: k_prune_basis, value: 0.0}
-            - {name: learning_rate, value: 2e-2}
-            - {name: learning_rate_decay, value: 0.9}
+            - {name: learning_rate, value: 1e-2}
+            - {name: weight_decay, value: 1e-4}
+            - {name: learning_rate_decay, value: 0.66}
             - {name: rate_schedule, value: "[10, 20, 30]"}
             - {name: description, value: "{{workflow.parameters.description}}"}
             - {name: resultspath, value: "/app/results.yaml"}

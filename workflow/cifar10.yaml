@@ -12,7 +12,7 @@ workflow:
         - name: train_image
           value: 'localhost:32000/torch-train:latest'
         - name: batch_size
-          value: 1250
+          value: 2000
         - name: output_name
           value: 20220520i
         - name: description
@@ -34,7 +34,7 @@ workflow:
           value: 0
           # Start container and wait for debugger to attach
         - name: debug
-          value: false
+          value: true
         - name: profile
           value: false
           # Perform minimum run to test code execution
@@ -52,7 +52,7 @@ workflow:
         - name: num_workers
           value: 5
         - name: optimizer
-          value: sgd
+          value: adam
         - name: s3_name
           value: store
 
@@ -89,7 +89,7 @@ workflow:
             - {name: onnx, value: false}
             - {name: search_structure, value: false}
             - {name: target_structure, value: "{{workflow.parameters.target_structure}}"}
-            - {name: epochs, value: 150}
+            - {name: epochs, value: 120}
             - {name: start_epoch, value: 0}
             - {name: ejector, value: 'prune_basis'}
             - {name: ejector_start, value: -1}
@@ -100,9 +100,10 @@ workflow:
             - {name: k_accuracy, value: 1.0}
             - {name: k_structure, value: 0.0}
             - {name: k_prune_basis, value: 0.0}
-            - {name: learning_rate, value: 1e-1}
+            - {name: learning_rate, value: 1e-3}
             - {name: weight_decay, value: 1e-4}
-            - {name: rate_schedule, value: "[80, 120, 130, 140, 145]"}
+            - {name: learning_rate_decay, value: 0.33}
+            - {name: rate_schedule, value: "[60, 80, 100, 110]"}
             - {name: description, value: "{{workflow.parameters.description}}"}
             - {name: resultspath, value: "/app/results.yaml"}
             - {name: prevresultspath, value: "/app/prevresults.yaml"}
@@ -111,8 +112,8 @@ workflow:
             - {name: augment_rotation, value: 0 }
             - {name: augment_scale_min, value: 1 }
             - {name: augment_scale_max, value: 1.2 }
-            - {name: augment_translate_x, value: 0.0 }
-            - {name: augment_translate_y, value: 0.0 }
+            - {name: augment_translate_x, value: 0.1 }
+            - {name: augment_translate_y, value: 0.1 }
             - {name: augment_noise, value: 0.1 }
             - {name: dropout, value: false }
             - {name: dropout_rate, value: 0 }
@@ -209,11 +210,12 @@ workflow:
             - -test_name={{workflow.parameters.output_name}}
             - -test_path={{workflow.parameters.test_path}}
             - -s3_name={{workflow.parameters.s3_name}}
+            - -learning_rate_decay={{inputs.parameters.learning_rate_decay}}
 
           ports:
             - name: debug
               containerPort: 3000
-              #hostPort: 3000
+              hostPort: 3000
           resources:
             requests:
               ephemeral-storage: "40Gi"

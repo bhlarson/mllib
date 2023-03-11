@@ -2253,7 +2253,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
     else:
         lr_scheduler = main_lr_scheduler
 
-    scheduler1 = optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_gamma)
+    #scheduler1 = optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_gamma)
     scheduler2 = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.rate_schedule, gamma=args.learning_rate_decay)
 
     model_ema = None
@@ -2500,7 +2500,7 @@ def Train(args, s3, s3def, model, loaders, device, results, writer, profile=None
 
             save(model, s3, s3def, args)
             #lr_scheduler.step()
-            scheduler1.step()
+            #scheduler1.step()
             scheduler2.step()
 
             filename = '{}/{}.pt'.format(writer_path,args.model_dest)

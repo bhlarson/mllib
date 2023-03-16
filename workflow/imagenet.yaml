@@ -106,11 +106,11 @@ workflow:
             - {name: model_src, value: ""}
             - {name: model_dest, value: "crispimagenet_{{workflow.parameters.output_name}}"}
             - {name: k_accuracy, value: 1.0}
-            - {name: k_structure, value: 1.0}
-            - {name: k_prune_basis, value: 1.0}
-            - {name: learning_rate, value: 0.1}
+            - {name: k_structure, value: 0.0}
+            - {name: k_prune_basis, value: 0.0}
+            - {name: learning_rate, value: 1e-2}
             - {name: weight_decay, value: 1e-4}
-            - {name: learning_rate_decay, value: 0.33}
+            - {name: learning_rate_decay, value: 0.22}
             - {name: rate_schedule, value: "[10, 20, 30]"}
             - {name: description, value: "{{workflow.parameters.description}}"}
             - {name: resultspath, value: "/app/results.yaml"}

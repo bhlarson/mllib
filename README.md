@@ -172,12 +172,13 @@ newgrp microk8s
 sudo chown -f -R $USER ~/.kube
 su - $USER
 microk8s status --wait-ready
-microk8s enable dns gpu helm3 storage registry rbac ingress metallb:10.64.140.43-10.64.140.143
-sudo snap install kubectl --classic
-cd $HOME
-mkdir .kube
-cd .kube
-microk8s config > config
+microk8s enable gpu helm3 storage registry
+#microk8s enable dns gpu helm3 storage registry rbac ingress metallb:10.64.140.43-10.64.140.143
+#sudo snap install kubectl --classic
+#cd $HOME
+#mkdir .kube
+#cd .kube
+#microk8s config > config
 ```
 
 ```console

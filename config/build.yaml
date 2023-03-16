@@ -15,11 +15,11 @@ dockerbuild:
 version:
   major: 0
   minor: 0
-  patch: 477
+  patch: 478
   label: ''
 gpus: all
 image_names:
 - name: crisptrain
-  image_name: localhost:32000/crisptrain:0.0.477
+  image_name: localhost:32000/crisptrain:0.0.478
 - name: crispdev
-  image_name: localhost:32000/crispdev:0.0.477
+  image_name: localhost:32000/crispdev:0.0.478

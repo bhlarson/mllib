@@ -9,40 +9,26 @@ objectstore:
   apinodePort: 30990
   consoleContainerPort: 9001
   consolenodePort: 30991
-  size: 900Gi
+  size: 10Ti
   image: quay.io/minio/minio:RELEASE.2021-11-24T23-19-33Z
   credentials:
     name: minio-creds
     access_key: admin
     secret_key: storeadmin
   hostPath:
-    path: /nvmestore/mlstore
-
-workflow_server:
-  name: workflow-server
-  nodePort: 30992
-  image_workflow: quay.io/argoproj/workflow-controller:v3.2.6
-  image_cli: quay.io/argoproj/argocli:v3.2.6
-  image_exe: quay.io/argoproj/argoexec:v3.2.6
-  containerRuntimeExecutor: emissary
-  s3:
-    bucket: workflows
-    insecure: true
-workflow_metrics:
-  name: workflow-controller-metrics
-  nodePort: 30997
+    path: /farm/dev/store
 
 workerdata:
   name: workerstorage
-  size: 900Gi
+  size: 100Gi
   hostPath:
-    path: /store/Datasets
+    path: /ssd/dev/workerdata
 
 tblogs:
   name: tblogs
   size: 100Gi
   hostPath:
-    path: /store/tb_logs
+    path: /ssd/dev/logs
 
 postgresql:
   #See https://github.com/bitnami/charts/blob/master/bitnami/postgresql/ for more info
@@ -58,10 +44,6 @@ postgresql:
         postgresql: '30993'
     persistence:
       existingClaim: mldb-pv-claim
-  size: 10Gi
+  size: 100Gi
   hostPath:
-    path: /store/mldb
-
-  audit:
-    logHostname: true
-    logConnections: true
+    path: /ssd/dev/logs

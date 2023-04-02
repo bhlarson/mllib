@@ -1,20 +1,20 @@
 objectstore:
-  size: 900Gi
+  size: 10Ti
   hostPath:
-    path: /store/ml/store
+    path: /farm/dev/store
 
 workerdata:
-  size: 10Gi
+  size: 100Gi
   hostPath:
-    path: /store/ml/Datasets
+    path: /ssd/dev/workerdata
 
 tblogs:
-  size: 10Gi
+  size: 100Gi
   hostPath:
-    path: /store/ml/tb_logs
+    path: /ssd/dev/logs
 
 postgresql:
   #See https://github.com/bitnami/charts/blob/master/bitnami/postgresql/ for more info
-  size: 10Gi
+  size: 100Gi
   hostPath:
-    path: /store/ml/mldb
+    path: /ssd/dev/logs

@@ -18,6 +18,20 @@ objectstore:
   hostPath:
     path: /farm/dev/store
 
+workflow_server:
+  name: workflow-server
+  nodePort: 30992
+  image_workflow: quay.io/argoproj/workflow-controller:v3.2.6
+  image_cli: quay.io/argoproj/argocli:v3.2.6
+  image_exe: quay.io/argoproj/argoexec:v3.2.6
+  containerRuntimeExecutor: emissary
+  s3:
+    bucket: workflows
+    insecure: true
+workflow_metrics:
+  name: workflow-controller-metrics
+  nodePort: 30997
+
 workerdata:
   name: workerstorage
   size: 100Gi
@@ -47,3 +61,7 @@ postgresql:
   size: 100Gi
   hostPath:
     path: /ssd/dev/logs
+
+  audit:
+    logHostname: true
+    logConnections: true
